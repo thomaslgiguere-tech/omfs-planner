@@ -1,0 +1,18 @@
+# Patient data must never be committed.
+*.stl
+*.STL
+*.obj
+*.OBJ
+*.ply
+*.PLY
+*.dcm
+*.DCM
+*.blend
+*.blend1
+data/
+cases/
+
+# Python / OS
+__pycache__/
+*.pyc
+.DS_Store
