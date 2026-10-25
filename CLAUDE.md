@@ -62,7 +62,7 @@ docs/APP_TEMPLATE.md         what the template hides, and what can't be hidden w
 All meshes are typically STL; OBJ and PLY are also supported. Role names in code are in brackets.
 
 - From the CBCT (3D Slicer segmentations, all in the same coordinates):
-  bone [BONE], whole teeth with roots [TEETH], skin surface [SKIN, todo], inferior alveolar nerve canal [NERVE, todo].
+  bone [BONE], whole teeth with roots [TEETH], skin surface [SKIN], inferior alveolar nerve canal [NERVE].
 - Intraoral scan STLs, upper/lower jaw, crowns + gingiva, open meshes [SCAN].
 - Clinical photos (later, for natural head position). Patient data: never committed.
 - Import keeps raw file coordinates (forward Y, up Z, scale 1) so all meshes from one case stay registered.

@@ -40,7 +40,7 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Operator** | One Blender command (e.g. `omfs.import_case`), undoable, callable from a button, menu, search (F3) or Python. | A Meshmixer command/tool (e.g. Edit > Make Solid). |
 | **Undo (Ctrl+Z)** | Operators marked UNDO can be undone. | Ctrl+Z. |
 | **Custom property / PropertyGroup** | Extra data we attach to objects and save in the .blend, e.g. `object.omfs.role`. | None. |
-| **Role** *(OMFS Planner)* | Our label on each object: Bone, Teeth, Scan, Segment, Guide, Other. Sets colour and default lock. | None. |
+| **Role** *(OMFS Planner)* | Our label on each object: Bone, Teeth, Scan, Nerve, Skin, Segment, Guide, Other. Sets colour and default lock (everything from the CT/CBCT is locked). | None. |
 | **Extension** | Modern Blender add-on package, described by `blender_manifest.toml`. Ours adds the OMFS tab and operators. | None (Meshmixer has no plug-ins). |
 | **Add-on** | Python code that extends Blender; extensions are the current packaging of add-ons. | None. |
 | **Application Template** | A startup configuration that replaces Blender's default UI and scene. Ours is the clean OMFS Planner interface. | None. |

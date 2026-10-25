@@ -27,7 +27,9 @@ def test_role_from_filename():
         "mandible_bone.stl": 'BONE', "Segmentation_Mandible.stl": 'BONE', "os.stl": 'BONE',
         "lower_teeth.obj": 'TEETH', "MandibleTeeth.stl": 'TEETH',
         "lowerjaw_scan.ply": 'SCAN', "IOS_lower.stl": 'SCAN', "ios_teeth.stl": 'SCAN',
-        "Patient-LowerJaw.stl": 'SCAN', "random.stl": 'OTHER', "cosmos.stl": 'OTHER',
+        "Patient-LowerJaw.stl": 'SCAN', "LowerScanSTL.stl": 'SCAN',
+        "Mandibular canal.stl": 'NERVE', "IAN_left.stl": 'NERVE', "Skin.stl": 'SKIN',
+        "Maxilla.stl": 'BONE', "random.stl": 'OTHER', "cosmos.stl": 'OTHER',
     }
     for filename, expected in cases.items():
         got = roles.role_from_filename(filename)
@@ -50,7 +52,7 @@ def test_import_case():
         assert obj.data.name == name, f"mesh data of {name} is called {obj.data.name}"
         assert obj.omfs.role == role, f"{name}: role {obj.omfs.role}"
         assert tuple(round(c, 2) for c in obj.color) == roles.COLORS[role], f"{name}: colour"
-        locked = role == 'BONE'
+        locked = role in roles.LOCKED_BY_DEFAULT
         assert obj.hide_select == locked and all(obj.lock_location) == locked, f"{name}: lock"
 
     # Raw coordinates kept (no axis conversion): teeth boxes are centred at z = -60 + 18.

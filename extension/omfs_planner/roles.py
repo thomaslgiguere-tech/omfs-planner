@@ -14,6 +14,8 @@ ROLES = (
     ('BONE', "Bone", "CT/CBCT bone segmentation (locked by default)"),
     ('TEETH', "Teeth", "Teeth segmented from the CT/CBCT"),
     ('SCAN', "Scan", "Intraoral scan"),
+    ('NERVE', "Nerve", "Inferior alveolar nerve canal segmented from the CT/CBCT"),
+    ('SKIN', "Skin", "Skin surface segmented from the CT/CBCT"),
     ('SEGMENT', "Segment", "Osteotomy segment that will be moved"),
     ('GUIDE', "Guide", "Surgical guide"),
     ('OTHER', "Other", "Anything else"),
@@ -24,17 +26,23 @@ COLORS = {
     'BONE': (0.90, 0.84, 0.70, 1.0),     # ivory
     'TEETH': (0.55, 0.75, 0.95, 1.0),    # light blue
     'SCAN': (0.95, 0.60, 0.60, 1.0),     # gingiva pink
+    'NERVE': (0.95, 0.85, 0.20, 1.0),    # yellow
+    'SKIN': (0.85, 0.68, 0.58, 1.0),     # skin tone
     'SEGMENT': (0.55, 0.85, 0.55, 1.0),  # green
     'GUIDE': (0.95, 0.70, 0.30, 1.0),    # orange
     'OTHER': (0.60, 0.60, 0.60, 1.0),    # grey
 }
 
-LOCKED_BY_DEFAULT = {'BONE'}
+# Everything segmented from the CT/CBCT stays where it is: it defines the patient.
+LOCKED_BY_DEFAULT = {'BONE', 'TEETH', 'NERVE', 'SKIN'}
 
-# Filename keywords, checked in this order (a file called "ios_teeth" is a scan, not teeth).
+# Filename keywords, checked in this order (a file called "ios_teeth" is a scan, not teeth,
+# and "mandibular canal" is a nerve, not bone).
 # Short keywords (< 4 letters) must be a whole word, so "os" does not match inside "ios".
 KEYWORDS = (
     ('SCAN', ("scan", "ios", "intraoral", "upperjaw", "lowerjaw", "itero", "trios", "medit")),
+    ('NERVE', ("nerve", "nerf", "canal", "ian")),
+    ('SKIN', ("skin", "peau", "softtissue", "soft_tissue", "visage")),
     ('TEETH', ("teeth", "tooth", "dent", "dents", "dentition")),
     ('BONE', ("bone", "mandible", "mandibule", "maxilla", "maxillaire", "skull", "crane",
               "crâne", "os", "mand", "chin", "menton", "symphysis")),
