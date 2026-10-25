@@ -2,7 +2,7 @@
 
 import bpy
 
-from . import locking
+from . import landmarks, locking
 
 
 class OMFS_PT_case(bpy.types.Panel):
@@ -31,7 +31,32 @@ class OMFS_PT_case(bpy.types.Panel):
             op.object_name = obj.name
 
 
-classes = (OMFS_PT_case,)
+class OMFS_PT_landmarks(bpy.types.Panel):
+    bl_label = "Landmarks"
+    bl_idname = "OMFS_PT_landmarks"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+
+    def draw(self, context):
+        layout = self.layout
+        group = None
+        for landmark_id, name, _description, lm_group in landmarks.LANDMARKS:
+            if lm_group != group:
+                group = lm_group
+                col = layout.box().column(align=True)
+                col.label(text=group)
+            obj = landmarks.find(context.scene, landmark_id)
+            row = col.row(align=True)
+            row.label(text=name, icon='CHECKMARK' if obj else 'BLANK1')
+            op = row.operator("omfs.place_landmark", text="Redo" if obj else "Place",
+                              icon='RESTRICT_SELECT_OFF')
+            op.landmark_id = landmark_id
+            if obj:
+                row.operator("omfs.delete_landmark", text="", icon='X').landmark_id = landmark_id
+
+
+classes = (OMFS_PT_case, OMFS_PT_landmarks)
 
 
 def register():

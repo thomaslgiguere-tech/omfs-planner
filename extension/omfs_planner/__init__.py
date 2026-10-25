@@ -1,9 +1,9 @@
 """OMFS Planner: virtual surgical planning and guide design for oral and maxillofacial surgery."""
 
-from . import roles, locking, scene_setup, ops_import, ui
+from . import roles, locking, scene_setup, ops_import, landmarks, ui
 
 # Each module exposes register() / unregister(); order matters for dependencies.
-modules = (roles, locking, scene_setup, ops_import, ui)
+modules = (roles, locking, scene_setup, ops_import, landmarks, ui)
 
 
 def register():

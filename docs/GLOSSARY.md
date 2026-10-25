@@ -17,6 +17,10 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Import axes (forward / up)** | Importers can rotate a file while reading it. We force forward = Y, up = Z, scale = 1, which means "keep the file's coordinates as-is". Blender's OBJ importer rotates by default! | Meshmixer imports raw coordinates. |
 | **Empty** | An object with no mesh: just a position and three axes. We use one as the clinical reference frame, so the anatomy never has to be moved or rotated. | None. |
 | **Rigid transform** | Rotation + translation only (no scale), stored in the object's transform. The vertices, so the shape, are untouched. Used to register the intra-oral scan. | The result of Align: the object moves, its shape doesn't. |
+| **Raycast** | Shoots an invisible ray from the mouse into the scene and returns the first surface point it hits. How landmarks are snapped onto bone. Reads the mesh, never changes it. | What happens when you click a point on a surface (e.g. Drop Pivot). |
+| **Modal operator** | A command that stays active and listens to the mouse/keyboard until it finishes (e.g. "click to place a landmark", Esc to cancel). Orbit and zoom still work meanwhile. | An active tool waiting for clicks (e.g. Measure). |
+| **Collection** | A folder of objects in the Outliner. Landmarks go in the "Landmarks" collection. | None (Meshmixer has no folders). |
+| **Landmark** *(OMFS Planner)* | A named Empty placed on a surface by raycast (Porion R, Nasion, Pogonion...). Locked after placing; place it again to move it. | None (closest: Drop Pivot, but unnamed and not saved). |
 | **3D Viewport** | The editor showing the 3D scene. | The main Meshmixer view. |
 | **Editor / Area** | Blender's window is split into areas, and each area shows one editor (3D Viewport, Outliner, ...). | None (Meshmixer has a single fixed layout). |
 | **Region** | A part of an area: header, toolbar (T), sidebar (N), main view. | None. |

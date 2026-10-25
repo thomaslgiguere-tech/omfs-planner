@@ -17,7 +17,7 @@ sys.path[:0] = [str(REPO / "extension"), str(REPO / "tools")]
 
 import make_test_case  # noqa: E402
 import omfs_planner  # noqa: E402
-from omfs_planner import roles  # noqa: E402
+from omfs_planner import landmarks, roles  # noqa: E402
 
 omfs_planner.register()
 
@@ -68,6 +68,25 @@ def test_toggle_lock():
     assert not bone.hide_select and not any(bone.lock_location)
     bpy.ops.omfs.toggle_lock(object_name=bone.name)
     assert bone.hide_select and all(bone.lock_rotation)
+
+
+def test_place_landmark():
+    scene = bpy.context.scene
+    bone = bpy.data.objects["mandible_bone"]
+    vertices_before = [tuple(v.co) for v in bone.data.vertices]
+
+    pog = landmarks.place(scene, 'POG', (0, -30, -60), bone)
+    assert pog.type == 'EMPTY' and pog.name == "Pogonion" and pog.omfs.role == 'LANDMARK'
+    assert pog.omfs.surface == bone.name and pog.hide_select, "landmark should be locked"
+    assert pog.users_collection[0].name == landmarks.COLLECTION
+
+    again = landmarks.place(scene, 'POG', (1, -31, -61), bone)   # placing again moves it
+    assert again == pog and tuple(pog.location) == (1, -31, -61)
+    assert sum(o.omfs.landmark == 'POG' for o in scene.objects) == 1
+    assert [tuple(v.co) for v in bone.data.vertices] == vertices_before, "bone mesh changed"
+
+    bpy.ops.omfs.delete_landmark(landmark_id='POG')
+    assert landmarks.find(scene, 'POG') is None
 
 
 def test_empty_folder_is_an_error():

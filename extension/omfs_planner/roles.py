@@ -18,6 +18,7 @@ ROLES = (
     ('SKIN', "Skin", "Skin surface segmented from the CT/CBCT"),
     ('SEGMENT', "Segment", "Osteotomy segment that will be moved"),
     ('GUIDE', "Guide", "Surgical guide"),
+    ('LANDMARK', "Landmark", "Anatomical landmark clicked on a surface"),
     ('OTHER', "Other", "Anything else"),
 )
 
@@ -30,6 +31,7 @@ COLORS = {
     'SKIN': (0.85, 0.68, 0.58, 1.0),     # skin tone
     'SEGMENT': (0.55, 0.85, 0.55, 1.0),  # green
     'GUIDE': (0.95, 0.70, 0.30, 1.0),    # orange
+    'LANDMARK': (1.00, 0.20, 0.60, 1.0), # magenta
     'OTHER': (0.60, 0.60, 0.60, 1.0),    # grey
 }
 
@@ -72,6 +74,9 @@ def _on_role_changed(self, context):
 
 class OMFS_ObjectProperties(bpy.types.PropertyGroup):
     role: bpy.props.EnumProperty(name="Role", items=ROLES, default='OTHER', update=_on_role_changed)
+    # Landmarks only (see landmarks.py): which landmark this is, and the mesh it was placed on.
+    landmark: bpy.props.StringProperty(name="Landmark")
+    surface: bpy.props.StringProperty(name="Placed on")
 
 
 def register():
