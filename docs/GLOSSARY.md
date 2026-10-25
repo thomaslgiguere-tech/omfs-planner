@@ -40,6 +40,11 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Backface culling** | Hides the back side of faces. Off for us, so cut or open meshes can be seen from inside. | None (Meshmixer tints back faces). |
 | **Clip start / end** | Nearest and farthest distance the viewport draws. Set to 0.1 mm to 10 m so anatomy isn't sliced near the camera. | None. |
 | **Frame All (Home)** | Zooms the view so all objects are visible. | View > Recenter View. |
+| **Centre view (C)** *(OMFS shortcut)* | Blender's `view3d.view_center_pick` (normally Alt + middle-click) mapped to **C**: the point under the mouse becomes the centre of orbit and zoom. Replaces Blender's circle select on C. | C (centre on point under cursor). |
+| **Trackpad navigation** | Two-finger swipe = orbit, Shift + two fingers = pan, pinch = zoom. The navigation gizmo (top right) can be dragged or clicked too. | Alt + left/middle/right drag. |
+| **Auto Depth / Zoom to Mouse Position** | Preferences > Navigation: orbit and zoom around the surface under the mouse instead of the scene centre. Display only. | Default Meshmixer behaviour. |
+| **Emulate Numpad** | Preferences > Input: the number row acts as the numpad (1 front, 3 right, 7 top, Ctrl = opposite side). | None. |
+| **Keymap** | The table of shortcuts per editor (Preferences > Keymap). Extensions add their own entries, e.g. our C. | Hotkeys list. |
 | **Object mode / Edit mode** | Object mode moves whole objects; Edit mode edits vertices/faces. OMFS works in Object mode. | Object level vs the Select tool. |
 | **Operator** | One Blender command (e.g. `omfs.import_case`), undoable, callable from a button, menu, search (F3) or Python. | A Meshmixer command/tool (e.g. Edit > Make Solid). |
 | **Undo (Ctrl+Z)** | Operators marked UNDO can be undone. | Ctrl+Z. |

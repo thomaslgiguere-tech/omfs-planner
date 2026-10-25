@@ -2,7 +2,7 @@
 
 import bpy
 
-from . import landmarks, locking
+from . import landmarks, locking, view
 
 
 class OMFS_PT_case(bpy.types.Panel):
@@ -31,6 +31,25 @@ class OMFS_PT_case(bpy.types.Panel):
             op.object_name = obj.name
 
 
+class OMFS_PT_view(bpy.types.Panel):
+    bl_label = "View"
+    bl_idname = "OMFS_PT_view"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+
+    def draw(self, context):
+        layout = self.layout
+        grid = layout.grid_flow(columns=2, align=True)
+        for view_id, label, _axis in view.VIEWS:
+            grid.operator("omfs.view", text=label).view = view_id
+        layout.operator("view3d.view_all", text="Frame All", icon='ZOOM_ALL')
+        layout.label(text=f"{view.CENTRE_KEY}: centre on point under mouse", icon='INFO')
+        inputs = context.preferences.inputs
+        if not (inputs.use_mouse_depth_navigate and inputs.use_zoom_to_mouse):
+            layout.operator("omfs.navigation_preferences", icon='PREFERENCES')
+
+
 class OMFS_PT_landmarks(bpy.types.Panel):
     bl_label = "Landmarks"
     bl_idname = "OMFS_PT_landmarks"
@@ -56,7 +75,7 @@ class OMFS_PT_landmarks(bpy.types.Panel):
                 row.operator("omfs.delete_landmark", text="", icon='X').landmark_id = landmark_id
 
 
-classes = (OMFS_PT_case, OMFS_PT_landmarks)
+classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_landmarks)
 
 
 def register():
