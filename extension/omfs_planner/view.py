@@ -34,6 +34,7 @@ class OMFS_OT_view(bpy.types.Operator):
         if area is None:
             self.report({'ERROR'}, "No 3D viewport")
             return {'CANCELLED'}
+        area.spaces.active.lock_object = None   # "Lock to Object" stops the view from framing
         region = next(r for r in area.regions if r.type == 'WINDOW')
         with context.temp_override(area=area, region=region):
             bpy.ops.view3d.view_axis(type=AXIS[self.view])
