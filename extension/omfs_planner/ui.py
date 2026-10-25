@@ -2,7 +2,7 @@
 
 import bpy
 
-from . import landmarks, locking, view
+from . import landmarks, locking, reference_frame, view
 
 
 class OMFS_PT_case(bpy.types.Panel):
@@ -77,7 +77,36 @@ class OMFS_PT_landmarks(bpy.types.Panel):
                 row.operator("omfs.delete_landmark", text="", icon='X').landmark_id = landmark_id
 
 
-classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_landmarks)
+class OMFS_PT_reference_frame(bpy.types.Panel):
+    bl_label = "Reference Frame"
+    bl_idname = "OMFS_PT_reference_frame"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+
+    def draw(self, context):
+        layout = self.layout
+        missing = reference_frame.missing_landmarks(context.scene)
+        frame = reference_frame.find_frame(context.scene)
+        if missing:
+            col = layout.column(align=True)
+            col.label(text="Place first:", icon='ERROR')
+            for lm in missing:
+                col.label(text=landmarks.BY_ID[lm][1], icon='BLANK1')
+            return
+        layout.operator("omfs.build_reference_frame", text="Update Frame" if frame else "Build Frame",
+                        icon='ORIENTATION_GLOBAL')
+        if frame is None:
+            return
+        visible = reference_frame.planes_visible(frame)
+        layout.operator("omfs.toggle_reference_planes", text="Hide Planes" if visible else "Show Planes",
+                        icon='HIDE_OFF' if visible else 'HIDE_ON')
+        col = layout.column(align=True)
+        col.label(text="Positive: left, anterior, up")
+        col.label(text="Origin: nasion on Frankfort")
+
+
+classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_landmarks, OMFS_PT_reference_frame)
 
 
 def register():

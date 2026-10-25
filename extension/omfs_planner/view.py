@@ -4,14 +4,15 @@ C centres the view on the point under the mouse; orbit and zoom then turn around
 With the Navigate tool active, click-drag orbits and Shift + click-drag pans (mouse buttons,
 so it also works through remote-desktop apps that mangle trackpad gestures).
 
-The views assume the meshes are in patient LPS coordinates, as exported by 3D Slicer:
-+X = patient left, +Y = posterior, +Z = superior. Once the reference frame exists,
-the views will follow it instead.
+Once the reference frame exists, the views follow its axes. Before that, they assume the
+meshes are in patient LPS coordinates, as exported by 3D Slicer: +X = patient left,
++Y = posterior, +Z = superior.
 """
 
 import bpy
+from mathutils import Quaternion
 
-from . import scene_setup
+from . import reference_frame, scene_setup
 
 # (id, label, Blender view axis). Blender's "Left" view looks from -X, i.e. at the patient's right.
 VIEWS = (
@@ -22,6 +23,15 @@ VIEWS = (
     ('VERTEX', "Vertex", 'TOP'),
 )
 AXIS = {view_id: axis for view_id, _label, axis in VIEWS}
+
+# Blender's view rotations for each view axis (as set by View > Viewpoint), in LPS-like axes.
+VIEW_ROTATION = {
+    'FRONT': Quaternion((0.7071068, 0.7071068, 0, 0)),
+    'LEFT': Quaternion((0.5, 0.5, -0.5, -0.5)),
+    'RIGHT': Quaternion((0.5, 0.5, 0.5, 0.5)),
+    'TOP': Quaternion((1, 0, 0, 0)),
+    'BOTTOM': Quaternion((0, 1, 0, 0)),
+}
 
 CENTRE_KEY = 'C'   # as in Meshmixer: centre the view on the point under the mouse
 
@@ -43,8 +53,13 @@ class OMFS_OT_view(bpy.types.Operator):
             return {'CANCELLED'}
         area.spaces.active.lock_object = None   # "Lock to Object" stops the view from framing
         region = next(r for r in area.regions if r.type == 'WINDOW')
+        rotation = VIEW_ROTATION[AXIS[self.view]]
+        frame = reference_frame.find_frame(context.scene)
+        if frame is not None:   # turn the view with the patient's frame
+            rotation = frame.matrix_world.to_quaternion() @ rotation
+        region.data.view_rotation = rotation
+        region.data.view_perspective = 'ORTHO'
         with context.temp_override(area=area, region=region):
-            bpy.ops.view3d.view_axis(type=AXIS[self.view])
             bpy.ops.view3d.view_all()
         return {'FINISHED'}
 

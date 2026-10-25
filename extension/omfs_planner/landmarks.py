@@ -84,13 +84,22 @@ def viewport_region_under_mouse(area, event):
 
 
 def surface_hit(context, region, mouse):
-    """Raycast from the mouse into the scene: (location, object) of the first surface hit, or None."""
+    """Raycast from the mouse into the scene: (location, object) of the first anatomy hit, or None.
+
+    Helpers such as the reference planes are skipped: the ray continues past them.
+    """
     rv3d = region.data
     origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, mouse)
     direction = view3d_utils.region_2d_to_vector_3d(region, rv3d, mouse)
-    hit, location, _normal, _index, obj, _matrix = context.scene.ray_cast(
-        context.evaluated_depsgraph_get(), origin, direction)
-    return (location, obj) if hit else None
+    depsgraph = context.evaluated_depsgraph_get()
+    for _ in range(10):
+        hit, location, _normal, _index, obj, _matrix = context.scene.ray_cast(depsgraph, origin, direction)
+        if not hit:
+            return None
+        if obj.omfs.role not in roles.NOT_SURFACES:
+            return location, obj
+        origin = location + direction * 0.01   # 0.01 mm past the helper
+    return None
 
 
 class OMFS_OT_place_landmark(bpy.types.Operator):

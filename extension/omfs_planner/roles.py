@@ -19,6 +19,7 @@ ROLES = (
     ('SEGMENT', "Segment", "Osteotomy segment that will be moved"),
     ('GUIDE', "Guide", "Surgical guide"),
     ('LANDMARK', "Landmark", "Anatomical landmark clicked on a surface"),
+    ('REFERENCE', "Reference", "Reference frame and its planes"),
     ('OTHER', "Other", "Anything else"),
 )
 
@@ -32,11 +33,15 @@ COLORS = {
     'SEGMENT': (0.55, 0.85, 0.55, 1.0),  # green
     'GUIDE': (0.95, 0.70, 0.30, 1.0),    # orange
     'LANDMARK': (1.00, 0.20, 0.60, 1.0), # magenta
+    'REFERENCE': (0.30, 0.55, 1.00, 0.15),  # each plane gets its own colour (reference_frame.py)
     'OTHER': (0.60, 0.60, 0.60, 1.0),    # grey
 }
 
 # Everything segmented from the CT/CBCT stays where it is: it defines the patient.
 LOCKED_BY_DEFAULT = {'BONE', 'TEETH', 'NERVE', 'SKIN'}
+
+# Helpers drawn in the viewport, not anatomy: clicks to place landmarks go through them.
+NOT_SURFACES = {'LANDMARK', 'REFERENCE'}
 
 # Filename keywords, checked in this order (a file called "ios_teeth" is a scan, not teeth,
 # and "mandibular canal" is a nerve, not bone).

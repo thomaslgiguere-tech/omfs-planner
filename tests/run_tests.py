@@ -17,7 +17,8 @@ sys.path[:0] = [str(REPO / "extension"), str(REPO / "tools")]
 
 import make_test_case  # noqa: E402
 import omfs_planner  # noqa: E402
-from omfs_planner import landmarks, roles  # noqa: E402
+from mathutils import Euler, Matrix, Vector  # noqa: E402
+from omfs_planner import landmarks, reference_frame, roles  # noqa: E402
 
 omfs_planner.register()
 
@@ -87,6 +88,45 @@ def test_place_landmark():
 
     bpy.ops.omfs.delete_landmark(landmark_id='POG')
     assert landmarks.find(scene, 'POG') is None
+
+
+# Landmarks in LPS millimetres, with FH exactly on z = 0 and the midline on x = 0.
+FRAME_POINTS = {
+    'PO_R': Vector((-55, 80, 0)), 'PO_L': Vector((55, 80, 0)),
+    'OR_R': Vector((-30, 5, 2)), 'OR_L': Vector((30, 5, -2)),   # midpoint on FH, orbits uneven
+    'N': Vector((0, -5, 25)), 'BA': Vector((0, 70, -20)),
+}
+
+
+def assert_close(a, b, label, tol=1e-4):
+    assert (Vector(a) - Vector(b)).length < tol, f"{label}: {tuple(a)} != {tuple(b)}"
+
+
+def test_frame_axes():
+    m = reference_frame.frame_matrix(FRAME_POINTS)
+    assert_close(m.col[0].xyz, (1, 0, 0), "x = patient left")
+    assert_close(m.col[1].xyz, (0, 1, 0), "y = posterior")
+    assert_close(m.col[2].xyz, (0, 0, 1), "z = superior")
+    assert_close(m.translation, (0, -5, 0), "origin = nasion projected on FH")
+
+
+def test_frame_follows_head_rotation():
+    # Same skull, tilted and turned: the frame must turn with it.
+    turn = Matrix.Translation((90, 100, 80)) @ Euler((0.3, -0.1, 0.2)).to_matrix().to_4x4()
+    m = reference_frame.frame_matrix({k: turn @ v for k, v in FRAME_POINTS.items()})
+    expected = turn @ reference_frame.frame_matrix(FRAME_POINTS)
+    for i in range(4):
+        assert_close(m.col[i], expected.col[i], f"column {i}")
+
+
+def test_build_frame_and_clinical_values():
+    scene = bpy.context.scene
+    frame = reference_frame.build(scene, FRAME_POINTS)
+    assert frame.omfs.role == 'REFERENCE' and frame.hide_select
+    assert len(frame.children) == 3 and all(c.omfs.role == 'REFERENCE' for c in frame.children)
+    assert reference_frame.build(scene, FRAME_POINTS) == frame, "building again must update, not duplicate"
+    left, anterior, up = reference_frame.to_clinical(frame, (2, -6, -1))   # LPS displacement
+    assert_close((left, anterior, up), (2, 6, -1), "6 mm forward, 1 mm down, 2 mm left")
 
 
 def test_empty_folder_is_an_error():

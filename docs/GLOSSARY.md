@@ -21,6 +21,8 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Modal operator** | A command that stays active and listens to the mouse/keyboard until it finishes (e.g. "click to place a landmark", Esc to cancel). Orbit and zoom still work meanwhile. | An active tool waiting for clicks (e.g. Measure). |
 | **Collection** | A folder of objects in the Outliner. Landmarks go in the "Landmarks" collection. | None (Meshmixer has no folders). |
 | **Landmark** *(OMFS Planner)* | A named Empty placed on a surface by raycast (Porion R, Nasion, Pogonion...). Locked after placing; place it again to move it. | None (closest: Drop Pivot, but unnamed and not saved). |
+| **Parent / child** | A child object follows its parent's transform. The three reference planes are children of the frame Empty, so updating the frame moves them together. | None (closest: grouping objects). |
+| **Reference frame** *(OMFS Planner)* | Empty built from porions, orbitales, nasion and basion: Frankfort horizontal, midsagittal and coronal planes, origin = nasion projected on FH. Movements are measured in its axes (left +, anterior +, up +). The anatomy is never moved. | None (Meshmixer only has the world axes). |
 | **3D Viewport** | The editor showing the 3D scene. | The main Meshmixer view. |
 | **Editor / Area** | Blender's window is split into areas, and each area shows one editor (3D Viewport, Outliner, ...). | None (Meshmixer has a single fixed layout). |
 | **Region** | A part of an area: header, toolbar (T), sidebar (N), main view. | None. |
