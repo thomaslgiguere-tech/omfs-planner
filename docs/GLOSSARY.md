@@ -32,6 +32,7 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Boolean solver (Exact / Manifold / Float)** | Exact: robust, works on meshes with small holes (our CBCT bone), ~1 s on a mandible. Manifold: much faster but refuses any mesh that isn't watertight. Float: older, fragile. | None (Meshmixer picks for you). |
 | **Closest point on mesh** | Finds the nearest surface point to a given point. Used to snap the yellow stars onto the buccal bone. Reads the mesh only. | None. |
 | **Osteotomy plane** *(OMFS Planner)* | Yellow plane placed below the midpoint of the mental foramina, with height, profile angle, frontal angle and posterior extents measured in the reference frame. Apply Cut splits the bone along it. | Plane Cut, but parametric and re-doable. |
+| **Gizmo** | An interactive handle drawn in the 3D view (arrow, ring...) bound to a property: dragging it changes the value, typing the value moves it. The osteotomy has a height arrow, profile and frontal rings, and posterior-extent arrows. | Transform tool arrows and rings. |
 | **3D Viewport** | The editor showing the 3D scene. | The main Meshmixer view. |
 | **Editor / Area** | Blender's window is split into areas, and each area shows one editor (3D Viewport, Outliner, ...). | None (Meshmixer has a single fixed layout). |
 | **Region** | A part of an area: header, toolbar (T), sidebar (N), main view. | None. |

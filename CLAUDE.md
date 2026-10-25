@@ -54,6 +54,9 @@ docs/APP_TEMPLATE.md         what the template hides, and what can't be hidden w
 - `region.active_panel_category` is 'UNSUPPORTED' until the sidebar has been drawn once: retry with a timer.
 - `hasattr(bpy.ops.x, "y")` is always True; check `bpy.types.X_OT_y` instead.
 - Script-driven UI changes don't redraw the top bar (it isn't in `screen.areas`); real clicks do.
+- Never monkeypatch methods of a registered class (e.g. a GizmoGroup's draw_prepare) or call
+  `wm.redraw_timer` from an MCP script: Blender crashed. Debug gizmos in a separate instance.
+- A live reload doesn't always rebuild gizmo groups; restart Blender to check gizmo changes.
 - Reload the extension live without `script.reload` (it would restart the MCP add-on): disable,
   drop `bl_ext.user_default.omfs_planner*` from `sys.modules`, enable.
 
