@@ -15,6 +15,8 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Transform locks** | Per-axis padlocks on location/rotation/scale: the object can't be moved by hand. | None. |
 | **Selectable (`hide_select`)** | When off, clicks go through the object in the viewport and outliner. It stays visible, and the Measure tool can still snap to it. Together with transform locks this is our **Lock**. | None (Meshmixer can only hide objects). |
 | **Import axes (forward / up)** | Importers can rotate a file while reading it. We force forward = Y, up = Z, scale = 1, which means "keep the file's coordinates as-is". Blender's OBJ importer rotates by default! | Meshmixer imports raw coordinates. |
+| **Empty** | An object with no mesh: just a position and three axes. We use one as the clinical reference frame, so the anatomy never has to be moved or rotated. | None. |
+| **Rigid transform** | Rotation + translation only (no scale), stored in the object's transform. The vertices, so the shape, are untouched. Used to register the intra-oral scan. | The result of Align: the object moves, its shape doesn't. |
 | **3D Viewport** | The editor showing the 3D scene. | The main Meshmixer view. |
 | **Editor / Area** | Blender's window is split into areas, and each area shows one editor (3D Viewport, Outliner, ...). | None (Meshmixer has a single fixed layout). |
 | **Region** | A part of an area: header, toolbar (T), sidebar (N), main view. | None. |

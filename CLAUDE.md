@@ -9,6 +9,13 @@ Reproducible, parameterised genioplasty planning and guide design (cutting +
 repositioning guide) in Blender. The architecture must later extend to full
 orthognathic surgery (Le Fort I, BSSO, multi-segment). **Keep it modular**: segments,
 reference planes, movements and guides are generic concepts, never hard-coded to the chin.
+Genioplasty specifics (pogonion, chin techniques) are presets on top of generic code.
+
+## Which document wins
+
+- **Read [docs/workflow.md](docs/workflow.md) before working on any feature.** It is the clinical spec.
+- **docs/workflow.md wins** on clinical content: steps, gestures, what the surgeon must see.
+- **CLAUDE.md wins** on architecture, code, hardware, units and patient-data safety.
 
 ## Repo layout
 
@@ -24,6 +31,7 @@ app_template/omfs_planner/   Application Template: clean surgical UI + Developer
 tools/dev_link.sh            symlinks both into the Blender user dirs (development)
 tools/make_test_case.py      writes synthetic test meshes (never patient data)
 tests/run_tests.py           headless tests: blender -b --factory-startup --python tests/run_tests.py
+docs/workflow.md             clinical workflow, step by step (the feature spec)
 docs/GLOSSARY.md             Blender term -> what it does -> Meshmixer equivalent
 docs/APP_TEMPLATE.md         what the template hides, and what can't be hidden without compiling
 ```
@@ -51,9 +59,18 @@ docs/APP_TEMPLATE.md         what the template hides, and what can't be hidden w
 
 ## Inputs
 
-- Bone and teeth meshes exported from 3D Slicer (CT/CBCT segmentations), typically STL; OBJ and PLY also supported.
-- Intraoral scan STLs (upper/lower jaw).
+All meshes are typically STL; OBJ and PLY are also supported. Role names in code are in brackets.
+
+- From the CBCT (3D Slicer segmentations, all in the same coordinates):
+  bone [BONE], whole teeth with roots [TEETH], skin surface [SKIN, todo], inferior alveolar nerve canal [NERVE, todo].
+- Intraoral scan STLs, upper/lower jaw, crowns + gingiva, open meshes [SCAN].
+- Clinical photos (later, for natural head position). Patient data: never committed.
 - Import keeps raw file coordinates (forward Y, up Z, scale 1) so all meshes from one case stay registered.
+- **CBCT meshes never move.** The CBCT teeth dictate the teeth **position**; the scan dictates the true
+  crown **shape**. The scan is registered onto the CBCT teeth by a **rigid transform** only
+  (rotation + translation, no scale, vertices untouched).
+- **Anatomy is never reoriented.** The clinical reference frame is a separate object (Empty) built from
+  landmarks; movements are expressed in that frame. Export stays in the original patient coordinates.
 
 ## Units
 
@@ -61,26 +78,33 @@ Millimetres everywhere: **1 Blender unit = 1 mm** (scene unit scale 0.001, lengt
 
 ## Guide hardware (all values must be parameters, never constants buried in code)
 
-- Synthes 1.85 mm screws.
+- Synthes 1.85 mm screws: used for the bicortical fixation and to hold the guide to the bone
+  (guide fixation holes are sized for them).
 - MatrixMANDIBLE drill sleeve 03.503.045: outer diameter just under 4 mm, **exact value to be measured**.
+  Drill-sleeve tube inner diameter = measured sleeve outer diameter + fit clearance (both parameters).
+  The "4 mm" in docs/workflow.md is a provisional default only.
 - 1.4 mm drill 03.511.340.
+- All defaults (clearances, thicknesses, thresholds) live in one parameter module, not scattered in code.
 
-## Planned features (in order)
+## Planned features (in order; details in docs/workflow.md)
 
 1. Import + scene setup  *(done: Import Case)*
-2. Precise alignment of CT teeth with the intraoral scan STL
-3. Osteotomy plane(s) with numeric advancement, vertical and rotation, measured relative to a
-   user-defined reference plane (e.g. from landmarks the user places)
-4. Segment movement with live measurements
-5. Guide body from the bone contact surface
-6. Drill sleeves: diameter control, optional physical sleeve cylinders protruding from the guide surface
-7. Print-ready export with manifold checks
+2. Register the intraoral scan onto the CBCT teeth (point matching, then rigid ICP on crowns only)
+3. Reference frame: three perpendicular planes from landmarks (Frankfort horizontal by default)
+4. Osteotomy plane(s): technique picker, then place the cut planes
+5. Segment movement in 6 degrees of freedom, in the reference frame, with live measurements
+6. Soft tissue check (not in version 1)
+7. Bicortical fixation screws / drill-sleeve channels with collision checks (roots, nerve)
+8. Guides: surface-to-shell, cutting guide + drill-sleeve tubes, guide fixation holes, text labels,
+   tooth-borne positioning guide
+9. Print-ready export with manifold checks
 
 ## Interaction rules
 
 - Anatomy that must not move is **locked**: visible and measurable, but not selectable or movable
   (`hide_select` + transform locks). Bone is locked on import.
-- Segments move only through numeric controls in the panel; an optional unlock allows manual adjustment.
+- Segments move two ways, always in sync: dragging in the viewport (constrained to the reference frame
+  axes) and typing values in the movement panel. An optional "Lock segment" toggle disables dragging.
 
 ## Rules
 
