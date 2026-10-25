@@ -4,7 +4,7 @@ from pathlib import Path
 
 import bpy
 
-from . import locking, mesh_io, roles, scene_setup, view
+from . import locking, mesh_io, registration, roles, scene_setup, view
 
 
 def name_objects(objects, stem):
@@ -54,6 +54,9 @@ class OMFS_OT_import_case(bpy.types.Operator):
                 locking.set_locked(obj, role in roles.LOCKED_BY_DEFAULT)
             imported += objects
 
+        for obj in imported:
+            if obj.omfs.role == 'SCAN':
+                registration.default_partners(context.scene, obj)
         scene_setup.setup_scene(context)
         scene_setup.frame_all(context)
         if not bpy.app.background:

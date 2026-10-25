@@ -2,7 +2,7 @@
 
 import bpy
 
-from . import landmarks, locking, osteotomy, reference_frame, roles, view
+from . import landmarks, locking, osteotomy, params, reference_frame, registration, roles, view
 
 
 class OMFS_PT_case(bpy.types.Panel):
@@ -51,6 +51,73 @@ class OMFS_PT_view(bpy.types.Panel):
         layout.operator("wm.tool_set_by_id", text="Navigate Tool", icon='ORIENTATION_VIEW').name = "omfs.navigate"
         if not view.navigation_preferences_ok(context.preferences):
             layout.operator("omfs.navigation_preferences", icon='PREFERENCES')
+
+
+class OMFS_PT_registration(bpy.types.Panel):
+    bl_label = "Teeth Registration"
+    bl_idname = "OMFS_PT_registration"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scans = [o for o in context.scene.objects if o.type == 'MESH' and o.omfs.role == 'SCAN']
+        if not scans:
+            layout.label(text="No intraoral scan in this case")
+            return
+        for scan in scans:
+            self.draw_scan(context, layout.box(), scan)
+
+    def draw_scan(self, context, box, scan):
+        props = scan.omfs_reg
+        name = scan.name
+        box.label(text=name, icon='MESH_DATA')
+        col = box.column(align=True)
+        col.prop(props, "target")
+        col.prop(props, "bone")
+
+        box.label(text="1. Point pairs (3 or more)")
+        pairs = registration.point_pairs(context.scene, scan)
+        col = box.column(align=True)
+        for scan_point, _cbct_point in pairs:
+            number = int(scan_point.omfs.landmark[5:])
+            row = col.row(align=True)
+            row.label(text=f"Pair {number}", icon='CHECKMARK')
+            op = row.operator("omfs.delete_point_pair", text="", icon='X')
+            op.scan_name, op.number = name, number
+        col.operator("omfs.add_point_pair", icon='ADD').scan_name = name
+        row = box.row()
+        row.enabled = len(pairs) >= 3
+        row.operator("omfs.align_points", icon='SNAP_ON').scan_name = name
+        if props.points_rms >= 0:
+            box.label(text=f"Points RMS: {props.points_rms:.2f} mm")
+
+        box.label(text="2. Crowns used (gingiva excluded)")
+        col = box.column(align=True)
+        col.operator("omfs.suggest_crowns", icon='AUTO').scan_name = name
+        row = col.row(align=True)
+        op = row.operator("omfs.paint_crowns", text="Paint: use", icon='BRUSH_DATA')
+        op.scan_name, op.include = name, True
+        op = row.operator("omfs.paint_crowns", text="Paint: ignore", icon='BRUSH_DATA')
+        op.scan_name, op.include = name, False
+        if context.mode == 'PAINT_WEIGHT':
+            col.operator("omfs.finish_painting", icon='CHECKMARK').scan_name = name
+        if props.crown_count:
+            box.label(text=f"{props.crown_count} crown vertices")
+
+        box.label(text="3. Refine on the crowns")
+        box.operator("omfs.refine_icp", icon='PIVOT_BOUNDBOX').scan_name = name
+        if props.rms >= 0:
+            res = box.column(align=True)
+            warn = max(props.mean, props.rms) > params.REG_WARN_ERROR
+            res.alert = warn
+            res.label(text=f"Mean {props.mean:.2f} mm   RMS {props.rms:.2f} mm",
+                      icon='ERROR' if warn else 'CHECKMARK')
+            res.label(text=f"95% of crown points within {props.p95:.2f} mm")
+            box.operator("omfs.toggle_distance_map", icon='COLOR')
+        box.operator("omfs.reset_scan", icon='LOOP_BACK').scan_name = name
 
 
 class OMFS_PT_landmarks(bpy.types.Panel):
@@ -160,7 +227,7 @@ class OMFS_PT_osteotomy(bpy.types.Panel):
             layout.operator("omfs.apply_cut", text="Re-apply Cut", icon='FILE_REFRESH')
 
 
-classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_landmarks, OMFS_PT_reference_frame, OMFS_PT_osteotomy)
+classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_registration, OMFS_PT_landmarks, OMFS_PT_reference_frame, OMFS_PT_osteotomy)
 
 
 def register():

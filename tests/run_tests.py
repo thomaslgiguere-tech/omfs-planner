@@ -20,7 +20,7 @@ import make_test_case  # noqa: E402
 import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
-from omfs_planner import landmarks, osteotomy, reference_frame, roles  # noqa: E402
+from omfs_planner import landmarks, osteotomy, reference_frame, registration, roles  # noqa: E402
 
 omfs_planner.register()
 
@@ -192,6 +192,49 @@ def test_osteotomy():
     assert {o.name for o in scene.objects if o.omfs.role == 'MARKER'} == {"Star R", "Star L"}
     for obj in (canal,):
         bpy.data.objects.remove(obj)
+
+
+def test_registration():
+    scene = bpy.context.scene
+    bone = box_object("Reg bone", 'BONE', (300, 0, -10), (60, 60, 20))   # top surface at z = 0
+    bpy.ops.mesh.primitive_monkey_add(size=30, location=(300, 0, 5))   # asymmetric: ICP can lock on
+    teeth = bpy.context.active_object
+    teeth.name, teeth.omfs.role = "Reg teeth", 'TEETH'
+    bpy.ops.object.transform_apply(location=True, scale=True)
+    bpy.ops.object.modifier_add(type='SUBSURF')
+    bpy.ops.object.modifier_apply(modifier=teeth.modifiers[0].name)
+    scan = bpy.data.objects.new("Reg scan", teeth.data.copy())
+    scene.collection.objects.link(scan)
+    scan.omfs.role = 'SCAN'
+    scan.omfs_reg.target, scan.omfs_reg.bone = teeth, bone
+    true_pose = scan.matrix_world.copy()
+    scan.matrix_world = Matrix.Translation((40, -30, 20)) @ Euler((0.4, -0.2, 0.9)).to_matrix().to_4x4()
+
+    # Point pairs on the same vertices of both meshes, then a rigid fit.
+    for n, vi in enumerate((0, 150, 300, 450), start=1):
+        registration.add_point(scene, scan, f"REG_S{n}", f"Scan pt {n}",
+                               scan.matrix_world @ scan.data.vertices[vi].co, parent=scan)
+        registration.add_point(scene, scan, f"REG_T{n}", f"CBCT pt {n}", teeth.data.vertices[vi].co)
+    assert len(registration.point_pairs(scene, scan)) == 4
+    rms = registration.align_points(scene, scan)
+    assert rms < 1e-3, rms
+
+    # Nudge it off by 1 degree and 0.6 mm, then ICP on the crowns must bring it back.
+    registration.move_scan(scan, Matrix.Translation((0.4, -0.3, 0.3)) @ Euler((0.0175, 0, 0)).to_matrix().to_4x4()
+                           @ scan.matrix_world)
+    bvh = registration.crown_region_bvh(teeth, bone)
+    count = registration.suggest_crowns(scan, bvh)
+    indices = registration.crown_indices(scan)
+    assert count == len(indices) > 100, count
+    assert all(teeth.data.vertices[i].co.z > 0 for i in indices[:200]), "crowns must be above the bone"
+    registration.icp(scan, bvh, indices)
+    d = registration.crown_distances(scan, registration.teeth_bvh(teeth), indices)
+    assert d.mean() < 0.001, d.mean()
+    error = max((scan.matrix_world @ v.co - true_pose @ v.co).length for v in scan.data.vertices)
+    assert error < 0.01, error
+    assert all(abs(s - 1) < 1e-6 for s in scan.matrix_world.to_scale()), "registration must stay rigid"
+    assert [tuple(v.co) for v in scan.data.vertices] == [tuple(v.co) for v in teeth.data.vertices], \
+        "scan vertices must never change"
 
 
 def test_empty_folder_is_an_error():

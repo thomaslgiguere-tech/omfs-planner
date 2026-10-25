@@ -4,6 +4,15 @@ Each default can be changed in the panel for a given case. Values marked TO CONF
 checked with a supervisor before clinical use.
 """
 
+# Registration of the intraoral scan onto the CBCT teeth
+REG_CROWN_BONE_CLEARANCE = 1.5  # mm: CBCT teeth surface this far outside the bone counts as crown
+REG_SUGGEST_DISTANCE = 1.0      # mm: scan vertices this close to the CBCT crowns are suggested
+REG_TARGET_ERROR = 0.3          # mm, working target for mean / RMS on crowns (literature ~0.3 mm)
+REG_WARN_ERROR = 0.5            # mm, warn above (self-chosen safety margin), TO CONFIRM
+ICP_SAMPLES = 5000              # crown vertices used per ICP iteration
+ICP_MAX_ITERATIONS = 60
+ICP_MAX_PAIR_DISTANCE = 2.0     # mm: farther closest points are ignored (gingiva, artefacts)
+
 # Osteotomy (genioplasty, version 1)
 CUT_BELOW_FORAMINA = 5.0      # mm, cut below the midpoint of the mental foramina
 CUT_PROFILE_ANGLE = 0.0       # deg relative to Frankfort, + = cut rises anteriorly
