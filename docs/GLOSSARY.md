@@ -42,9 +42,10 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Frame All (Home)** | Zooms the view so all objects are visible. | View > Recenter View. |
 | **Centre view (C)** *(OMFS shortcut)* | Blender's `view3d.view_center_pick` (normally Alt + middle-click) mapped to **C**: the point under the mouse becomes the centre of orbit and zoom. Replaces Blender's circle select on C. | C (centre on point under cursor). |
 | **Trackpad navigation** | Two-finger swipe = orbit, Shift + two fingers = pan, pinch = zoom. The navigation gizmo (top right) can be dragged or clicked too. | Alt + left/middle/right drag. |
-| **Auto Depth / Zoom to Mouse Position** | Preferences > Navigation: orbit and zoom around the surface under the mouse instead of the scene centre. Display only. | Default Meshmixer behaviour. |
+| **Auto Depth / Zoom to Mouse Position** | Preferences > Navigation: orbit and zoom around the surface under the mouse instead of the view centre. **Off** in OMFS, so orbit and zoom turn around the point set with C. Display only. | None (Meshmixer turns around the C point). |
 | **Emulate Numpad** | Preferences > Input: the number row acts as the numpad (1 front, 3 right, 7 top, Ctrl = opposite side). | None. |
 | **Keymap** | The table of shortcuts per editor (Preferences > Keymap). Extensions add their own entries, e.g. our C. | Hotkeys list. |
+| **Active tool / WorkSpaceTool** | The tool chosen in the toolbar decides what a left click or drag does, and its shortcuts win over the editor's. Our **Navigate** tool makes drag = orbit, Shift + drag = pan, click = select. Activated on Import Case. | Choosing a tool in the left menu. |
 | **Object mode / Edit mode** | Object mode moves whole objects; Edit mode edits vertices/faces. OMFS works in Object mode. | Object level vs the Select tool. |
 | **Operator** | One Blender command (e.g. `omfs.import_case`), undoable, callable from a button, menu, search (F3) or Python. | A Meshmixer command/tool (e.g. Edit > Make Solid). |
 | **Undo (Ctrl+Z)** | Operators marked UNDO can be undone. | Ctrl+Z. |
