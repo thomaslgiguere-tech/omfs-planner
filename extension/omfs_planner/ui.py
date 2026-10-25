@@ -2,7 +2,7 @@
 
 import bpy
 
-from . import landmarks, locking, reference_frame, view
+from . import landmarks, locking, osteotomy, reference_frame, roles, view
 
 
 class OMFS_PT_case(bpy.types.Panel):
@@ -17,7 +17,8 @@ class OMFS_PT_case(bpy.types.Panel):
         layout.operator("omfs.import_case", icon='IMPORT')
         layout.operator("omfs.setup_scene", icon='SETTINGS')
 
-        meshes = [obj for obj in context.scene.objects if obj.type == 'MESH']
+        meshes = [obj for obj in context.scene.objects
+                  if obj.type == 'MESH' and obj.omfs.role not in roles.NOT_SURFACES]
         if not meshes:
             return
         box = layout.box()
@@ -106,7 +107,60 @@ class OMFS_PT_reference_frame(bpy.types.Panel):
         col.label(text="Origin: nasion on Frankfort")
 
 
-classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_landmarks, OMFS_PT_reference_frame)
+class OMFS_PT_osteotomy(bpy.types.Panel):
+    bl_label = "Osteotomy"
+    bl_idname = "OMFS_PT_osteotomy"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        if osteotomy.anchor_matrix(scene) is None:
+            layout.label(text="Build the frame and place both mental foramina", icon='ERROR')
+            return
+        cut = osteotomy.find_cut(scene)
+        if cut is None:
+            layout.operator("omfs.add_cut", icon='MOD_BOOLEAN')
+            return
+        if not osteotomy.anchor_is_current(scene, cut):
+            layout.operator("omfs.update_cut", text="Frame or foramina changed: Update Cut", icon='ERROR')
+
+        props = cut.omfs_cut
+        col = layout.column(align=True)
+        col.prop(props, "source")
+        col.separator()
+        col.prop(props, "below_foramina")
+        col.prop(props, "profile_angle")
+        col.prop(props, "frontal_angle")
+        col.prop(props, "extent_r")
+        col.prop(props, "extent_l")
+
+        box = layout.box()
+        box.label(text="Distance above the cut", icon='DRIVER_DISTANCE')
+        for label, distance, margin in osteotomy.cached_safety_rows(scene, cut):
+            row = box.row()
+            if distance is None:
+                row.label(text=label)
+                row.label(text="not in cut extent")
+                continue
+            row.alert = distance < margin
+            row.label(text=label, icon='ERROR' if distance < margin else 'CHECKMARK')
+            row.label(text="CROSSES THE CUT" if distance < 0 else f"{distance:.1f} mm")
+
+        if props.source is None:
+            return
+        applied = props.applied_state
+        if not applied:
+            layout.operator("omfs.apply_cut", icon='MOD_BOOLEAN')
+        elif applied != repr(osteotomy.state(props)):
+            layout.operator("omfs.apply_cut", text="Cut changed: Re-apply", icon='ERROR')
+        else:
+            layout.operator("omfs.apply_cut", text="Re-apply Cut", icon='FILE_REFRESH')
+
+
+classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_landmarks, OMFS_PT_reference_frame, OMFS_PT_osteotomy)
 
 
 def register():

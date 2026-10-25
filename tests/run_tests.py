@@ -6,6 +6,7 @@ Uses synthetic meshes only (tools/make_test_case.py), written to a temporary fol
 """
 
 import sys
+from math import radians
 import tempfile
 import traceback
 from pathlib import Path
@@ -18,7 +19,8 @@ sys.path[:0] = [str(REPO / "extension"), str(REPO / "tools")]
 import make_test_case  # noqa: E402
 import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
-from omfs_planner import landmarks, reference_frame, roles  # noqa: E402
+import bmesh  # noqa: E402
+from omfs_planner import landmarks, osteotomy, reference_frame, roles  # noqa: E402
 
 omfs_planner.register()
 
@@ -127,6 +129,69 @@ def test_build_frame_and_clinical_values():
     assert reference_frame.build(scene, FRAME_POINTS) == frame, "building again must update, not duplicate"
     left, anterior, up = reference_frame.to_clinical(frame, (2, -6, -1))   # LPS displacement
     assert_close((left, anterior, up), (2, 6, -1), "6 mm forward, 1 mm down, 2 mm left")
+
+
+def box_object(name, role, center, size):
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    bmesh.ops.scale(bm, vec=size, verts=bm.verts)
+    bmesh.ops.translate(bm, vec=center, verts=bm.verts)
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.omfs.role = role
+    return obj
+
+
+def volume(obj):
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    v = bm.calc_volume()
+    bm.free()
+    return v
+
+
+def test_osteotomy():
+    scene = bpy.context.scene
+    reference_frame.build(scene, FRAME_POINTS)       # frame axes = world axes
+    bone = box_object("Chin box", 'BONE', (0, 0, -50), (60, 40, 30))   # z from -65 to -35
+    landmarks.place(scene, 'MF_R', (-20, 0, -40), bone)
+    landmarks.place(scene, 'MF_L', (20, 0, -40), bone)
+    landmarks.place(scene, 'POG', (0, -20, -55), bone)
+    canal = box_object("Canal", 'NERVE', (-20, 5, -43), (2, 2, 0.001))  # 2 mm above the cut, right
+
+    cut = osteotomy.add_cut(scene)
+    props = cut.omfs_cut
+    assert props.source == bone, "source should default to the bone under the pogonion"
+    assert abs(osteotomy.height_on_plane(props, 0, 0) - (-5)) < 1e-6   # 5 mm below foramina
+
+    rows = {label: d for label, d, _m in osteotomy.safety_rows(scene, cut)}
+    assert abs(rows["Mental foramen R"] - 5) < 1e-4 and abs(rows["Mental foramen L"] - 5) < 1e-4, rows
+    assert abs(rows["Nerve canal R"] - 2) < 1e-3 and rows["Nerve canal L"] is None, rows
+
+    props.profile_angle = radians(10)    # rises anteriorly
+    assert osteotomy.height_on_plane(props, 0, -20) > osteotomy.height_on_plane(props, 0, 20)
+    props.profile_angle = 0
+    props.frontal_angle = radians(10)    # left side higher
+    assert osteotomy.height_on_plane(props, 20, 0) > osteotomy.height_on_plane(props, -20, 0)
+    props.frontal_angle = 0
+
+    vertices_before = len(bone.data.vertices)
+    segment, proximal = osteotomy.apply_cut(bpy.context, cut)
+    # Segment: x -30..30, y -20..15 (posterior extent), z -65..-45 -> 60 * 35 * 20 mm3.
+    assert abs(volume(segment) - 42000) < 1, volume(segment)
+    assert abs(volume(proximal) - (72000 - 42000)) < 1, volume(proximal)
+    assert segment.omfs.role == 'SEGMENT' and proximal.omfs.role == 'BONE' and proximal.hide_select
+    assert len(bone.data.vertices) == vertices_before and bone.hide_get(), "source must stay intact, hidden"
+    assert props.applied_state == repr(osteotomy.state(props))
+
+    osteotomy.apply_cut(bpy.context, cut)   # re-applying replaces, never duplicates
+    assert sum(o.omfs.made_by == cut.name for o in scene.objects) == 2
+    assert {o.name for o in scene.objects if o.omfs.role == 'MARKER'} == {"Star R", "Star L"}
+    for obj in (canal,):
+        bpy.data.objects.remove(obj)
 
 
 def test_empty_folder_is_an_error():

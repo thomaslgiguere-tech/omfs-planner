@@ -23,6 +23,10 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Landmark** *(OMFS Planner)* | A named Empty placed on a surface by raycast (Porion R, Nasion, Pogonion...). Locked after placing; place it again to move it. | None (closest: Drop Pivot, but unnamed and not saved). |
 | **Parent / child** | A child object follows its parent's transform. The three reference planes are children of the frame Empty, so updating the frame moves them together. | None (closest: grouping objects). |
 | **Reference frame** *(OMFS Planner)* | Empty built from porions, orbitales, nasion and basion: Frankfort horizontal, midsagittal and coronal planes, origin = nasion projected on FH. Movements are measured in its axes (left +, anterior +, up +). The anatomy is never moved. | None (Meshmixer only has the world axes). |
+| **Boolean modifier** | Combines two closed meshes: Intersect (keep the overlap), Difference (subtract), Union. We cut the bone with a prism under the osteotomy plane: Intersect = segment, Difference = proximal part. New objects are made; the source mesh is untouched. | Edit > Boolean. |
+| **Boolean solver (Exact / Manifold / Float)** | Exact: robust, works on meshes with small holes (our CBCT bone), ~1 s on a mandible. Manifold: much faster but refuses any mesh that isn't watertight. Float: older, fragile. | None (Meshmixer picks for you). |
+| **Closest point on mesh** | Finds the nearest surface point to a given point. Used to snap the yellow stars onto the buccal bone. Reads the mesh only. | None. |
+| **Osteotomy plane** *(OMFS Planner)* | Yellow plane placed below the midpoint of the mental foramina, with height, profile angle, frontal angle and posterior extents measured in the reference frame. Apply Cut splits the bone along it. | Plane Cut, but parametric and re-doable. |
 | **3D Viewport** | The editor showing the 3D scene. | The main Meshmixer view. |
 | **Editor / Area** | Blender's window is split into areas, and each area shows one editor (3D Viewport, Outliner, ...). | None (Meshmixer has a single fixed layout). |
 | **Region** | A part of an area: header, toolbar (T), sidebar (N), main view. | None. |
