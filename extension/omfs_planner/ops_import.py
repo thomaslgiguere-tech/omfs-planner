@@ -4,7 +4,7 @@ from pathlib import Path
 
 import bpy
 
-from . import locking, mesh_io, roles, scene_setup
+from . import locking, mesh_io, roles, scene_setup, view
 
 
 def name_objects(objects, stem):
@@ -56,6 +56,8 @@ class OMFS_OT_import_case(bpy.types.Operator):
 
         scene_setup.setup_scene(context)
         scene_setup.frame_all(context)
+        if not bpy.app.background:
+            view.activate_navigate_tool(context)
         self.report({'INFO'}, f"Imported {len(imported)} meshes from {folder.name}")
         return {'FINISHED'}
 

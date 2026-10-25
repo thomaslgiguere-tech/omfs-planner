@@ -44,9 +44,11 @@ class OMFS_PT_view(bpy.types.Panel):
         for view_id, label, _axis in view.VIEWS:
             grid.operator("omfs.view", text=label).view = view_id
         layout.operator("view3d.view_all", text="Frame All", icon='ZOOM_ALL')
-        layout.label(text=f"{view.CENTRE_KEY}: centre on point under mouse", icon='INFO')
-        inputs = context.preferences.inputs
-        if not (inputs.use_mouse_depth_navigate and inputs.use_zoom_to_mouse):
+        col = layout.column(align=True)
+        col.label(text=f"{view.CENTRE_KEY}: centre on point under mouse", icon='INFO')
+        col.label(text="Navigate tool: drag orbit, Shift + drag pan", icon='BLANK1')
+        layout.operator("wm.tool_set_by_id", text="Navigate Tool", icon='ORIENTATION_VIEW').name = "omfs.navigate"
+        if not view.navigation_preferences_ok(context.preferences):
             layout.operator("omfs.navigation_preferences", icon='PREFERENCES')
 
 
