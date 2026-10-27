@@ -134,14 +134,26 @@ def registration_collection(scene):
 
 def point_pairs(scene, scan):
     """[(scan point Empty, CBCT point Empty)], in order. Scan points are children of the scan."""
-    points = {o.omfs.landmark: o for o in scene.objects
-              if o.omfs.made_by == scan.name and o.omfs.landmark.startswith("REG_")}
+    points = {o.omfs.landmark: o for o in registration_points(scene, scan)}
     pairs, i = [], 1
     while f"REG_S{i}" in points or f"REG_T{i}" in points:
         if f"REG_S{i}" in points and f"REG_T{i}" in points:
             pairs.append((points[f"REG_S{i}"], points[f"REG_T{i}"]))
         i += 1
     return pairs
+
+
+def registration_points(scene, scan):
+    return [o for o in scene.objects if o.omfs.made_by == scan.name and o.omfs.landmark.startswith("REG_")]
+
+
+def points_visible(scene, scan):
+    return any(not o.hide_get() for o in registration_points(scene, scan))
+
+
+def set_points_hidden(scene, scan, hide):
+    for obj in registration_points(scene, scan):
+        obj.hide_set(hide)
 
 
 def add_point(scene, scan, point_id, name, location, parent=None):
@@ -494,6 +506,7 @@ class OMFS_OT_refine_icp(bpy.types.Operator):
         props.crown_count = len(indices)
         write_distance_map(scan, indices, distances)
         locking.set_locked(scan, True)
+        set_points_hidden(context.scene, scan, True)   # registration done: hide the point pairs
         self.report({'INFO'}, f"ICP: {iterations} iterations, mean {props.mean:.2f} mm, RMS {props.rms:.2f} mm")
         return {'FINISHED'}
 
@@ -514,6 +527,22 @@ class OMFS_OT_reset_scan(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class OMFS_OT_toggle_point_pairs(bpy.types.Operator):
+    """Show or hide this scan's point pairs"""
+    bl_idname = "omfs.toggle_point_pairs"
+    bl_label = "Toggle Point Pairs"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    scan_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        scan = scan_for(context, self.scan_name)
+        if scan is None:
+            return {'CANCELLED'}
+        set_points_hidden(context.scene, scan, points_visible(context.scene, scan))
+        return {'FINISHED'}
+
+
 class OMFS_OT_toggle_distance_map(bpy.types.Operator):
     """Show the registration distance colours instead of the role colours"""
     bl_idname = "omfs.toggle_distance_map"
@@ -527,7 +556,7 @@ class OMFS_OT_toggle_distance_map(bpy.types.Operator):
 
 classes = (OMFS_RegistrationProperties, OMFS_OT_add_point_pair, OMFS_OT_delete_point_pair,
            OMFS_OT_align_points, OMFS_OT_suggest_crowns, OMFS_OT_paint_crowns, OMFS_OT_finish_painting,
-           OMFS_OT_refine_icp, OMFS_OT_reset_scan, OMFS_OT_toggle_distance_map)
+           OMFS_OT_refine_icp, OMFS_OT_reset_scan, OMFS_OT_toggle_point_pairs, OMFS_OT_toggle_distance_map)
 
 
 def register():

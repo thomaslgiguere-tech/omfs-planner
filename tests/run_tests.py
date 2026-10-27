@@ -227,6 +227,9 @@ def test_registration():
                                scan.matrix_world @ scan.data.vertices[vi].co, parent=scan)
         registration.add_point(scene, scan, f"REG_T{n}", f"CBCT pt {n}", teeth.data.vertices[vi].co)
     assert len(registration.point_pairs(scene, scan)) == 4
+    registration.set_points_hidden(scene, scan, True)
+    assert not registration.points_visible(scene, scan)
+    registration.set_points_hidden(scene, scan, False)
     rms = registration.align_points(scene, scan)
     assert rms < 1e-3, rms
 

@@ -93,6 +93,11 @@ class OMFS_PT_registration(bpy.types.Panel):
         row.operator("omfs.align_points", icon='SNAP_ON').scan_name = name
         if props.points_rms >= 0:
             box.label(text=f"Points RMS: {props.points_rms:.2f} mm")
+        if pairs:
+            visible = registration.points_visible(context.scene, scan)
+            op = box.operator("omfs.toggle_point_pairs", text="Hide Point Pairs" if visible else "Show Point Pairs",
+                              icon='HIDE_OFF' if visible else 'HIDE_ON')
+            op.scan_name = name
 
         box.label(text="2. Crowns used (gingiva excluded)")
         col = box.column(align=True)
