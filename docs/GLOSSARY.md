@@ -33,6 +33,14 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Closest point on mesh** | Finds the nearest surface point to a given point. Used to snap the yellow stars onto the buccal bone. Reads the mesh only. | None. |
 | **Osteotomy plane** *(OMFS Planner)* | Yellow plane placed below the midpoint of the mental foramina, with height, profile angle, frontal angle and posterior extents measured in the reference frame. Apply Cut splits the bone along it. | Plane Cut, but parametric and re-doable. |
 | **Gizmo** | An interactive handle drawn in the 3D view (arrow, ring...) bound to a property: dragging it changes the value, typing the value moves it. The osteotomy has a height arrow, profile and frontal rings, and posterior-extent arrows. | Transform tool arrows and rings. |
+| **Sculpt Mode** | Mode where brushes act on the surface. We only use the Mask brush, on a working copy: it never moves vertices. | Sculpt (but here only for masking). |
+| **Mask (sculpt)** | A 0-1 value painted per vertex (dark grey = masked). Can grow, shrink, smooth, invert. | Select brush (the selection). |
+| **Mask Extract** | Sculpt > Mask > Extract: new object from the masked area, projected on the surface, with a Solidify modifier. | Edit > Extract. |
+| **Modifier stack** | The list of modifiers on an object, applied top to bottom (e.g. Displace for the clearance, then Solidify for the thickness). Non-destructive until applied. Shown in OMFS > Confection de guide > 3. | None (Meshmixer operations are immediate). |
+| **Solidify / Displace / Remesh modifiers** | Solidify: gives a surface a thickness. Displace: pushes it along its normals (clearance). Remesh (voxel): rebuilds a closed, even mesh. | Extract/Offset, Offset, Make Solid. |
+| **3D cursor** | The red-white circle: where new objects appear, oriented by the surface when placed with the Cursor tool (or Shift + right-click). | Drop Pivot. |
+| **Snapping** | Shift+Tab: moved objects stick to the surface under the mouse and can align to its normal. | Transform > Snap / Align. |
+| **Working copy** *(OMFS Planner)* | Copy of the bone or teeth made by Confection de guide; masking and extraction happen on it, the anatomy is only hidden. | Duplicate. |
 | **3D Viewport** | The editor showing the 3D scene. | The main Meshmixer view. |
 | **Editor / Area** | Blender's window is split into areas, and each area shows one editor (3D Viewport, Outliner, ...). | None (Meshmixer has a single fixed layout). |
 | **Region** | A part of an area: header, toolbar (T), sidebar (N), main view. | None. |

@@ -1,8 +1,25 @@
 """Sidebar tab "OMFS" in the 3D viewport (press N to show the sidebar)."""
 
+import textwrap
+
 import bpy
 
-from . import landmarks, locking, osteotomy, params, reference_frame, registration, roles, view
+from . import guide_workshop, landmarks, locking, osteotomy, params, reference_frame, registration, roles, view
+
+
+def draw_text(layout, context, text):
+    """Labels don't wrap in Blender: cut the text to the sidebar width."""
+    chars = max(20, int(context.region.width / (6.5 * context.preferences.system.ui_scale)))
+    col = layout.column(align=True)
+    col.scale_y = 0.8
+    for paragraph in text.split("\n"):
+        for line in textwrap.wrap(paragraph, chars) or [""]:
+            col.label(text=line)
+
+
+def tool_button(layout, tool_id, text=None):
+    t = guide_workshop.TOOLS[tool_id]
+    layout.operator("omfs.guide_tool", text=text or t.label, icon=t.icon).tool = tool_id
 
 
 class OMFS_PT_case(bpy.types.Panel):
@@ -240,7 +257,98 @@ class OMFS_PT_osteotomy(bpy.types.Panel):
             layout.operator("omfs.apply_cut", text="Re-apply Cut", icon='FILE_REFRESH')
 
 
-classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_registration, OMFS_PT_landmarks, OMFS_PT_reference_frame, OMFS_PT_osteotomy)
+class OMFS_PT_guide(bpy.types.Panel):
+    bl_label = "Confection de guide"
+    bl_idname = "OMFS_PT_guide"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.omfs_guide
+        draw_text(layout, context, "Atelier d'outils natifs de Blender. Survolez un bouton pour son "
+                                   "explication, son raccourci et l'équivalent Meshmixer.")
+        layout.prop(props, "source")
+        row = layout.row(align=True)
+        if props.work_copy is None:
+            tool_button(row, 'WORK_COPY')
+        else:
+            row.label(text=props.work_copy.name, icon='DUPLICATE')
+            tool_button(row, 'REMOVE_WORK_COPY', text="")
+        obj = context.active_object
+        layout.label(text=f"Actif: {obj.name if obj else '-'}   Mode: {context.mode.replace('_', ' ').title()}")
+        if context.mode != 'OBJECT':
+            tool_button(layout, 'OBJECT_MODE')
+
+
+def make_guide_section(section_id, title, text):
+    """One collapsible sub-panel per workshop section."""
+    def draw(self, context):
+        layout = self.layout
+        draw_text(layout, context, text)
+        if section_id == 'BOOLEAN':
+            layout.prop(context.scene.omfs_guide, "cutter")
+        col = layout.column(align=True)
+        for t in guide_workshop.tools_in(section_id):
+            tool_button(col, t.id)
+        if section_id == 'SHAPE':
+            draw_modifiers(layout, context.active_object)
+
+    return type(f"OMFS_PT_guide_{section_id.lower()}", (bpy.types.Panel,), {
+        "bl_label": title, "bl_idname": f"OMFS_PT_guide_{section_id.lower()}", "bl_parent_id": "OMFS_PT_guide",
+        "bl_space_type": 'VIEW_3D', "bl_region_type": 'UI', "bl_category": "OMFS",
+        "bl_options": {'DEFAULT_CLOSED'}, "draw": draw,
+    })
+
+
+MODIFIER_FIELDS = {   # the one or two settings worth showing for each modifier type
+    'DISPLACE': ("strength",), 'SOLIDIFY': ("thickness", "offset"), 'SMOOTH': ("factor", "iterations"),
+    'REMESH': ("voxel_size",), 'BOOLEAN': ("object", "operation"),
+}
+
+
+def draw_modifiers(layout, obj):
+    """The active object's modifier stack (the Properties editor is hidden in the OMFS layout)."""
+    if obj is None or obj.type != 'MESH' or not obj.modifiers:
+        return
+    box = layout.box()
+    box.label(text=f"Modificateurs de {obj.name} (dans l'ordre)", icon='MODIFIER')
+    for mod in obj.modifiers:
+        col = box.column(align=True)
+        row = col.row(align=True)
+        row.prop(mod, "show_viewport", text="")
+        row.label(text=mod.name)
+        op = row.operator("object.modifier_remove", text="", icon='X')
+        op.modifier = mod.name
+        for field in MODIFIER_FIELDS.get(mod.type, ()):
+            col.prop(mod, field)
+
+
+class OMFS_PT_guide_recipe(bpy.types.Panel):
+    bl_label = "Recette pas à pas"
+    bl_idname = "OMFS_PT_guide_recipe"
+    bl_parent_id = "OMFS_PT_guide"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        draw_text(layout, context, "[n] = numéro de la section où se trouve l'outil.")
+        for title, steps in guide_workshop.RECIPE:
+            box = layout.box()
+            box.label(text=title, icon='TEXT')
+            for i, step in enumerate(steps, start=1):
+                draw_text(box, context, f"{i}. {step}")
+
+
+GUIDE_SECTION_PANELS = tuple(make_guide_section(*s) for s in guide_workshop.SECTIONS)
+
+classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_registration, OMFS_PT_landmarks, OMFS_PT_reference_frame, OMFS_PT_osteotomy,
+           OMFS_PT_guide, *GUIDE_SECTION_PANELS, OMFS_PT_guide_recipe)
 
 
 def register():

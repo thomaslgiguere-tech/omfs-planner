@@ -20,7 +20,8 @@ import make_test_case  # noqa: E402
 import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
-from omfs_planner import landmarks, osteotomy, reference_frame, registration, roles  # noqa: E402
+from omfs_planner import locking  # noqa: E402
+from omfs_planner import guide_workshop, landmarks, osteotomy, params, reference_frame, registration, roles  # noqa: E402
 
 omfs_planner.register()
 
@@ -249,6 +250,61 @@ def test_registration():
     assert all(abs(s - 1) < 1e-6 for s in scan.matrix_world.to_scale()), "registration must stay rigid"
     assert [tuple(v.co) for v in scan.data.vertices] == [tuple(v.co) for v in teeth.data.vertices], \
         "scan vertices must never change"
+
+
+def test_guide_workshop_tools_are_documented():
+    icons = {i.identifier for i in bpy.types.UILayout.bl_rna.functions["prop"].parameters["icon"].enum_items}
+    for t in guide_workshop.TOOLS.values():
+        assert t.icon in icons, f"{t.id}: unknown icon {t.icon}"
+        assert t.tip and t.meshmixer, f"{t.id}: tooltip incomplete"
+        tip = bpy.types.OMFS_OT_guide_tool.description(bpy.context, type("P", (), {"tool": t.id})())
+        assert "Meshmixer" in tip, tip
+    sections = {s[0] for s in guide_workshop.SECTIONS} | {'START'}
+    assert {t.section for t in guide_workshop.TOOLS.values()} <= sections
+
+
+def test_guide_workshop():
+    scene = bpy.context.scene
+    bone = box_object("Workshop bone", 'BONE', (-300, 0, 0), (40, 20, 20))
+    locking.set_locked(bone, True)
+    vertices_before = [tuple(v.co) for v in bone.data.vertices]
+    scene.omfs_guide.source = bone
+
+    def run(tool_id):
+        error = guide_workshop.TOOLS[tool_id].run(bpy.context)
+        assert error is None, f"{tool_id}: {error}"
+
+    run('WORK_COPY')
+    copy = scene.omfs_guide.work_copy
+    assert copy is not None and copy.data != bone.data and bone.hide_get() and not locking.is_locked(copy)
+
+    # Sculpt operators crash without a window: stand in for Mask Extract's output (a shell with a
+    # Solidify modifier) and test our post-processing of it.
+    guide = box_object("Extracted", 'OTHER', (-300, 0, 10), (40, 20, 0.001))
+    guide.modifiers.new("Solidify", 'SOLIDIFY')
+    guide_workshop.finish_extracted_guide(bpy.context, guide)
+    assert guide.omfs.role == 'GUIDE' and guide.name.startswith("Guide")
+    assert [m.type for m in guide.modifiers] == ['DISPLACE', 'SOLIDIFY'], [m.type for m in guide.modifiers]
+    assert abs(guide.modifiers[1].thickness - params.GUIDE_THICKNESS) < 1e-6
+
+    # Cylinders at the 3D cursor, Boolean, apply.
+    scene.cursor.location = (-300, 0, 10)
+    run('ADD_TUBE')
+    tube = bpy.context.active_object
+    assert abs(tube.dimensions.x - (guide_workshop.sleeve_bore_diameter() + 2 * params.SLEEVE_TUBE_WALL)) < 1e-3
+    guide_workshop.make_active(bpy.context, guide)
+    scene.omfs_guide.cutter = tube
+    run('BOOL_UNION')
+    assert guide.modifiers[-1].type == 'BOOLEAN' and guide.modifiers[-1].object == tube
+    run('ADD_REMESH')
+    run('APPLY_MODIFIERS')
+    assert not guide.modifiers and len(guide.data.polygons) > 0
+
+    bpy.context.view_layer.objects.active = bone
+    assert guide_workshop.editable_active(bpy.context)[1], "locked anatomy must be refused"
+    run('REMOVE_WORK_COPY')
+    assert scene.omfs_guide.work_copy is None and not bone.hide_get()
+    assert [tuple(v.co) for v in bone.data.vertices] == vertices_before, "the bone must never change"
 
 
 def test_empty_folder_is_an_error():

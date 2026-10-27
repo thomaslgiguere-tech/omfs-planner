@@ -25,3 +25,12 @@ ROOT_SAFETY_MARGIN = 3.0      # mm to the tooth roots, TO CONFIRM
 
 # Visual landmark only, never a constraint
 STAR_BELOW_FORAMEN = 5.0      # mm, yellow star below each mental foramen
+
+# Guide design (workshop defaults)
+GUIDE_THICKNESS = 3.0           # mm, guide body away from the saw path
+GUIDE_CLEARANCE = 0.10          # mm gap between bone and guide (fit)
+GUIDE_REMESH_VOXEL = 0.2        # mm, voxel size when remeshing a guide watertight
+SLEEVE_OUTER_DIAMETER = 4.0     # mm, MatrixMANDIBLE sleeve 03.503.045: just under 4 mm, TO MEASURE
+SLEEVE_FIT_CLEARANCE = 0.10     # mm added to the sleeve diameter for the tube bore, TO TEST (print)
+SLEEVE_TUBE_LENGTH = 5.0        # mm
+SLEEVE_TUBE_WALL = 3.0          # mm
