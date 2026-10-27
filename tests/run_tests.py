@@ -88,6 +88,11 @@ def test_place_landmark():
     assert sum(o.omfs.landmark == 'POG' for o in scene.objects) == 1
     assert [tuple(v.co) for v in bone.data.vertices] == vertices_before, "bone mesh changed"
 
+    bpy.ops.omfs.toggle_landmarks()
+    assert pog.hide_get(), "toggle should hide the landmarks"
+    landmarks.place(scene, 'POG', (1, -31, -61), bone)
+    assert not pog.hide_get(), "placing a landmark shows it again"
+
     bpy.ops.omfs.delete_landmark(landmark_id='POG')
     assert landmarks.find(scene, 'POG') is None
 
@@ -186,6 +191,12 @@ def test_osteotomy():
     assert segment.omfs.role == 'SEGMENT' and proximal.omfs.role == 'BONE' and proximal.hide_select
     assert len(bone.data.vertices) == vertices_before and bone.hide_get(), "source must stay intact, hidden"
     assert props.applied_state == repr(osteotomy.state(props))
+
+    helpers = osteotomy.cut_helpers(scene)
+    assert {o.name for o in helpers} == {"Osteotomy plane", "Star R", "Star L"}
+    assert all(o.hide_get() for o in helpers), "applying the cut hides the plane and stars"
+    bpy.ops.omfs.toggle_cut_helpers()
+    assert not any(o.hide_get() for o in helpers)
 
     osteotomy.apply_cut(bpy.context, cut)   # re-applying replaces, never duplicates
     assert sum(o.omfs.made_by == cut.name for o in scene.objects) == 2

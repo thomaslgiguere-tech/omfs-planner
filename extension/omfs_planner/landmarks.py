@@ -40,6 +40,14 @@ def find(scene, landmark_id):
     return None
 
 
+def all_landmarks(scene):
+    return [obj for obj in scene.objects if obj.omfs.role == 'LANDMARK']
+
+
+def landmarks_visible(scene):
+    return any(not obj.hide_get() for obj in all_landmarks(scene))
+
+
 def landmark_collection(scene):
     coll = bpy.data.collections.get(COLLECTION)
     if coll is None:
@@ -63,6 +71,7 @@ def place(scene, landmark_id, location, surface=None):
         obj.omfs.role = 'LANDMARK'
         obj.omfs.landmark = landmark_id
     locking.set_locked(obj, False)
+    obj.hide_set(False)   # placing a landmark shows it, even if the others are hidden
     obj.location = location
     obj.omfs.surface = surface.name if surface else ""
     locking.set_locked(obj, True)  # moved only by placing it again
@@ -180,7 +189,20 @@ class OMFS_OT_delete_landmark(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_OT_place_landmark, OMFS_OT_delete_landmark)
+class OMFS_OT_toggle_landmarks(bpy.types.Operator):
+    """Show or hide all landmarks (e.g. once the reference frame is approved)"""
+    bl_idname = "omfs.toggle_landmarks"
+    bl_label = "Toggle Landmarks"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        hide = landmarks_visible(context.scene)
+        for obj in all_landmarks(context.scene):
+            obj.hide_set(hide)
+        return {'FINISHED'}
+
+
+classes = (OMFS_OT_place_landmark, OMFS_OT_delete_landmark, OMFS_OT_toggle_landmarks)
 
 
 def register():

@@ -168,6 +168,21 @@ def find_cut(scene):
     return None
 
 
+def cut_helpers(scene):
+    """What is drawn to plan the cut: the plane and the stars. Hidden once the cut is applied."""
+    return [obj for obj in scene.objects if obj.omfs.role in ('CUT', 'MARKER') and obj.name in
+            (CUT_NAME, *STAR_NAMES.values())]
+
+
+def cut_helpers_visible(scene):
+    return any(not obj.hide_get() for obj in cut_helpers(scene))
+
+
+def set_cut_helpers_hidden(scene, hide):
+    for obj in cut_helpers(scene):
+        obj.hide_set(hide)
+
+
 def state(props):
     """Everything the cut's shape depends on, to tell when an applied cut is out of date."""
     return (round(props.below_foramina, 3), round(props.profile_angle, 5), round(props.frontal_angle, 5),
@@ -305,6 +320,7 @@ def apply_cut(context, cut):
         obj.omfs.made_by = cut.name
         locking.set_locked(obj, role == 'BONE')
     source.hide_set(True)
+    set_cut_helpers_hidden(context.scene, True)   # the plan is done: show the result
     props.applied_state = repr(state(props))
     return segment, proximal
 
@@ -393,7 +409,19 @@ class OMFS_OT_apply_cut(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_CutProperties, OMFS_OT_add_cut, OMFS_OT_update_cut, OMFS_OT_apply_cut)
+class OMFS_OT_toggle_cut_helpers(bpy.types.Operator):
+    """Show or hide the osteotomy plane, its handles and the yellow stars"""
+    bl_idname = "omfs.toggle_cut_helpers"
+    bl_label = "Toggle Cut Plane and Stars"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        set_cut_helpers_hidden(context.scene, cut_helpers_visible(context.scene))
+        return {'FINISHED'}
+
+
+classes = (OMFS_CutProperties, OMFS_OT_add_cut, OMFS_OT_update_cut, OMFS_OT_apply_cut,
+           OMFS_OT_toggle_cut_helpers)
 
 
 def register():

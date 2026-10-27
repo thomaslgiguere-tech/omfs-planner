@@ -143,6 +143,10 @@ class OMFS_PT_landmarks(bpy.types.Panel):
             op.landmark_id = landmark_id
             if obj:
                 row.operator("omfs.delete_landmark", text="", icon='X').landmark_id = landmark_id
+        if landmarks.all_landmarks(context.scene):
+            visible = landmarks.landmarks_visible(context.scene)
+            layout.operator("omfs.toggle_landmarks", text="Hide Landmarks" if visible else "Show Landmarks",
+                            icon='HIDE_OFF' if visible else 'HIDE_ON')
 
 
 class OMFS_PT_reference_frame(bpy.types.Panel):
@@ -191,6 +195,10 @@ class OMFS_PT_osteotomy(bpy.types.Panel):
         if cut is None:
             layout.operator("omfs.add_cut", icon='MOD_BOOLEAN')
             return
+        visible = osteotomy.cut_helpers_visible(scene)
+        layout.operator("omfs.toggle_cut_helpers",
+                        text="Hide Cut Plane & Stars" if visible else "Show Cut Plane & Stars",
+                        icon='HIDE_OFF' if visible else 'HIDE_ON')
         if not osteotomy.anchor_is_current(scene, cut):
             layout.operator("omfs.update_cut", text="Frame or foramina changed: Update Cut", icon='ERROR')
 
