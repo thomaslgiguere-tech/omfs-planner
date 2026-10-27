@@ -35,3 +35,16 @@ SLEEVE_OUTER_DIAMETER = 4.0     # mm, MatrixMANDIBLE sleeve 03.503.045: just und
 SLEEVE_FIT_CLEARANCE = 0.10     # mm added to the sleeve diameter for the tube bore, TO TEST (print)
 SLEEVE_TUBE_LENGTH = 5.0        # mm
 SLEEVE_TUBE_WALL = 3.0          # mm
+
+# Occlusion seating (virtual, lower arch onto the fixed upper arch)
+OCC_TOLERATED_PENETRATION = 0.2  # mm: the teeth resist only beyond this overlap (0 = stop at contact)
+OCC_CONTACT = 0.3               # mm: closer than this counts as an occlusal contact (green)
+OCC_OVERLAP_STEPS = (0.5, 1.0, 1.5)  # mm: yellow / orange / red bands, magenta beyond the last
+OCC_OVERLAP_RARE = 1.0          # mm: overlap above this is rare, warn, TO CONFIRM
+OCC_OVERLAP_MAX = 1.5           # mm: overlap above this is beyond what is tolerated, TO CONFIRM
+OCC_GAP_FAR = 1.0               # mm: gaps beyond this are grey (no contact)
+OCC_SEARCH_DISTANCE = 5.0       # mm: farther surfaces are ignored by the contact search
+OCC_SAMPLES = 4000              # vertices per arch used by the spring solver
+OCC_SPRING_STEP = 0.25          # fraction of the spring length closed per iteration (animation)
+OCC_MAX_ITERATIONS = 300
+OCC_ANTERIOR_HALF_WIDTH = 15.0  # mm each side of the midline: anterior contacts, beyond = left / right

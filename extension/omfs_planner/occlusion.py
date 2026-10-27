@@ -20,7 +20,7 @@ import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 
-from . import locking, reference_frame, roles
+from . import locking, params, reference_frame, roles
 
 COLLECTION = "Occlusion"
 ARCHES = (   # (id, block name, label)
@@ -290,6 +290,18 @@ class OMFS_OcclusionProperties(bpy.types.PropertyGroup):
     pick_lower: bpy.props.PointerProperty(name="Ajouter", type=bpy.types.Object, poll=_poll_pick,
                                           update=_on_pick('LOWER'),
                                           description="Objet qui bougera avec l'arcade du bas")
+    # Seating (occlusion_seating.py)
+    tolerance: bpy.props.FloatProperty(
+        name="Pénétration tolérée", subtype='DISTANCE', default=params.OCC_TOLERATED_PENETRATION,
+        min=0.0, soft_max=2.0, step=5,
+        description="Les dents ne résistent qu'au-delà de ce chevauchement. 0 = s'arrête au contact ; "
+                    "grand = ajustement pur aux points (tout le chevauchement devient visible)")
+    show_map: bpy.props.BoolProperty()
+    max_overlap: bpy.props.FloatProperty(default=-1.0)
+    area_right: bpy.props.FloatProperty()
+    area_anterior: bpy.props.FloatProperty()
+    area_left: bpy.props.FloatProperty()
+    map_state: bpy.props.StringProperty()
 
 
 class OMFS_OcclusionObjectProperties(bpy.types.PropertyGroup):

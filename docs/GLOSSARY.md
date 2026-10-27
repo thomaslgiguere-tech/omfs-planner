@@ -49,6 +49,11 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Mobile block** *(OMFS Planner)* | Empty (axes) at the centre of an arch, carrying the arch scan and what moves with it as children. Move it with G / R; local axes = reference frame axes. Scale is locked. | None (closest: Combine, which merges the meshes). |
 | **Linked Duplicate (Alt+D)** | A new object that shares the same mesh data: no copy of the vertices, edits show on both. Used for the pre-op ghost. | None (Duplicate always copies). |
 | **Shape fingerprint** *(OMFS Planner)* | A hash of all the vertices and faces, taken when an object joins a block and checked whenever its geometry changes: ✔ = shape untouched. | None. |
+| **Spring (occlusion)** *(OMFS Planner)* | A pair of clicked points, upper then lower arch. Seating pulls the lower block so the springs shorten, while the teeth resist overlap beyond the tolerated penetration. | None in Meshmixer; IPS CaseDesigner's virtual occlusion springs. |
+| **Signed distance** | Distance from a point to a surface, negative when the point is behind the face normal (inside). Overlap between arches = negative distance. | Inspector / Deviation colour map (unsigned). |
+| **Open border** | Edges used by one face only: the cut edge of a scan. Inside/outside means nothing there, so contact tests skip those faces. | Inspector's "holes" (blue). |
+| **Draw handler** | Python code that draws extra lines in the 3D view each redraw (here the zig-zag springs), without creating objects. | None. |
+| **Modal timer** | An operator that runs a little at every timer tick, so the viewport redraws between steps: used to animate seating. Esc cancels. | None. |
 | **Adjust Last Operation (F9)** | The panel at the bottom left after an operation: change its settings and see the result live. | The tool's settings panel before Accept. |
 | **Hide / Reveal (H / Alt+H)** | Hides selected faces in Edit Mode; Sculpt Mode leaves them untouched. Display and protection only. | Freeze / Unfreeze. |
 | **Solidify shell vertex group** | Solidify can write the vertices of one side into a vertex group. With the thickness grown outwards, that side is the original surface (intrados); our "Lisser l'extérieur seulement" smooths everything except that group (inverted Smooth). | None. |

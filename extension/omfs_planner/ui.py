@@ -4,7 +4,7 @@ import textwrap
 
 import bpy
 
-from . import guide_workshop, landmarks, locking, occlusion, osteotomy, params, reference_frame, registration, roles, view
+from . import guide_workshop, landmarks, locking, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, view
 
 
 def draw_text(layout, context, text):
@@ -285,6 +285,65 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             block = occlusion.find_block(context.scene, arch_id)
             if block is not None and occlusion.arch_of(context.scene, arch_id) is not None:
                 self.draw_block(context, layout.box(), props, arch_id, block, label)
+        if occlusion_seating.arches_ready(context.scene):
+            self.draw_seating(context, layout.box(), props)
+
+    def draw_seating(self, context, box, props):
+        scene = context.scene
+        box.label(text="Assise : le bas sur le haut fixe", icon='SNAP_FACE')
+        if props.upper.omfs_reg.rms < 0:
+            warn = box.column()
+            warn.alert = True
+            draw_text(warn, context, "Arcade du haut non recalée : elle est encore dans les coordonnées du "
+                                     "scanner, et le bas (avec son os) y sera assis.")
+        box.label(text="1. Ressorts (3 paires ou plus)")
+        col = box.column(align=True)
+        for (up, _low), length in zip(occlusion_seating.point_pairs(scene), occlusion_seating.spring_lengths(scene)):
+            number = int(up.omfs.landmark[5:])
+            row = col.row(align=True)
+            row.label(text=f"Ressort {number} : {length:.2f} mm", icon='FORCE_HARMONIC')
+            row.operator("omfs.delete_occlusion_pair", text="", icon='X').number = number
+        col.operator("omfs.add_occlusion_pair", icon='ADD')
+        if occlusion_seating.occlusion_points(scene):
+            visible = occlusion_seating.points_visible(scene)
+            col.operator("omfs.toggle_occlusion_points", text="Cacher les ressorts" if visible else "Afficher les ressorts",
+                         icon='HIDE_OFF' if visible else 'HIDE_ON')
+
+        box.label(text="2. Asseoir")
+        box.prop(props, "tolerance")
+        row = box.row()
+        row.enabled = len(occlusion_seating.point_pairs(scene)) >= 3
+        row.operator("omfs.seat_occlusion", icon='PLAY')
+        draw_text(box, context, "Ajustez ensuite à la main : Sélectionner le bloc (bloc inférieur), G / R.")
+
+        box.label(text="3. Chevauchement")
+        box.operator("omfs.toggle_overlap_map", text="Cacher la carte" if props.show_map else "Carte de chevauchement",
+                     icon='COLOR', depress=props.show_map)
+        if props.max_overlap >= 0:
+            current = occlusion_seating.map_is_current(scene)
+            res = box.column(align=True)
+            overlap = props.max_overlap
+            res.alert = overlap > params.OCC_OVERLAP_RARE
+            icon = 'ERROR' if overlap > params.OCC_OVERLAP_RARE else 'CHECKMARK'
+            res.label(text=f"Chevauchement max {overlap:.2f} mm", icon=icon)
+            if overlap > params.OCC_OVERLAP_MAX:
+                res.label(text=f"Au-delà de {params.OCC_OVERLAP_MAX:g} mm : meulage important", icon='BLANK1')
+            elif overlap > params.OCC_OVERLAP_RARE:
+                res.label(text=f"Plus de {params.OCC_OVERLAP_RARE:g} mm : rare, à justifier", icon='BLANK1')
+            if overlap > 3.0:
+                res.label(text="Vérifier : normales inversées ou bords du scan ?", icon='BLANK1')
+            col = box.column(align=True)
+            col.label(text="Surface de contact (mm²)")
+            row = col.row(align=True)
+            for name, area in (("D", props.area_right), ("Ant", props.area_anterior), ("G", props.area_left)):
+                row.label(text=f"{name} {area:.0f}", icon='CHECKMARK' if area > 0 else 'X')
+            if not current:
+                box.operator("omfs.refresh_overlap_map", text="Position changée : actualiser", icon='FILE_REFRESH')
+        if props.show_map:
+            leg = box.column(align=True)
+            leg.scale_y = 0.8
+            for icon, text in occlusion_seating.legend():
+                leg.label(text=text, icon=icon)
 
     def draw_block(self, context, box, props, arch_id, block, label):
         box.label(text=f"Bouge avec {label}", icon='LINKED')

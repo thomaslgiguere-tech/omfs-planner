@@ -12,6 +12,7 @@ import traceback
 from pathlib import Path
 
 import bpy
+import numpy as np
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(REPO / "extension"), str(REPO / "tools")]
@@ -21,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import guide_workshop, landmarks, occlusion, osteotomy, params, reference_frame, registration, roles  # noqa: E402
+from omfs_planner import guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles  # noqa: E402
 
 omfs_planner.register()
 
@@ -441,6 +442,85 @@ def test_occlusion_blocks_are_rigid():
         bpy.data.objects.remove(obj)
     for arch_id in ('UPPER', 'LOWER'):
         bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
+
+
+def dense_box(name, role, center, size):
+    obj = box_object(name, role, center, size)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=12, use_grid_fill=True)
+    bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    bm.to_mesh(obj.data)
+    bm.free()
+    return obj
+
+
+def test_occlusion_springs_and_overlap():
+    scene = bpy.context.scene
+    props = scene.omfs_occlusion
+    upper = dense_box("Upper arch", 'SCAN', (0, 0, 10), (40, 30, 8))    # occlusal surface at z = 6
+    lower = dense_box("Lower arch", 'SCAN', (0, 0, -10), (40, 30, 8))   # occlusal surface at z = -6
+    props.upper, props.lower = upper, lower
+    block = occlusion.find_block(scene, 'LOWER')
+    shape = occlusion.shape_fingerprint(lower)
+    # Springs "want" 1 mm of overlap and a 2 mm shift to the left (+X).
+    for i, (x, y) in enumerate(((-12, -8), (12, -8), (0, 8)), start=1):
+        occlusion_seating.add_point(scene, f"OCC_U{i}", f"Haut {i}", Vector((x + 2, y, 7)), upper)
+        occlusion_seating.add_point(scene, f"OCC_L{i}", f"Bas {i}", Vector((x, y, -6)), lower)
+    bpy.context.view_layer.update()
+    assert len(occlusion_seating.point_pairs(scene)) == 3
+
+    def top_of_lower():
+        return max((lower.matrix_world @ v.co).z for v in lower.data.vertices)
+
+    upside_down = Matrix.Translation((5, 3, -20)) @ Matrix.Rotation(radians(180), 4, 'X')
+    for tolerance, expected, start in ((0.2, 0.2, None), (5.0, 1.0, None), (0.2, 0.2, upside_down)):
+        occlusion.back_to_preop(block)   # resisted at 0.2 mm, pure point fit, then from upside down
+        if start is not None:
+            block.matrix_world = start @ block.matrix_world
+        bpy.context.view_layer.update()
+        props.tolerance = tolerance
+        bpy.ops.omfs.seat_occlusion()
+        overlap = top_of_lower() - 6.0
+        assert abs(overlap - expected) < 0.1, (tolerance, overlap)
+        shift = block.matrix_world.translation.x - occlusion.preop_matrix(block).translation.x
+        assert abs(shift - 2.0) < 0.1, (tolerance, shift)
+        assert abs(props.max_overlap - expected) < 0.15, (tolerance, props.max_overlap)
+        assert props.area_anterior > 0 and props.area_left > 0 and props.area_right > 0
+    assert lower.data.color_attributes.get(occlusion_seating.MAP_ATTRIBUTE) is not None
+    occlusion.back_to_preop(block)
+    bpy.context.view_layer.update()
+    occlusion_seating.add_point(scene, "OCC_U4", "Haut 4", Vector((0, -8, 7)), upper)   # all lower points
+    occlusion_seating.add_point(scene, "OCC_L4", "Bas 4", Vector((0, -8, -6)), lower)  # on y = -8 but one
+    for obj in occlusion_seating.occlusion_points(scene):
+        if obj.omfs.landmark in ("OCC_U3", "OCC_L3"):
+            bpy.data.objects.remove(obj)
+    bpy.context.view_layer.update()
+    assert occlusion_seating.points_spread(scene) < occlusion_seating.MIN_SPREAD   # one line: refused
+    assert occlusion.shape_fingerprint(lower) == shape          # only the block moved
+
+    colours = occlusion_seating.overlap_colours(np.array([-2.0, -1.2, -0.7, -0.2, 0.1, 0.5, 3.0, np.nan]))
+    expected = [occlusion_seating.MAGENTA, occlusion_seating.RED, occlusion_seating.ORANGE, occlusion_seating.YELLOW,
+                occlusion_seating.GREEN, occlusion_seating.BLUE, occlusion_seating.GREY, occlusion_seating.GREY]
+    assert np.allclose(colours, expected), colours
+
+    props.upper = props.lower = None
+    for obj in occlusion_seating.occlusion_points(scene) + [upper, lower]:
+        bpy.data.objects.remove(obj)
+    for arch_id in ('UPPER', 'LOWER'):
+        bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
+
+
+def test_open_border_is_ignored():
+    plane = box_object("Open scan", 'SCAN', (0, 0, 0), (10, 10, 1))
+    bm = bmesh.new()
+    bm.from_mesh(plane.data)
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.normal.z > 0.5], context='FACES')   # open the top
+    bm.to_mesh(plane.data)
+    bm.free()
+    border = occlusion_seating.border_polygons(plane.data)
+    assert border.sum() == 4 and not border.all(), border   # the four side faces touch the hole
+    bpy.data.objects.remove(plane)
 
 
 def test_empty_folder_is_an_error():

@@ -27,6 +27,7 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   locking.py                 lock / unlock anatomy
   ops_import.py              "Import Case" operator
   occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
+  occlusion_seating.py       springs between the arches, seating solver, overlap map
   ui.py                      sidebar tab "OMFS" in the 3D viewport
 app_template/omfs_planner/   Application Template: clean surgical UI + Developer mode
 tools/dev_link.sh            symlinks both into the Blender user dirs (development)
@@ -106,8 +107,8 @@ Millimetres everywhere: **1 Blender unit = 1 mm** (scene unit scale 0.001, lengt
 9. Print-ready export with manifold checks
 
 Orthognathic extension: Le Fort I / BSSO osteotomy design and segment separation, then occlusion
-seating (upper and lower arch scans set into the final occlusion; part 1 done: arches, mobile
-blocks, associations, shape check, pre-op ghost), then movement of the maxillomandibular complex.
+seating (upper and lower arch scans set into the final occlusion; done: arches, mobile blocks,
+associations, shape check, pre-op ghost, springs + overlap map), then movement of the maxillomandibular complex.
 
 ## Interaction rules
 

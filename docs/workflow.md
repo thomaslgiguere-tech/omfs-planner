@@ -202,18 +202,33 @@ Naming used below (matches the object roles in code):
   - Pre-op ghost: semi-transparent linked duplicates (same mesh data) frozen at the pre-op position.
   - Warnings: an arch with associated objects but no teeth registration; a moved block when trying
     to register its scan.
-- Part 2 (to specify with the surgeon): how the final occlusion is obtained and judged.
-  - Source: scan of hand-articulated models in occlusion (register each arch onto it), virtual
-    seating in Blender, or both?
-  - Which arch moves (lower onto a fixed upper, the reverse, or either)?
-  - Help for virtual seating: manual 6-DOF moves with a contact / penetration colour map, cusp-to-fossa
-    point pairs, automatic "settle" (drop to contact, then maximise contacts without penetration).
-  - Criteria shown live, with thresholds: contacts (number, left/right, anterior/posterior), max
-    penetration, overjet, overbite, midlines, molar and canine class, transverse coordination, cant.
-  - Then: movement of the maxillomandibular complex relative to the skull (Step 5), intermediate and
-    final splints?
-- Troubleshooting to keep in mind: open scan meshes make penetration detection unreliable near their
-  borders; orthodontic brackets and wires create false contacts; gingiva overlap.
+- Part 2 (done): virtual seating, modelled on IPS CaseDesigner (KLS Martin) virtual occlusion.
+  - The final occlusion comes entirely from virtual seating in Blender (no scan of articulated models).
+  - The lower arch (and its block) is seated onto the fixed upper arch.
+  - Gesture: click corresponding points on both arches, upper first (e.g. cusp tip), then lower (the
+    fossa it sits in). 3 pairs or more, spread out (incisors + left and right molars). Each pair is a
+    spring, drawn as a zig-zag (green < 0.6 mm, yellow < 2 mm, orange beyond) with its length listed.
+  - "Seat": animated. Phase 1, the lower block glides to the best fit of the springs (works from any
+    start, even a scan exported upside down). Phase 2, the springs keep pulling while the teeth resist
+    any overlap deeper than the "tolerated penetration" (0 = stop at contact; large = pure point fit,
+    all the overlap the springs cause becomes visible). Esc cancels and goes back.
+  - Then fine-tune by hand (select the lower block, G / R); the map refreshes when the movement stops.
+  - What I need to see: overlap map on both arches, in bands: magenta > 1.5 mm, red 1.0-1.5, orange
+    0.5-1.0, yellow 0-0.5 overlap; green contact (gap < 0.3 mm); light blue gap 0.3-1.0; grey > 1.0.
+    Legend in the panel. Deepest overlap in mm (warn > 1.0 mm "rare", alert > 1.5 mm "beyond tolerated":
+    grinding), and contact area right / anterior / left (mm²).
+  - Overlap up to ~1.5 mm can be acceptable, rarely more than 1 mm (values TO CONFIRM, in params.py).
+- Next (to specify): movement of the maxillomandibular complex relative to the skull (Step 5), and
+  intermediate / final splints.
+- Troubleshooting:
+  - Open scan meshes: faces on the open border are ignored by the contact test (the inside/outside
+    sign means nothing there). Case1 scans checked: normals point outward (99.8 %).
+  - Upper and lower scans may each come in the scanner's own frame (Case1: both sit on z = 0, one
+    inside the other). The point-fit phase handles any start; register the upper arch first anyway,
+    otherwise the lower arch (and its bone) is seated in scanner coordinates (warning in the panel).
+  - Points nearly on one line are refused (rotation about that line undetermined).
+  - Overlap > 3 mm usually means inverted normals or a scan border, not real overlap (hint shown).
+  - Orthodontic brackets and wires create false contacts; gingiva can overlap.
 - Nuances: (add here)
 
 ## Open questions
