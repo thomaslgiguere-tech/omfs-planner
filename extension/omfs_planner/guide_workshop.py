@@ -11,7 +11,7 @@ from collections import namedtuple
 
 import bpy
 
-from . import locking, params
+from . import locking, osteotomy, params
 
 COLLECTION = "Guide design"
 MASK_BRUSH = "brushes/essentials_brushes-mesh_sculpt.blend/Brush/Mask"
@@ -33,7 +33,10 @@ SECTIONS = (
     ('BOOLEAN', "4. Cylindres et Boolean (manchons)",
      "Placer le curseur 3D sur l'os, y ajouter un cylindre aux dimensions du manchon, l'orienter, "
      "puis l'unir au guide (tube) ou le soustraire (trou)."),
-    ('CHECK', "5. Vérifier et finir",
+    ('OSTEO', "5. Trait de coupe (bord du guide)",
+     "Coupe le guide exactement dans le plan d'ostéotomie et garde un seul côté: la face plane "
+     "obtenue guide la lame. Si la coupe change dans Osteotomy, recliquez pour recaler le bord."),
+    ('CHECK', "6. Vérifier et finir",
      "Avant d'imprimer: le guide doit être fermé (étanche), sans arête libre."),
 )
 
@@ -518,7 +521,52 @@ tool('BOOL_DIFFERENCE', "Soustraire du guide", 'SELECT_SUBTRACT', 'BOOLEAN',
      "Edit > Boolean Difference", "")(boolean('DIFFERENCE', "Trou"))
 
 
-# --- 5. Check ----------------------------------------------------------------------------
+# --- 5. Osteotomy line ---------------------------------------------------------------------
+
+CUT_EDGE_MODIFIER = "Trait de coupe"
+
+
+def cut_edge(keep_above):
+    def run(context):
+        obj, error = editable_active(context)
+        if error:
+            return error
+        cut = osteotomy.find_cut(context.scene)
+        if cut is None:
+            return "Ajoutez d'abord le plan d'ostéotomie (panneau Osteotomy)"
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        name = f"{CUT_EDGE_MODIFIER} ({obj.name})"
+        verts, faces = osteotomy.half_space_mesh_data(cut.omfs_cut, below=keep_above)
+        mesh = bpy.data.meshes.new(name)
+        mesh.from_pydata(verts, [], faces)
+        box = context.scene.objects.get(name)
+        if box is None:
+            box = bpy.data.objects.new(name, mesh)
+            workshop_collection(context.scene).objects.link(box)
+            box.omfs.role = 'MARKER'      # helper: landmark clicks go through it
+            box.display_type = 'WIRE'
+        else:
+            old_mesh, box.data = box.data, mesh
+            bpy.data.meshes.remove(old_mesh)
+        box.matrix_world = cut.matrix_world
+        box.hide_set(True)                # still used by the Boolean while hidden
+        mod = obj.modifiers.get(CUT_EDGE_MODIFIER) or obj.modifiers.new(CUT_EDGE_MODIFIER, 'BOOLEAN')
+        mod.operation, mod.object, mod.solver = 'DIFFERENCE', box, 'EXACT'
+        return None
+    return run
+
+
+tool('CUT_KEEP_ABOVE', "Garder au-dessus du trait", 'TRIA_UP', 'OSTEO',
+     "Retire tout ce qui est sous le plan d'ostéotomie: le bord inférieur du guide suit le trait de coupe.",
+     "Edit > Plane Cut (garder le dessus)", "")(cut_edge(keep_above=True))
+tool('CUT_KEEP_BELOW', "Garder en dessous du trait", 'TRIA_DOWN', 'OSTEO',
+     "Retire tout ce qui est au-dessus du plan d'ostéotomie: le bord supérieur du guide suit le trait "
+     "de coupe (guide sur le segment).",
+     "Edit > Plane Cut (garder le dessous)", "")(cut_edge(keep_above=False))
+
+
+# --- 6. Check ----------------------------------------------------------------------------
 
 @tool('NON_MANIFOLD', "Montrer les défauts", 'ERROR', 'CHECK',
       "Passe en mode Édition et sélectionne les arêtes non étanches (bords libres, faces en trop). "
@@ -569,7 +617,8 @@ RECIPE = (
         "selon l'axe de la vis, choisir le tube dans « Avec », Unir au guide.",
         "[4] Cylindre trou au même endroit, le choisir dans « Avec », Soustraire du guide.",
         "[3] Remesh étanche, puis Appliquer les modificateurs.",
-        "[5] Montrer les défauts (rien ne doit être sélectionné), Marquer comme guide.",
+        "[5] Garder au-dessus ou en dessous du trait: le bord du guide suit la coupe.",
+        "[6] Montrer les défauts (rien ne doit être sélectionné), Marquer comme guide.",
     )),
     ("Guide de repositionnement (sur les dents)", (
         "Départ: le scan intra-oral recalé. Créer une copie de travail.",
@@ -577,7 +626,7 @@ RECIPE = (
         "[1] Extraire en coque, puis [3] régler Dégagement et Épaisseur.",
         "[2] En mode Édition, sélectionner une zone et l'extruder vers le guide de coupe (bras de connexion).",
         "[4] Boolean avec le guide de coupe placé en position finale, pour l'emboîtement.",
-        "[3] Remesh étanche, Appliquer; [5] Vérifier, Marquer comme guide.",
+        "[3] Remesh étanche, Appliquer; [6] Vérifier, Marquer comme guide.",
     )),
 )
 

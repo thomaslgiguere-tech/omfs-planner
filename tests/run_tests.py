@@ -307,6 +307,25 @@ def test_guide_workshop():
     assert [tuple(v.co) for v in bone.data.vertices] == vertices_before, "the bone must never change"
 
 
+def test_guide_cut_edge():
+    # Uses the cut from test_osteotomy: frame = world axes, plane at z = -45 (flat).
+    scene = bpy.context.scene
+    cut = osteotomy.find_cut(scene)
+    cut.omfs_cut.profile_angle = cut.omfs_cut.frontal_angle = 0
+    plane_z = (cut.matrix_world @ Vector((0, 0, osteotomy.height_on_plane(cut.omfs_cut, 0, 0)))).z
+    for tool_id, check in (('CUT_KEEP_ABOVE', lambda zs: abs(min(zs) - plane_z) < 1e-3 and max(zs) > plane_z),
+                           ('CUT_KEEP_BELOW', lambda zs: abs(max(zs) - plane_z) < 1e-3 and min(zs) < plane_z)):
+        guide = box_object("Edge guide", 'GUIDE', (0, -40, plane_z), (20, 10, 20))
+        guide_workshop.make_active(bpy.context, guide)
+        assert guide_workshop.TOOLS[tool_id].run(bpy.context) is None
+        assert guide_workshop.TOOLS[tool_id].run(bpy.context) is None   # again: updates, no duplicate
+        assert [m.name for m in guide.modifiers] == [guide_workshop.CUT_EDGE_MODIFIER]
+        assert guide_workshop.TOOLS['APPLY_MODIFIERS'].run(bpy.context) is None
+        zs = [(guide.matrix_world @ v.co).z for v in guide.data.vertices]
+        assert check(zs), (tool_id, plane_z, min(zs), max(zs))
+        bpy.data.objects.remove(guide)
+
+
 def test_empty_folder_is_an_error():
     with tempfile.TemporaryDirectory() as folder:
         try:

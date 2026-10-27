@@ -75,14 +75,29 @@ def plane_mesh_data(props):
     return verts, [tuple(range(len(verts)))]
 
 
+def prism(top, bottom):
+    """Closed mesh between two outlines given counter-clockwise from above (outward normals)."""
+    n = len(top)
+    faces = [tuple(range(n)), tuple(range(2 * n - 1, n - 1, -1))]
+    faces += [(i, n + i, n + (i + 1) % n, (i + 1) % n) for i in range(n)]
+    return list(top) + list(bottom), faces
+
+
 def cutter_mesh_data(props):
     """Closed prism: the cut plane on top, vertical walls, everything below is the segment."""
     top, _faces = plane_mesh_data(props)
-    n = len(top)
-    bottom = [(x, y, z - DEPTH) for x, y, z in top]
-    faces = [tuple(range(n)), tuple(range(2 * n - 1, n - 1, -1))]
-    faces += [(i, n + i, n + (i + 1) % n, (i + 1) % n) for i in range(n)]
-    return top + bottom, faces
+    return prism(top, [(x, y, z - DEPTH) for x, y, z in top])
+
+
+HALF_SPACE_REACH = 200.0   # mm: bigger than any guide
+
+
+def half_space_mesh_data(props, below):
+    """Closed box filling one whole side of the cut plane (not limited to the cut outline)."""
+    r = HALF_SPACE_REACH
+    plane = [(x, y, height_on_plane(props, x, y)) for x, y in ((-r, -r), (r, -r), (r, r), (-r, r))]
+    away = [(x, y, z + (-2 * r if below else 2 * r)) for x, y, z in plane]
+    return prism(plane, away) if below else prism(away, plane)
 
 
 # --- Safety distances ----------------------------------------------------------------

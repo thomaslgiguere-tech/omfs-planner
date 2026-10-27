@@ -41,6 +41,7 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **3D cursor** | The red-white circle: where new objects appear, oriented by the surface when placed with the Cursor tool (or Shift + right-click). | Drop Pivot. |
 | **Snapping** | Shift+Tab: moved objects stick to the surface under the mouse and can align to its normal. | Transform > Snap / Align. |
 | **Working copy** *(OMFS Planner)* | Copy of the bone or teeth made by Confection de guide; masking and extraction happen on it, the anatomy is only hidden. | Duplicate. |
+| **Cut edge** *(OMFS Planner)* | Confection de guide > 5: a Boolean Difference with a hidden box filling one side of the osteotomy plane, so the guide's edge lies exactly on the cut and guides the saw. Re-click after changing the cut. | Edit > Plane Cut. |
 | **3D Viewport** | The editor showing the 3D scene. | The main Meshmixer view. |
 | **Editor / Area** | Blender's window is split into areas, and each area shows one editor (3D Viewport, Outliner, ...). | None (Meshmixer has a single fixed layout). |
 | **Region** | A part of an area: header, toolbar (T), sidebar (N), main view. | None. |
