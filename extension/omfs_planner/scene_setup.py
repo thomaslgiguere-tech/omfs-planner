@@ -10,13 +10,13 @@ def set_millimetres(scene):
     units.length_unit = 'MILLIMETERS'
 
 
-SCALE_SLOT = 3   # transform orientation slots: default, move, rotate, scale
-
-
-def set_scale_orientation(scene):
-    """Scale (S) along the object's own axes by default: S then X = the object's X, e.g. a cylinder's
-    diameter, whatever its tilt."""
-    scene.transform_orientation_slots[SCALE_SLOT].type = 'LOCAL'
+def set_local_orientation(scene):
+    """Move, rotate and scale along the object's own axes by default: G / R / S then X = the object's
+    X (e.g. a tilted cylinder's axis). Pressing the axis key twice switches to global."""
+    slots = scene.transform_orientation_slots   # default, then move, rotate, scale
+    slots[0].type = 'LOCAL'
+    for slot in slots[1:]:
+        slot.type = 'DEFAULT'                    # follow the default
 
 
 def setup_viewport(space):
@@ -50,7 +50,7 @@ def frame_all(context):
 
 def setup_scene(context):
     set_millimetres(context.scene)
-    set_scale_orientation(context.scene)
+    set_local_orientation(context.scene)
     for _window, _area, _region, space in view3d_areas(context):
         setup_viewport(space)
 

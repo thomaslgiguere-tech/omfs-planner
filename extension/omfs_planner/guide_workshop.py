@@ -558,7 +558,7 @@ def transform(op_name):
 
 
 tool('MOVE', "Déplacer", 'ORIENTATION_VIEW', 'BOOLEAN',
-     "Bougez la souris; tapez X, Y ou Z pour bloquer un axe (deux fois = axe local), puis une valeur "
+     "Bougez la souris; tapez X, Y ou Z pour bloquer un axe de l'objet (deux fois = axe global), puis une valeur "
      "en mm et Entrée. Clic droit annule.",
      "Transform (flèches)", "G, puis X / Y / Z, puis un nombre")(transform("translate"))
 tool('ROTATE', "Tourner", 'DRIVER_ROTATIONAL_DIFFERENCE', 'BOOLEAN',
