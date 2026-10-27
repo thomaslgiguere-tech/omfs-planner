@@ -8,6 +8,7 @@ Anatomy is never edited: the work happens on a copy of the chosen bone or teeth.
 """
 
 from collections import namedtuple
+from math import radians
 
 import bpy
 
@@ -15,8 +16,12 @@ from . import locking, osteotomy, params
 
 COLLECTION = "Guide design"
 MASK_BRUSH = "brushes/essentials_brushes-mesh_sculpt.blend/Brush/Mask"
+SMOOTH_BRUSH = "brushes/essentials_brushes-mesh_sculpt.blend/Brush/Smooth"
+SHELL_GROUP = "Coque (Solidify)"   # filled by the Solidify modifier, see smooth_outside
 
-Tool = namedtuple("Tool", "id label icon section tip meshmixer shortcut run")
+# operator: a dedicated operator to draw instead of omfs.guide_tool (when the tool needs its own
+# adjustable settings in the Adjust Last Operation panel).
+Tool = namedtuple("Tool", "id label icon section tip meshmixer shortcut run operator")
 TOOLS = {}
 
 # Sections, in panel order: (id, title, short explanation shown above the buttons)
@@ -41,10 +46,10 @@ SECTIONS = (
 )
 
 
-def tool(tool_id, label, icon, section, tip, meshmixer, shortcut=""):
+def tool(tool_id, label, icon, section, tip, meshmixer, shortcut="", operator=None):
     """Register a workshop tool. The function returns None, or an error message for the user."""
     def register_tool(run):
-        TOOLS[tool_id] = Tool(tool_id, label, icon, section, tip, meshmixer, shortcut, run)
+        TOOLS[tool_id] = Tool(tool_id, label, icon, section, tip, meshmixer, shortcut, run, operator)
         return run
     return register_tool
 
@@ -366,6 +371,13 @@ tool('SEL_LESS', "Réduire la sélection", 'REMOVE', 'EDIT', "Retire une rangée
      "Modify > Contract Ring", "Ctrl + pavé -")(mesh_op("mesh.select_less"))
 tool('SEL_LINKED', "Sélection liée", 'LINKED', 'EDIT', "Étend à toute la pièce connectée.",
      "Modify > Select Connected", "Ctrl+L")(mesh_op("mesh.select_linked"))
+tool('SEL_LINKED_FLAT', "Sélection liée par angle", 'MOD_EDGESPLIT', 'EDIT',
+     "Part de la face sélectionnée et s'étend tant que l'angle entre faces voisines reste sous le seuil "
+     f"({params.SELECT_FLAT_ANGLE:.0f}° par défaut). Ex.: cliquer une face de l'intrados, puis ce bouton: "
+     "la sélection couvre l'intrados et s'arrête au rebord. Réglez l'angle en direct dans le panneau "
+     "« Adjust Last Operation » en bas à gauche (F9).",
+     "Aucun équivalent direct (Select > Expand, sans seuil d'angle)", "Select > Select Linked > Linked Flat Faces",
+     operator="omfs.select_linked_flat")(lambda c: None)
 tool('SEL_INVERT', "Inverser la sélection", 'ARROW_LEFTRIGHT', 'EDIT', "Sélectionne tout le reste.",
      "Modify > Invert", "Ctrl+I")(mesh_op("mesh.select_all", action='INVERT'))
 tool('SEL_BOUNDARY', "Bord de la sélection", 'SELECT_SUBTRACT', 'EDIT',
@@ -383,6 +395,48 @@ def extrude(context):
         return error
     with viewport(context):
         bpy.ops.mesh.extrude_region_shrink_fatten('INVOKE_DEFAULT')
+    return None
+
+
+def has_unapplied_thickness(obj):
+    return any(m.type == 'SOLIDIFY' for m in obj.modifiers)
+
+
+@tool('HIDE_AND_SMOOTH', "Cacher la sélection + pinceau Smooth", 'HIDE_ON', 'EDIT',
+      "Cache les faces sélectionnées (ex. l'intrados) puis passe en mode Sculpture avec le pinceau "
+      "Smooth: polissez le reste au glisser, les faces cachées ne bougent pas. F = taille du pinceau. "
+      "« Tout réafficher » à la fin. Uniquement après avoir appliqué l'Épaisseur.",
+      "Freeze (sélection) + Sculpt > Robust Smooth", "H, puis Ctrl+Tab > Sculpt, Maj+S")
+def hide_and_smooth(context):
+    obj, error = editable_active(context)
+    if error:
+        return error
+    if has_unapplied_thickness(obj):
+        return ("Appliquez d'abord les modificateurs: tant que l'Épaisseur n'est pas appliquée, "
+                "le maillage visible EST l'intrados (utilisez plutôt « Lisser l'extérieur seulement »)")
+    if context.mode != 'EDIT_MESH':
+        return "Sélectionnez d'abord en mode Édition les faces à protéger"
+    bpy.ops.mesh.hide(unselected=False)
+    bpy.ops.object.mode_set(mode='SCULPT')
+    try:
+        bpy.ops.brush.asset_activate(asset_library_type='ESSENTIALS', relative_asset_identifier=SMOOTH_BRUSH)
+    except RuntimeError:
+        return "Pinceau Smooth introuvable: choisissez-le dans la barre d'outils de gauche"
+    return None
+
+
+@tool('REVEAL', "Tout réafficher", 'HIDE_OFF', 'EDIT',
+      "Réaffiche les faces cachées (en mode Édition ou Sculpture).", "Unfreeze", "Alt+H")
+def reveal(context):
+    obj, error = editable_active(context)
+    if error:
+        return error
+    if context.mode == 'SCULPT':
+        bpy.ops.paint.hide_show_all(action='SHOW')
+    else:
+        if context.mode != 'EDIT_MESH':
+            bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.reveal(select=False)
     return None
 
 
@@ -411,6 +465,35 @@ tool('ADD_THICKNESS', "Épaisseur (3 mm)", 'MOD_SOLIDIFY', 'SHAPE',
 tool('ADD_SMOOTH', "Lissage", 'MOD_SMOOTH', 'SHAPE',
      "Modificateur Smooth: adoucit toute la forme (à garder léger pour ne pas perdre l'ajustement).",
      "Deform > Smooth", "")(lambda c: add_modifier(c, 'SMOOTH', "Lissage", factor=0.5, iterations=5))
+@tool('SMOOTH_OUTSIDE', "Lisser l'extérieur seulement", 'MOD_SMOOTH', 'SHAPE',
+      "Lisse la face extérieure et le rebord créés par l'Épaisseur, sans toucher l'intrados (qui reste "
+      "ajusté à l'os). Non destructif: force réglable dans la liste (Factor, Iterations).",
+      "Deform > Smooth avec l'intrados en Freeze", "")
+def smooth_outside(context):
+    obj, error = editable_active(context)
+    if error:
+        return error
+    solidify = next((m for m in obj.modifiers if m.type == 'SOLIDIFY'), None)
+    if solidify is None:
+        return "Ajoutez d'abord une Épaisseur (ou extrayez le guide)"
+    if context.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    if SHELL_GROUP not in obj.vertex_groups:
+        obj.vertex_groups.new(name=SHELL_GROUP)   # empty: Solidify fills it
+    solidify.shell_vertex_group = SHELL_GROUP
+    name = "Lissage extérieur"
+    smooth = obj.modifiers.get(name) or obj.modifiers.new(name, 'SMOOTH')
+    smooth.vertex_group = SHELL_GROUP
+    # With the thickness grown outwards (offset > 0), Solidify's "shell" group holds the vertices
+    # left on the original surface, i.e. the intrados: smooth everything else. (Its "rim" group
+    # would also catch the intrados border, so it isn't used.)
+    smooth.invert_vertex_group = solidify.offset > 0
+    smooth.factor, smooth.iterations = 0.5, 10
+    after = list(obj.modifiers).index(solidify) + 1
+    obj.modifiers.move(list(obj.modifiers).index(smooth), after)   # right after the thickness
+    return None
+
+
 tool('ADD_REMESH', "Remesh étanche (0,2 mm)", 'MOD_REMESH', 'SHAPE',
      "Modificateur Remesh (voxels): reconstruit un maillage fermé et régulier, prêt à imprimer. "
      "Plus la taille est petite, plus c'est fidèle (et lourd).",
@@ -646,6 +729,37 @@ class OMFS_GuideProperties(bpy.types.PropertyGroup):
                                       description="Objet outil du Boolean (ex. un cylindre)")
 
 
+def tool_description(t):
+    lines = [t.tip]
+    if t.shortcut:
+        lines.append(f"Raccourci Blender: {t.shortcut}")
+    lines.append(f"Meshmixer: {t.meshmixer}")
+    return "\n".join(lines)
+
+
+class OMFS_OT_select_linked_flat(bpy.types.Operator):
+    """Extend the selection across faces meeting at less than an angle"""
+    bl_idname = "omfs.select_linked_flat"
+    bl_label = "Sélection liée par angle"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    sharpness: bpy.props.FloatProperty(name="Angle maximal", subtype='ANGLE', min=radians(1), max=radians(180),
+                                       default=radians(params.SELECT_FLAT_ANGLE))
+
+    @classmethod
+    def description(cls, context, properties):
+        return tool_description(TOOLS['SEL_LINKED_FLAT'])
+
+    def execute(self, context):
+        error = need_mode(context, 'EDIT_MESH')
+        if error:
+            self.report({'WARNING'}, error)
+            return {'CANCELLED'}
+        bpy.ops.mesh.select_mode(type='FACE')
+        bpy.ops.mesh.faces_select_linked_flat(sharpness=self.sharpness)
+        return {'FINISHED'}
+
+
 class OMFS_OT_guide_tool(bpy.types.Operator):
     """Native Blender tool for guide design"""
     bl_idname = "omfs.guide_tool"
@@ -657,13 +771,7 @@ class OMFS_OT_guide_tool(bpy.types.Operator):
     @classmethod
     def description(cls, context, properties):
         t = TOOLS.get(properties.tool)
-        if t is None:
-            return cls.__doc__
-        lines = [t.tip]
-        if t.shortcut:
-            lines.append(f"Raccourci Blender: {t.shortcut}")
-        lines.append(f"Meshmixer: {t.meshmixer}")
-        return "\n".join(lines)
+        return tool_description(t) if t else cls.__doc__
 
     def execute(self, context):
         t = TOOLS.get(self.tool)
@@ -676,7 +784,7 @@ class OMFS_OT_guide_tool(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_GuideProperties, OMFS_OT_guide_tool)
+classes = (OMFS_GuideProperties, OMFS_OT_select_linked_flat, OMFS_OT_guide_tool)
 
 
 def register():

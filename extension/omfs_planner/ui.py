@@ -19,7 +19,10 @@ def draw_text(layout, context, text):
 
 def tool_button(layout, tool_id, text=None):
     t = guide_workshop.TOOLS[tool_id]
-    layout.operator("omfs.guide_tool", text=text or t.label, icon=t.icon).tool = tool_id
+    if t.operator:   # own operator, so its settings show in Adjust Last Operation (F9)
+        layout.operator(t.operator, text=text or t.label, icon=t.icon)
+    else:
+        layout.operator("omfs.guide_tool", text=text or t.label, icon=t.icon).tool = tool_id
 
 
 class OMFS_PT_case(bpy.types.Panel):

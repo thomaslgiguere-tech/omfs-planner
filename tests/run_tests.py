@@ -326,6 +326,62 @@ def test_guide_cut_edge():
         bpy.data.objects.remove(guide)
 
 
+def bumpy_shell(name):
+    """Open, wavy surface standing in for an extracted guide (before its thickness is applied)."""
+    bm = bmesh.new()
+    bmesh.ops.create_grid(bm, x_segments=20, y_segments=20, size=10)
+    for v in bm.verts:
+        v.co.z = 0.6 * ((v.index * 7919) % 13) / 13   # deterministic bumps
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.omfs.role = 'GUIDE'
+    solidify = obj.modifiers.new("Épaisseur", 'SOLIDIFY')
+    solidify.thickness, solidify.offset = 3.0, 1.0
+    return obj
+
+
+def test_smooth_outside_keeps_intrados():
+    plain, smoothed = bumpy_shell("Plain shell"), bumpy_shell("Smoothed shell")
+    inner = [tuple(v.co) for v in smoothed.data.vertices]
+    guide_workshop.make_active(bpy.context, smoothed)
+    assert guide_workshop.TOOLS['SMOOTH_OUTSIDE'].run(bpy.context) is None
+    assert [m.type for m in smoothed.modifiers] == ['SOLIDIFY', 'SMOOTH']
+    assert guide_workshop.TOOLS['HIDE_AND_SMOOTH'].run(bpy.context), "must refuse while thickness is unapplied"
+    for obj in (plain, smoothed):
+        guide_workshop.make_active(bpy.context, obj)
+        assert guide_workshop.TOOLS['APPLY_MODIFIERS'].run(bpy.context) is None
+    def nearest_distance(obj, point):
+        return min((v.co - Vector(point)).length for v in obj.data.vertices)
+
+    assert max(nearest_distance(smoothed, p) for p in inner) < 1e-5, "the intrados must not move"
+    moved = max(nearest_distance(plain, v.co) for v in smoothed.data.vertices)
+    assert moved > 0.05, f"the outer face should be smoothed ({moved})"
+    for obj in (plain, smoothed):
+        bpy.data.objects.remove(obj)
+
+
+def test_select_linked_flat():
+    cube = box_object("Flat cube", 'GUIDE', (500, 0, 0), (10, 10, 10))
+    guide_workshop.make_active(bpy.context, cube)
+    bpy.ops.object.mode_set(mode='EDIT')
+    for angle, expected in ((40, 1), (100, 6)):   # cube faces meet at 90 degrees
+        bpy.ops.mesh.select_mode(type='FACE')
+        bpy.ops.mesh.select_all(action='DESELECT')
+        bpy.ops.object.mode_set(mode='OBJECT')
+        cube.data.polygons[0].select = True
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.omfs.select_linked_flat(sharpness=radians(angle))
+        bpy.ops.object.mode_set(mode='OBJECT')
+        count = sum(f.select for f in cube.data.polygons)
+        assert count == expected, (angle, count)
+        bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.data.objects.remove(cube)
+
+
 def test_empty_folder_is_an_error():
     with tempfile.TemporaryDirectory() as folder:
         try:

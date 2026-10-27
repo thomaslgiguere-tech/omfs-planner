@@ -41,6 +41,10 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **3D cursor** | The red-white circle: where new objects appear, oriented by the surface when placed with the Cursor tool (or Shift + right-click). | Drop Pivot. |
 | **Snapping** | Shift+Tab: moved objects stick to the surface under the mouse and can align to its normal. | Transform > Snap / Align. |
 | **Working copy** *(OMFS Planner)* | Copy of the bone or teeth made by Confection de guide; masking and extraction happen on it, the anatomy is only hidden. | Duplicate. |
+| **Linked Flat Faces** | Select > Select Linked > Linked Flat Faces: grows a selection across neighbouring faces while the angle between them stays under a threshold (adjust in Adjust Last Operation, F9). Isolates the intrados: it stops at the rim. | None (Select > Expand has no angle limit). |
+| **Adjust Last Operation (F9)** | The panel at the bottom left after an operation: change its settings and see the result live. | The tool's settings panel before Accept. |
+| **Hide / Reveal (H / Alt+H)** | Hides selected faces in Edit Mode; Sculpt Mode leaves them untouched. Display and protection only. | Freeze / Unfreeze. |
+| **Solidify shell vertex group** | Solidify can write the vertices of one side into a vertex group. With the thickness grown outwards, that side is the original surface (intrados); our "Lisser l'extérieur seulement" smooths everything except that group (inverted Smooth). | None. |
 | **Cut edge** *(OMFS Planner)* | Confection de guide > 5: a Boolean Difference with a hidden box filling one side of the osteotomy plane, so the guide's edge lies exactly on the cut and guides the saw. Re-click after changing the cut. | Edit > Plane Cut. |
 | **3D Viewport** | The editor showing the 3D scene. | The main Meshmixer view. |
 | **Editor / Area** | Blender's window is split into areas, and each area shows one editor (3D Viewport, Outliner, ...). | None (Meshmixer has a single fixed layout). |
