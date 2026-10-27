@@ -21,7 +21,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import guide_workshop, landmarks, osteotomy, params, reference_frame, registration, roles  # noqa: E402
+from omfs_planner import guide_workshop, landmarks, occlusion, osteotomy, params, reference_frame, registration, roles  # noqa: E402
 
 omfs_planner.register()
 
@@ -382,6 +382,65 @@ def test_select_linked_flat():
         bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.object.mode_set(mode='OBJECT')
     bpy.data.objects.remove(cube)
+
+
+def assert_same_matrix(a, b, label, tol=1e-4):
+    diff = max(abs(a[i][j] - b[i][j]) for i in range(4) for j in range(4))
+    assert diff < tol, f"{label}: matrices differ by {diff}"
+
+
+def test_occlusion_blocks_are_rigid():
+    scene = bpy.context.scene
+    upper = box_object("Upper scan", 'SCAN', (0, 0, 10), (40, 30, 8))
+    lower = box_object("Lower scan", 'SCAN', (0, 0, -10), (40, 30, 8))
+    bone = box_object("Mandible", 'BONE', (0, 5, -30), (60, 50, 30))
+    lower.matrix_world = Matrix.Translation((1, 2, 3))   # e.g. after its registration
+    bpy.context.view_layer.update()
+    preop_lower, preop_bone = lower.matrix_world.copy(), bone.matrix_world.copy()
+    shape = occlusion.shape_fingerprint(bone)
+
+    props = scene.omfs_occlusion
+    props.upper, props.lower = upper, lower
+    block = occlusion.find_block(scene, 'LOWER')
+    assert lower.parent is block and upper.parent is occlusion.find_block(scene, 'UPPER')
+    props.pick_lower = bone                                # picker adds, then clears itself
+    assert bone.parent is block and props.pick_lower is None
+    bpy.context.view_layer.update()
+    for obj, pose in ((lower, preop_lower), (bone, preop_bone)):
+        assert_same_matrix(obj.matrix_world, pose, f"{obj.name} unchanged on joining")
+    assert occlusion.movement_summary(scene, block) is None
+
+    occlusion.set_ghosts(scene, block, True)
+    ghost = occlusion.ghost_of(bone)
+    assert ghost.data is bone.data                         # linked duplicate: no new mesh data
+    motion = Matrix.Translation((0, -5, 2)) @ Matrix.Rotation(radians(4), 4, 'X')
+    block.matrix_world = motion @ block.matrix_world
+    bpy.context.view_layer.update()
+    assert_same_matrix(bone.matrix_world, motion @ preop_bone, "bone moves with the block")
+    assert_same_matrix(ghost.matrix_world, preop_bone, "ghost stays pre-op")
+    assert occlusion.shape_fingerprint(bone) == shape and occlusion.shape_intact(bone)
+    (_x, y, z), angle, _in_frame = occlusion.movement_summary(scene, block)
+    assert abs(angle - 4) < 1e-3, angle
+
+    occlusion.remove_member(bone)                          # back to pre-op, ghost gone
+    bpy.context.view_layer.update()
+    assert_same_matrix(bone.matrix_world, preop_bone, "removed bone back at pre-op")
+    assert occlusion.ghost_of(bone) is None and bone.name in bpy.data.objects
+
+    occlusion.back_to_preop(block)
+    bpy.context.view_layer.update()
+    assert_same_matrix(lower.matrix_world, preop_lower, "block back to pre-op")
+
+    lower.data.vertices[0].co.x += 0.01                    # any change to the shape is caught
+    lower.data.update()
+    bpy.context.view_layer.update()
+    assert not occlusion.shape_intact(lower)
+
+    props.upper = props.lower = None
+    for obj in (upper, lower, bone, *occlusion.members(block)):
+        bpy.data.objects.remove(obj)
+    for arch_id in ('UPPER', 'LOWER'):
+        bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
 
 
 def test_empty_folder_is_an_error():

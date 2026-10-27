@@ -4,7 +4,7 @@ import textwrap
 
 import bpy
 
-from . import guide_workshop, landmarks, locking, osteotomy, params, reference_frame, registration, roles, view
+from . import guide_workshop, landmarks, locking, occlusion, osteotomy, params, reference_frame, registration, roles, view
 
 
 def draw_text(layout, context, text):
@@ -94,6 +94,11 @@ class OMFS_PT_registration(bpy.types.Panel):
         props = scan.omfs_reg
         name = scan.name
         box.label(text=name, icon='MESH_DATA')
+        if occlusion.is_block(scan.parent) and occlusion.movement_summary(context.scene, scan.parent):
+            col = box.column()
+            col.alert = True
+            draw_text(col, context, f"{scan.parent.name} déplacé : Retour préop (Assise de l'occlusion) "
+                                    "avant de recaler, sinon le recalage mélange pré et postop.")
         col = box.column(align=True)
         col.prop(props, "target")
         col.prop(props, "bone")
@@ -260,6 +265,70 @@ class OMFS_PT_osteotomy(bpy.types.Panel):
             layout.operator("omfs.apply_cut", text="Re-apply Cut", icon='FILE_REFRESH')
 
 
+class OMFS_PT_occlusion(bpy.types.Panel):
+    bl_label = "Assise de l'occlusion"
+    bl_idname = "OMFS_PT_occlusion"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.omfs_occlusion
+        box = layout.box()
+        box.label(text="Empreintes optiques", icon='MESH_DATA')
+        col = box.column(align=True)
+        col.prop(props, "upper")
+        col.prop(props, "lower")
+        for arch_id, _name, label in occlusion.ARCHES:
+            block = occlusion.find_block(context.scene, arch_id)
+            if block is not None and occlusion.arch_of(context.scene, arch_id) is not None:
+                self.draw_block(context, layout.box(), props, arch_id, block, label)
+
+    def draw_block(self, context, box, props, arch_id, block, label):
+        box.label(text=f"Bouge avec {label}", icon='LINKED')
+        col = box.column(align=True)
+        arch = occlusion.arch_of(context.scene, arch_id)
+        for obj in sorted(occlusion.members(block), key=lambda o: o is not arch):
+            row = col.row(align=True)
+            intact = occlusion.shape_intact(obj)
+            row.alert = not intact or bool(obj.modifiers)
+            icon = 'CHECKMARK' if intact and not obj.modifiers else 'ERROR'
+            row.label(text=obj.name, icon=icon)
+            if not intact:
+                row.label(text="FORME MODIFIÉE")
+            elif obj.modifiers:
+                row.label(text="modificateur")
+            if obj is arch:
+                row.label(text="", icon='PINNED')
+            else:
+                row.operator("omfs.remove_from_block", text="", icon='X').object_name = obj.name
+        col.prop(props, f"pick_{arch_id.lower()}", icon='ADD')
+
+        if arch.omfs_reg.rms < 0 and len(occlusion.members(block)) > 1:
+            warn = box.column()
+            warn.alert = True
+            draw_text(warn, context, "Arcade non recalée (Teeth Registration) : l'os et les dents CBCT "
+                                     "suivront une arcade mal placée.")
+
+        summary = occlusion.movement_summary(context.scene, block)
+        status = box.column(align=True)
+        if summary is None:
+            status.label(text="Position préopératoire", icon='CHECKMARK')
+        else:
+            (x, y, z), angle, in_frame = summary
+            names = ("Gauche", "Avant", "Haut") if in_frame else ("X", "Y", "Z")
+            status.label(text="  ".join(f"{n} {v:+.1f}" for n, v in zip(names, (x, y, z))) + " mm", icon='ORIENTATION_GLOBAL')
+            status.label(text=f"Rotation totale {angle:.1f}° (au centre de l'arcade)", icon='BLANK1')
+        row = box.row(align=True)
+        row.operator("omfs.select_block", icon='RESTRICT_SELECT_OFF').arch = arch_id
+        row.operator("omfs.block_preop", icon='LOOP_BACK').arch = arch_id
+        shown = bool(occlusion.ghosts(block))
+        box.operator("omfs.toggle_ghost", text="Cacher le fantôme préop" if shown else "Fantôme préop",
+                     icon='GHOST_ENABLED' if shown else 'GHOST_DISABLED').arch = arch_id
+
+
 class OMFS_PT_guide(bpy.types.Panel):
     bl_label = "Confection de guide"
     bl_idname = "OMFS_PT_guide"
@@ -351,6 +420,7 @@ class OMFS_PT_guide_recipe(bpy.types.Panel):
 GUIDE_SECTION_PANELS = tuple(make_guide_section(*s) for s in guide_workshop.SECTIONS)
 
 classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_registration, OMFS_PT_landmarks, OMFS_PT_reference_frame, OMFS_PT_osteotomy,
+           OMFS_PT_occlusion,
            OMFS_PT_guide, *GUIDE_SECTION_PANELS, OMFS_PT_guide_recipe)
 
 

@@ -6,7 +6,7 @@ This document wins on clinical content; CLAUDE.md wins on architecture, code, ha
 patient-data safety.
 
 Naming used below (matches the object roles in code):
-- **CBCT teeth** [TEETH]: whole teeth with roots, segmented from the CBCT. Dictate the teeth **position**. Never move.
+- **CBCT teeth** [TEETH]: whole teeth with roots, segmented from the CBCT. Dictate the teeth **position**. Mesh data never modified; in orthognathic planning they move only as a rigid block, pre-op position always recoverable.
 - **Scan teeth** [SCAN]: open STL from the intra-oral scan (digital impression), crowns only. Dictate the true crown **shape**.
 
 ## Context
@@ -183,6 +183,37 @@ Naming used below (matches the object roles in code):
   - Mesh is closed and manifold (watertight), no holes or flipped faces, so it slices cleanly for printing.
   - All features are merged into each guide (drill-sleeve tubes, screw holes, engraved labels).
 - File names: case ID + guide type (e.g. CASE01_cutting_guide.stl). Avoid patient names in file names.
+- Nuances: (add here)
+
+## Orthognathic extension: occlusion seating
+
+- Goal: set the upper and lower arch scans (precise intra-oral STLs) against each other in the final
+  post-operative occlusion, the most important goal of orthognathic surgery.
+- Order: comes after the osteotomy design and separation tools for orthognathic surgery (Le Fort I,
+  mandibular osteotomy such as BSSO). Without them, "bone that moves with the arch" can only be whole
+  bones: the whole skull would follow the upper arch, and the condyles would follow the lower arch.
+- Absolute constraint: the scans (and any CBCT mesh moving with them) are moved, never modified.
+  Rigid displacement only; a shape check proves the mesh data is unchanged.
+- Part 1 (done):
+  - Top of the panel: choose which scan is the upper arch and which is the lower arch.
+  - Each arch has a mobile block. Lists "moves with the upper arch" / "moves with the lower arch"
+    associate other objects (CBCT teeth, bone segment, nerve). Optional; one block per object.
+  - Removing an object from a block puts it back at its pre-op position. "Back to pre-op" resets a block.
+  - Pre-op ghost: semi-transparent linked duplicates (same mesh data) frozen at the pre-op position.
+  - Warnings: an arch with associated objects but no teeth registration; a moved block when trying
+    to register its scan.
+- Part 2 (to specify with the surgeon): how the final occlusion is obtained and judged.
+  - Source: scan of hand-articulated models in occlusion (register each arch onto it), virtual
+    seating in Blender, or both?
+  - Which arch moves (lower onto a fixed upper, the reverse, or either)?
+  - Help for virtual seating: manual 6-DOF moves with a contact / penetration colour map, cusp-to-fossa
+    point pairs, automatic "settle" (drop to contact, then maximise contacts without penetration).
+  - Criteria shown live, with thresholds: contacts (number, left/right, anterior/posterior), max
+    penetration, overjet, overbite, midlines, molar and canine class, transverse coordination, cant.
+  - Then: movement of the maxillomandibular complex relative to the skull (Step 5), intermediate and
+    final splints?
+- Troubleshooting to keep in mind: open scan meshes make penetration detection unreliable near their
+  borders; orthodontic brackets and wires create false contacts; gingiva overlap.
 - Nuances: (add here)
 
 ## Open questions

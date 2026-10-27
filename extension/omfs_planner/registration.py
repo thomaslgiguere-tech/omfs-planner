@@ -522,7 +522,8 @@ class OMFS_OT_reset_scan(bpy.types.Operator):
     def execute(self, context):
         scan = scan_for(context, self.scan_name)
         if scan is not None:
-            move_scan(scan, Matrix())
+            home = scan.parent.matrix_world @ scan.matrix_parent_inverse if scan.parent else Matrix()
+            move_scan(scan, home)   # file coordinates, carried by its occlusion block if it has one
             scan.omfs_reg.points_rms = scan.omfs_reg.mean = scan.omfs_reg.rms = scan.omfs_reg.p95 = -1.0
         return {'FINISHED'}
 

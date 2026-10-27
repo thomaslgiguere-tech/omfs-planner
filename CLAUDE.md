@@ -26,6 +26,7 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   mesh_io.py                 STL / OBJ / PLY import with raw coordinates
   locking.py                 lock / unlock anatomy
   ops_import.py              "Import Case" operator
+  occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
   ui.py                      sidebar tab "OMFS" in the 3D viewport
 app_template/omfs_planner/   Application Template: clean surgical UI + Developer mode
 tools/dev_link.sh            symlinks both into the Blender user dirs (development)
@@ -69,8 +70,10 @@ All meshes are typically STL; OBJ and PLY are also supported. Role names in code
 - Intraoral scan STLs, upper/lower jaw, crowns + gingiva, open meshes [SCAN].
 - Clinical photos (later, for natural head position). Patient data: never committed.
 - Import keeps raw file coordinates (forward Y, up Z, scale 1) so all meshes from one case stay registered.
-- **CBCT meshes never move.** The CBCT teeth dictate the teeth **position**; the scan dictates the true
-  crown **shape**. The scan is registered onto the CBCT teeth by a **rigid transform** only
+- **CBCT mesh data is never modified.** In planning, CBCT meshes may move only as a rigid block
+  (parented to a block Empty, see occlusion.py), and the pre-op position is always recoverable.
+  The CBCT teeth dictate the teeth **position**; the scan dictates the true crown **shape**.
+  The scan is registered onto the CBCT teeth by a **rigid transform** only
   (rotation + translation, no scale, vertices untouched).
 - **Anatomy is never reoriented.** The clinical reference frame is a separate object (Empty) built from
   landmarks; movements are expressed in that frame. Export stays in the original patient coordinates.
@@ -101,6 +104,10 @@ Millimetres everywhere: **1 Blender unit = 1 mm** (scene unit scale 0.001, lengt
 8. Guides: surface-to-shell, cutting guide + drill-sleeve tubes, guide fixation holes, text labels,
    tooth-borne positioning guide
 9. Print-ready export with manifold checks
+
+Orthognathic extension: Le Fort I / BSSO osteotomy design and segment separation, then occlusion
+seating (upper and lower arch scans set into the final occlusion; part 1 done: arches, mobile
+blocks, associations, shape check, pre-op ghost), then movement of the maxillomandibular complex.
 
 ## Interaction rules
 

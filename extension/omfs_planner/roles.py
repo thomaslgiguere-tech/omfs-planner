@@ -21,6 +21,7 @@ ROLES = (
     ('LANDMARK', "Landmark", "Anatomical landmark clicked on a surface"),
     ('REFERENCE', "Reference", "Reference frame and its planes"),
     ('CUT', "Cut", "Osteotomy plane"),
+    ('BLOCK', "Block", "Mobile block: Empty carrying an arch and what moves with it"),
     ('MARKER', "Marker", "Visual marker, never a constraint (e.g. star below a foramen)"),
     ('OTHER', "Other", "Anything else"),
 )
@@ -37,6 +38,7 @@ COLORS = {
     'LANDMARK': (1.00, 0.20, 0.60, 1.0), # magenta
     'REFERENCE': (0.30, 0.55, 1.00, 0.15),  # each plane gets its own colour (reference_frame.py)
     'CUT': (1.00, 0.85, 0.10, 0.35),     # transparent yellow
+    'BLOCK': (0.60, 0.60, 0.60, 1.0),    # Empty: colour unused
     'MARKER': (1.00, 0.90, 0.00, 1.0),   # yellow
     'OTHER': (0.60, 0.60, 0.60, 1.0),    # grey
 }
@@ -45,7 +47,7 @@ COLORS = {
 LOCKED_BY_DEFAULT = {'BONE', 'TEETH', 'NERVE', 'SKIN'}
 
 # Helpers drawn in the viewport, not anatomy: clicks to place landmarks go through them.
-NOT_SURFACES = {'LANDMARK', 'REFERENCE', 'CUT', 'MARKER'}
+NOT_SURFACES = {'LANDMARK', 'REFERENCE', 'CUT', 'MARKER', 'BLOCK'}
 
 # Filename keywords, checked in this order (a file called "ios_teeth" is a scan, not teeth,
 # and "mandibular canal" is a nerve, not bone).
