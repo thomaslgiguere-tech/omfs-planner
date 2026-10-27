@@ -10,6 +10,15 @@ def set_millimetres(scene):
     units.length_unit = 'MILLIMETERS'
 
 
+SCALE_SLOT = 3   # transform orientation slots: default, move, rotate, scale
+
+
+def set_scale_orientation(scene):
+    """Scale (S) along the object's own axes by default: S then X = the object's X, e.g. a cylinder's
+    diameter, whatever its tilt."""
+    scene.transform_orientation_slots[SCALE_SLOT].type = 'LOCAL'
+
+
 def setup_viewport(space):
     """Configure one 3D viewport (a SpaceView3D)."""
     space.clip_start = 0.1      # mm: don't cut away anatomy close to the camera
@@ -41,6 +50,7 @@ def frame_all(context):
 
 def setup_scene(context):
     set_millimetres(context.scene)
+    set_scale_orientation(context.scene)
     for _window, _area, _region, space in view3d_areas(context):
         setup_viewport(space)
 

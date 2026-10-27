@@ -48,6 +48,7 @@ def test_import_case():
 
     units = bpy.context.scene.unit_settings
     assert units.length_unit == 'MILLIMETERS' and abs(units.scale_length - 0.001) < 1e-9
+    assert bpy.context.scene.transform_orientation_slots[3].type == 'LOCAL', "scale orientation should be local"
 
     expected = {"mandible_bone": 'BONE', "lower_teeth": 'TEETH', "lowerjaw_scan": 'SCAN'}
     for name, role in expected.items():
