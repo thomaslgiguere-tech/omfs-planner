@@ -4,7 +4,7 @@ import textwrap
 
 import bpy
 
-from . import guide_workshop, landmarks, locking, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, view
+from . import analysis, guide_workshop, landmarks, locking, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, view
 
 
 def draw_text(layout, context, text):
@@ -88,8 +88,8 @@ class OMFS_PT_section(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
         props = scene.omfs_section
-        layout.active = props.enabled
         box = layout.box()
+        box.active = props.enabled
         box.label(text="Section plane", icon='MOD_MIRROR')
         box.row().prop(props, "orientation", expand=True)
         if props.orientation == 'CUSTOM':
@@ -113,12 +113,47 @@ class OMFS_PT_section(bpy.types.Panel):
         row.prop(props, "flip_view", toggle=True, icon='ARROW_LEFTRIGHT')
 
         box = layout.box()
+        box.active = props.enabled
         box.label(text="Section contours", icon='MOD_OUTLINE')
         row = box.row(align=True)
         row.prop(props, "show_contours", toggle=True)
         sub = row.row(align=True)
         sub.active = props.slab_only   # a cap is only visible once the slab hides what covers it
         sub.prop(props, "show_caps", toggle=True)
+        row.prop(props, "show_overlap", toggle=True)
+        if props.show_overlap and props.enabled:
+            plane = section.active_plane(scene)
+            pairs = section_contours.overlaps(scene, plane, context.view_layer.depsgraph) if plane else []
+            col = box.column(align=True)
+            for name_a, name_b, _rows, area in pairs:
+                row = col.row()
+                row.alert = True
+                row.label(text=f"{name_a} × {name_b}: {area:.1f} mm²", icon='ERROR')
+            if not pairs:
+                col.label(text="No overlap on the section", icon='CHECKMARK')
+
+        box = layout.box()
+        box.label(text="Intersection volume (3D)", icon='MOD_BOOLEAN')
+        overlay = analysis.find_intersection(scene)
+        col = box.column(align=True)
+        col.enabled = overlay is None
+        col.prop(props, "inter_a")
+        col.prop(props, "inter_b")
+        box.operator("omfs.show_intersection", text="Remove Intersection" if overlay else "Show Intersection",
+                     icon='X' if overlay else 'MOD_BOOLEAN', depress=overlay is not None)
+        if overlay and analysis.is_snapshot(overlay):
+            if analysis.snapshot_stale(overlay):
+                box.operator("omfs.refresh_intersection", text="Moved: Refresh (a few seconds)", icon='ERROR')
+            else:
+                box.label(text="Snapshot (mesh with open edges): Exact solver", icon='INFO')
+        measured = analysis.cached_volume(overlay) if overlay else None
+        if measured:
+            volume, closed = measured
+            row = box.row()
+            row.alert = volume > 0
+            row.label(text=f"Common volume: {volume:.1f} mm³", icon='ERROR' if volume > 0 else 'CHECKMARK')
+            if not closed:
+                box.label(text="Result not closed: volume approximate", icon='INFO')
 
 
 class OMFS_PT_registration(bpy.types.Panel):

@@ -16,7 +16,7 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 
-from . import params, reference_frame, roles, scene_setup
+from . import analysis, params, reference_frame, roles, scene_setup
 
 # Plane axes (X, Y, Z = normal) in the frame's axes. Normals: up, anterior, left.
 PLANE_AXES = {
@@ -249,6 +249,15 @@ class OMFS_SectionProperties(bpy.types.PropertyGroup):
     show_caps: bpy.props.BoolProperty(
         name="Caps", update=_on_change,
         description="Fill the cut of closed objects, so they don't look hollow in the slab (open scans: outline only)")
+    show_overlap: bpy.props.BoolProperty(
+        name="Overlap", default=True, update=_on_change,
+        description="Red where two visible closed objects interpenetrate on the section, with the area per pair")
+    inter_a: bpy.props.PointerProperty(
+        type=bpy.types.Object, name="A", poll=lambda self, obj: analysis.is_analysable(obj),
+        description="First object (e.g. the guide, the moved segment)")
+    inter_b: bpy.props.PointerProperty(
+        type=bpy.types.Object, name="B", poll=lambda self, obj: analysis.is_analysable(obj),
+        description="Second object (e.g. the bone, the mandible)")
     flip_view: bpy.props.BoolProperty(
         name="Other Side", description="Align View looks at the plane from the other side")
 

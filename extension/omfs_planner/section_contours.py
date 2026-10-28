@@ -9,6 +9,9 @@ A triangle crossing the plane gives one segment. On a closed mesh, the segments 
 closed loops (each crossed edge is shared by two triangles); the loops are filled for the caps,
 row by row (even-odd rule: holes and self-intersecting segmentations are handled).
 An open mesh (intraoral scan) gives open lines: contour only, no cap.
+
+Overlap: two caps filled on the same row grid are intersected row by row; what is inside both
+objects is drawn in red, and its area is the sum of the row lengths times the row step.
 """
 
 import bpy
@@ -21,6 +24,8 @@ from . import params, section
 _meshes = {}       # object name -> (vertex coords (N, 3), triangles (T, 3)), local coordinates
 _heights = {}      # object name -> (normal key, vertex heights, triangle min, triangle max)
 _sections = {}     # object name -> (state key, Section)
+_rows = {}         # object name -> (state key, filled rows of its cap)
+_overlaps = {}     # 'all' -> (state key, [(name A, name B, rows, area mm²)])
 _batches = {}      # (object name, what) -> (state key, GPU batch)
 
 
@@ -193,10 +198,59 @@ def rows_quads(plane, rows):
     return points, tris
 
 
+def object_rows(obj, plane, result):
+    """Filled rows of the object's cap, cached with its section."""
+    state = _sections[obj.name][0]
+    cached = _rows.get(obj.name)
+    if cached is None or cached[0] != state:
+        cached = _rows[obj.name] = (state, cap_rows(plane, result.loops))
+    return cached[1]
+
+
+def rows_intersection(a, b):
+    """Where two fills overlap, row by row: same (row, x start, x end) form."""
+    k = np.concatenate([a[0], a[0], b[0], b[0]])
+    x = np.concatenate([a[1], a[2], b[1], b[2]])
+    na, nb = len(a[0]), len(b[0])
+    in_a = np.concatenate([np.ones(na), -np.ones(na), np.zeros(2 * nb)])
+    in_b = np.concatenate([np.zeros(2 * na), np.ones(nb), -np.ones(nb)])
+    order = np.lexsort((x, k))
+    k, x = k[order], x[order]
+    inside = (np.cumsum(in_a[order]) > 0.5) & (np.cumsum(in_b[order]) > 0.5)   # counts reset each row
+    keep = inside[:-1] & (k[:-1] == k[1:]) & (x[1:] > x[:-1])
+    return k[:-1][keep], x[:-1][keep], x[1:][keep]
+
+
+def overlaps(scene, plane, depsgraph):
+    """Every pair of visible closed objects that interpenetrate on the section:
+    [(name A, name B, rows, area mm²)], largest first. Cached until something moves."""
+    filled = []
+    for obj in section.visible_meshes(scene):
+        result = cut(obj, plane, depsgraph)
+        if result.loops:
+            filled.append((obj, result))
+    key = tuple(_sections[obj.name][0] + (obj.name,) for obj, _result in filled)
+    cached = _overlaps.get('all')
+    if cached and cached[0] == key:
+        return cached[1]
+    rows = [(obj.name, object_rows(obj, plane, result)) for obj, result in filled]
+    found = []
+    for i, (name_a, rows_a) in enumerate(rows):
+        for name_b, rows_b in rows[i + 1:]:
+            both = rows_intersection(rows_a, rows_b)
+            area = rows_area(both)
+            if area >= params.SECTION_OVERLAP_MIN_AREA:
+                found.append((name_a, name_b, both, area))
+    found.sort(key=lambda f: -f[3])
+    _overlaps['all'] = (key, found)
+    return found
+
+
 def forget(name):
-    for cache in (_meshes, _heights, _sections):
+    _overlaps.clear()
+    for cache in (_meshes, _heights, _sections, _rows):
         cache.pop(name, None)
-    for key in [k for k in _batches if k[0] == name]:
+    for key in [k for k in _batches if name in k[0].split("\t")]:   # its own batches and its pairs'
         del _batches[key]
 
 
@@ -210,7 +264,7 @@ def _on_depsgraph_update(scene, depsgraph):
 
 @bpy.app.handlers.persistent
 def _on_load(_dummy):
-    for cache in (_meshes, _heights, _sections, _batches):
+    for cache in (_meshes, _heights, _sections, _rows, _overlaps, _batches):
         cache.clear()
 
 
@@ -223,12 +277,15 @@ def cached_batch(name, what, key, make):
     return cached[1]
 
 
+OVERLAP_COLOUR = (1.0, 0.0, 0.0, 0.85)
+
+
 def cap_colour(obj):
     return (*(v * 0.7 for v in obj.color[:3]), 1.0)
 
 
-def caps_batch(shader, plane, result):
-    points, tris = rows_quads(plane, cap_rows(plane, result.loops))
+def quads_batch(shader, plane, rows):
+    points, tris = rows_quads(plane, rows)
     return batch_for_shader(shader, 'TRIS', {"pos": points}, indices=tris) if len(tris) else None
 
 
@@ -237,32 +294,40 @@ def _draw_contours():
     scene = context.scene
     props = scene.omfs_section
     plane = section.active_plane(scene)
-    if plane is None or not (props.show_contours or props.show_caps):
+    if plane is None or not (props.show_contours or props.show_caps or props.show_overlap):
         return
     depsgraph = context.view_layer.depsgraph
-    region = context.region
-    for obj in section.visible_meshes(scene):
-        result = cut(obj, plane, depsgraph)
-        if not len(result.segments):
-            continue
-        state = _sections[obj.name][0]
-        if props.show_caps and result.loops:
-            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-            batch = cached_batch(obj.name, 'caps', state, lambda: caps_batch(shader, plane, result))
+    cuts = [(obj, cut(obj, plane, depsgraph)) for obj in section.visible_meshes(scene)]
+    cuts = [(obj, result, _sections[obj.name][0]) for obj, result in cuts if len(result.segments)]
+    fill = gpu.shader.from_builtin('UNIFORM_COLOR')
+    if props.show_caps:
+        gpu.state.depth_test_set('LESS_EQUAL')   # hidden by what is in front, inside the slab
+        for obj, result, state in cuts:
+            if result.loops:
+                batch = cached_batch(obj.name, 'caps', state,
+                                     lambda: quads_batch(fill, plane, object_rows(obj, plane, result)))
+                if batch:
+                    fill.uniform_float("color", cap_colour(obj))
+                    batch.draw(fill)
+    gpu.state.depth_test_set('NONE')   # analysis drawn on top: always readable
+    if props.show_overlap:
+        gpu.state.blend_set('ALPHA')
+        fill.uniform_float("color", OVERLAP_COLOUR)
+        for name_a, name_b, rows, _area in overlaps(scene, plane, depsgraph):
+            state = (_sections[name_a][0], _sections[name_b][0])
+            batch = cached_batch(f"{name_a}\t{name_b}", 'overlap', state, lambda: quads_batch(fill, plane, rows))
             if batch:
-                gpu.state.depth_test_set('LESS_EQUAL')   # hidden by what is in front, inside the slab
-                shader.uniform_float("color", cap_colour(obj))
-                batch.draw(shader)
-        if props.show_contours:
-            shader = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
+                batch.draw(fill)
+        gpu.state.blend_set('NONE')
+    if props.show_contours:
+        line = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
+        line.uniform_float("viewportSize", (context.region.width, context.region.height))
+        line.uniform_float("lineWidth", params.SECTION_LINE_WIDTH)
+        for obj, result, state in cuts:
             batch = cached_batch(obj.name, 'lines', state, lambda: batch_for_shader(
-                shader, 'LINES', {"pos": result.segments.reshape(-1, 3)}))
-            gpu.state.depth_test_set('NONE')   # always readable, even behind other surfaces
-            shader.uniform_float("viewportSize", (region.width, region.height))
-            shader.uniform_float("lineWidth", params.SECTION_LINE_WIDTH)
-            shader.uniform_float("color", (*obj.color[:3], 1.0))
-            batch.draw(shader)
-    gpu.state.depth_test_set('NONE')
+                line, 'LINES', {"pos": result.segments.reshape(-1, 3)}))
+            line.uniform_float("color", (*obj.color[:3], 1.0))
+            batch.draw(line)
 
 
 _draw_handle = None

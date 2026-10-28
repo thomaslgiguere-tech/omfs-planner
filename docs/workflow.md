@@ -284,8 +284,19 @@ responsive with CT meshes of several hundred thousand triangles.
    canals and self-intersecting segmentations are handled); visible with Slab Only, since outside
    the slab the object covers its own cap. Open meshes (scans) give an outline only. A master
    checkbox in the panel header turns the whole tool on / off.
-3. Overlap highlight: red where two objects interpenetrate on the section; separate 3D toggle for
-   the exact intersection volume of two picked objects, with its volume in mm³.
+3. Overlap highlight *(done)*: red where two visible closed objects interpenetrate on the section
+   (the two caps intersected row by row), with the area per pair in the panel (below 0.05 mm²
+   ignored: sampling noise). Separate 3D tool: the exact common volume of two picked objects, in
+   red, seen through the bone, with its volume in mm³. It is an overlay object (role Analysis) with
+   a Boolean Intersect modifier; A and B are never modified, "Remove Intersection" deletes it.
+   - Both meshes closed: Manifold solver, live (0.1 s), follows A and B when they move.
+   - A few open edges (common in segmentations; Case1 mandible: 3 of 1.4 million): the Manifold
+     solver refuses them, the Exact solver takes about 5 s on a CT mandible, too slow to follow a
+     drag. So it is computed once (snapshot); "Moved: Refresh" appears when A or B has moved.
+     The result is then not closed either: volume shown as approximate.
+   - Open meshes (scans): no inside, refused.
+   - Segmentations overlap where they touch (Case1: teeth roots inside the mandible, 1325 mm³):
+     read the volume relative to what the two objects are.
 4. Distance map: source surface coloured by distance to a target (defaults red < 1 mm, yellow
    < 2 mm, green beyond; editable), legend, minimum distance and a marker at the closest point.
    Generic: later used for screw-to-root clearance (target margin about 2 mm).

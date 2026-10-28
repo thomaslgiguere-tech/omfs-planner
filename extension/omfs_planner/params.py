@@ -64,3 +64,5 @@ SECTION_THICKNESS_MAX = 10.0    # mm
 SECTION_PLANE_SIZE = 140.0      # mm, smallest square drawn for the plane
 SECTION_LINE_WIDTH = 3.0        # px, contour lines
 SECTION_FILL_STEP = 0.05        # mm between the rows that fill caps and measure overlap areas
+SECTION_OVERLAP_MIN_AREA = 0.05 # mm²: smaller overlaps on the section are noise (row sampling)
+ANALYSIS_MAX_OPEN_EDGES = 0.001 # fraction of edges: up to this many open edges, a mesh is "nearly closed"

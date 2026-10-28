@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours  # noqa: E402
+from omfs_planner import analysis, guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours  # noqa: E402
 
 omfs_planner.register()
 
@@ -695,6 +695,71 @@ def test_section_contours():
 
     for obj in (box, hole, tube, sheet):
         bpy.data.objects.remove(obj)
+
+
+def test_section_overlap_and_intersection():
+    scene = bpy.context.scene
+    props = scene.omfs_section
+    props.use_frame, props.orientation, props.offset = False, 'AXIAL', 0.0
+    a = box_object("Overlap A", 'GUIDE', (0, 0, 0), (20, 10, 10))
+    b = box_object("Overlap B", 'BONE', (10, 0, 0), (10, 10, 10))
+    far = box_object("Overlap far", 'BONE', (0, 40, 0), (5, 5, 5))
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    plane = section.plane_matrix(scene)
+    hidden = [o for o in section.visible_meshes(scene) if o not in (a, b, far)]
+    for obj in hidden:
+        obj.hide_set(True)
+    found = section_contours.overlaps(scene, plane, depsgraph)
+    assert len(found) == 1 and {found[0][0], found[0][1]} == {a.name, b.name}, found
+    assert abs(found[0][3] - 50) < 0.01, ("overlap 5 x 10 mm on the section", found[0][3])
+
+    # 3D: exact common volume, without touching A or B.
+    verts_before = len(a.data.vertices)
+    props.inter_a, props.inter_b = a, b
+    assert bpy.ops.omfs.show_intersection() == {'FINISHED'}
+    overlay = analysis.find_intersection(scene)
+    assert overlay.data == a.data and overlay.omfs.role == 'ANALYSIS', "overlay shares A's mesh"
+    volume, closed = analysis.intersection_volume(overlay, bpy.context.evaluated_depsgraph_get())
+    assert abs(volume - 500) < 0.01 and closed, ("5 x 10 x 10 mm", volume)
+    b.location.x = 2.0   # live: B moves, the Boolean follows
+    volume, _ = analysis.intersection_volume(overlay, bpy.context.evaluated_depsgraph_get())
+    assert abs(volume - 300) < 0.01, ("after moving B 2 mm", volume)
+    assert len(a.data.vertices) == verts_before and not a.modifiers, "A untouched"
+    assert bpy.ops.omfs.show_intersection() == {'FINISHED'} and analysis.find_intersection(scene) is None
+    assert len(a.data.vertices) == verts_before and a.data.users == 1, "removing the overlay leaves A as it was"
+
+    # A nearly closed mesh (a few open edges, like a CT segmentation): Exact solver, snapshot.
+    bm = bmesh.new()
+    bm.from_mesh(b.data)
+    bm.faces.ensure_lookup_table()
+    bm.faces.remove(bm.faces[0])   # 4 open edges out of 12: above the threshold, so allow it here
+    bm.to_mesh(b.data)
+    bm.free()
+    params.ANALYSIS_MAX_OPEN_EDGES, saved = 0.5, params.ANALYSIS_MAX_OPEN_EDGES
+    overlay = analysis.make_intersection(scene, a, b)
+    params.ANALYSIS_MAX_OPEN_EDGES = saved
+    assert analysis.is_snapshot(overlay) and overlay.data != a.data and not analysis.snapshot_stale(overlay)
+    b.location.x = 3.0
+    bpy.context.view_layer.update()   # matrix_world follows on the next evaluation
+    assert analysis.snapshot_stale(overlay), "moving B makes the snapshot stale"
+    snapshot = overlay.data.name
+    analysis.remove_intersection(scene)
+    assert snapshot not in bpy.data.meshes and a.data.users == 1, "snapshot mesh removed with its overlay"
+
+    # An open mesh has no inside: refused.
+    sheet = bpy.data.objects.new("Overlap sheet", bpy.data.meshes.new("Overlap sheet"))
+    bm = bmesh.new()
+    bmesh.ops.create_grid(bm, x_segments=2, y_segments=2, size=5)
+    bm.to_mesh(sheet.data)
+    bm.free()
+    scene.collection.objects.link(sheet)
+    assert isinstance(analysis.make_intersection(scene, a, sheet), str), "open mesh refused"
+
+    props.inter_a = props.inter_b = None
+    for obj in (a, b, far, sheet):
+        bpy.data.objects.remove(obj)
+    for obj in hidden:
+        obj.hide_set(False)
 
 
 def test_empty_folder_is_an_error():
