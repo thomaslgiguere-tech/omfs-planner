@@ -16,7 +16,7 @@ import gpu
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 
-from . import analysis, params, reference_frame, roles, scene_setup
+from . import analysis, distance_map, params, reference_frame, roles, scene_setup
 
 # Plane axes (X, Y, Z = normal) in the frame's axes. Normals: up, anterior, left.
 PLANE_AXES = {
@@ -258,6 +258,22 @@ class OMFS_SectionProperties(bpy.types.PropertyGroup):
     inter_b: bpy.props.PointerProperty(
         type=bpy.types.Object, name="B", poll=lambda self, obj: analysis.is_analysable(obj),
         description="Second object (e.g. the bone, the mandible)")
+    dist_source: bpy.props.PointerProperty(
+        type=bpy.types.Object, name="Source", poll=lambda self, obj: analysis.is_analysable(obj),
+        description="The surface that gets coloured (e.g. the screw, the guide, the moved segment)")
+    dist_target: bpy.props.PointerProperty(
+        type=bpy.types.Object, name="Target", poll=lambda self, obj: analysis.is_analysable(obj),
+        description="Distances are measured to this surface (e.g. the roots, the nerve, the bone)")
+    dist_red: bpy.props.FloatProperty(
+        name="Red below", subtype='DISTANCE', unit='LENGTH', default=params.DIST_RED, min=0, soft_max=10,
+        step=10, precision=1, update=lambda self, context: distance_map.set_thresholds(context.scene))
+    dist_yellow: bpy.props.FloatProperty(
+        name="Yellow below", subtype='DISTANCE', unit='LENGTH', default=params.DIST_YELLOW, min=0, soft_max=10,
+        step=10, precision=1, update=lambda self, context: distance_map.set_thresholds(context.scene),
+        description="Green from this distance on")
+    dist_marker: bpy.props.BoolProperty(
+        name="Closest Point", default=True, update=_on_change,
+        description="Line and label between the closest points of the source and the target")
     flip_view: bpy.props.BoolProperty(
         name="Other Side", description="Align View looks at the plane from the other side")
 

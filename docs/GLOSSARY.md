@@ -105,4 +105,8 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Copy Transforms constraint** | Makes an object take another object's position, rotation and scale, live. Our intersection overlay follows A this way, without parenting it to A. | None. |
 | **Closed (watertight) mesh** | Every edge is shared by exactly two faces: the mesh has an inside and a volume. A scan is open; a CT segmentation can have a few open edges. | Analysis > Inspector (shows holes and non-manifold areas). |
 | **Snapshot** *(OMFS Planner)* | A result computed once and stored in its own mesh, instead of a live modifier: used when the live computation would be too slow to follow a drag. | Every Meshmixer operation (results are always baked). |
+| **Geometry Nodes modifier** | A modifier whose effect is a node graph. Ours (OMFS Distance Map) reads the source and the target and writes per-vertex attributes on the *evaluated* mesh only: the mesh data on disk is never changed, removing the modifier removes the map. | None (Meshmixer has no procedural modifiers). |
+| **Evaluated mesh** | What Blender shows and exports after the modifiers have run, rebuilt whenever an input changes. The original mesh data stays as imported. | None. |
+| **Named attribute** | Extra data per vertex (or face...) stored under a name, e.g. "OMFS distance". A colour attribute can be shown in Solid mode with Color = Attribute. | Vertex colours. |
+| **Geometry Proximity node** | For every point, the nearest point on another geometry's surface and the distance to it. | Analysis > Deviation (colour map of distances between two meshes). |
 

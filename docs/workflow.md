@@ -297,9 +297,16 @@ responsive with CT meshes of several hundred thousand triangles.
    - Open meshes (scans): no inside, refused.
    - Segmentations overlap where they touch (Case1: teeth roots inside the mandible, 1325 mm³):
      read the volume relative to what the two objects are.
-4. Distance map: source surface coloured by distance to a target (defaults red < 1 mm, yellow
-   < 2 mm, green beyond; editable), legend, minimum distance and a marker at the closest point.
-   Generic: later used for screw-to-root clearance (target margin about 2 mm).
+4. Distance map *(done)*: source surface coloured by distance to a target (defaults red < 1 mm,
+   yellow < 2 mm, green beyond; editable live), legend, minimum distance and a marker (line +
+   label) between the closest points. Signed: negative = the source enters the target ("inside").
+   A Geometry Nodes modifier on the source (attributes on the evaluated mesh only; one click
+   removes it), live when either object moves (0.14 s for 100 000 vertices, 0.4 s for a whole CT
+   mandible). The minimum is over the source vertices: on a coarse source it can be slightly
+   larger than the true minimum. Display uses Solid shading "Attribute", so the other objects
+   show white while the map is on (a viewport-wide setting). Generic: later used for
+   screw-to-root clearance (target margin about 2 mm). Case1: a lower root at 0.86 mm from the
+   canal segmentation.
 5. Snapshot: PNG of the section view with plane name, position, thickness and a scale bar, to a
    folder outside the repo (documentation, thesis).
 

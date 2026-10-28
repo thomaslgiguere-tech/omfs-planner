@@ -4,7 +4,7 @@ import textwrap
 
 import bpy
 
-from . import analysis, guide_workshop, landmarks, locking, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, view
+from . import analysis, distance_map, guide_workshop, landmarks, locking, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, view
 
 
 def draw_text(layout, context, text):
@@ -154,6 +154,31 @@ class OMFS_PT_section(bpy.types.Panel):
             row.label(text=f"Common volume: {volume:.1f} mm³", icon='ERROR' if volume > 0 else 'CHECKMARK')
             if not closed:
                 box.label(text="Result not closed: volume approximate", icon='INFO')
+
+        box = layout.box()
+        box.label(text="Distance map", icon='DRIVER_DISTANCE')
+        source, _mod = distance_map.find_map(scene)
+        col = box.column(align=True)
+        col.enabled = source is None
+        col.prop(props, "dist_source")
+        col.prop(props, "dist_target")
+        col = box.column(align=True)
+        col.prop(props, "dist_red")
+        col.prop(props, "dist_yellow")
+        box.operator("omfs.distance_map", text="Remove Distance Map" if source else "Show Distance Map",
+                     icon='X' if source else 'DRIVER_DISTANCE', depress=source is not None)
+        found = distance_map.cached_closest(source) if source else None
+        if found:
+            d = found[0]
+            row = box.row(align=True)
+            row.alert = d < props.dist_red
+            row.label(text=f"Minimum: {d:.2f} mm" if d >= 0 else f"Inside the target: {-d:.2f} mm deep",
+                      icon='ERROR' if d < props.dist_red else 'CHECKMARK')
+            row.prop(props, "dist_marker", text="", icon='EMPTY_SINGLE_ARROW')
+            leg = box.column(align=True)
+            leg.scale_y = 0.8
+            for icon, text in distance_map.legend(props):
+                leg.label(text=text, icon=icon)
 
 
 class OMFS_PT_registration(bpy.types.Panel):

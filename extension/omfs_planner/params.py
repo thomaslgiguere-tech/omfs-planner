@@ -66,3 +66,5 @@ SECTION_LINE_WIDTH = 3.0        # px, contour lines
 SECTION_FILL_STEP = 0.05        # mm between the rows that fill caps and measure overlap areas
 SECTION_OVERLAP_MIN_AREA = 0.05 # mm²: smaller overlaps on the section are noise (row sampling)
 ANALYSIS_MAX_OPEN_EDGES = 0.001 # fraction of edges: up to this many open edges, a mesh is "nearly closed"
+DIST_RED = 1.0                  # mm: distance map red below this (and inside the target)
+DIST_YELLOW = 2.0               # mm: yellow below this, green beyond (screw to root: target margin ~2 mm)

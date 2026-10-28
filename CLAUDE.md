@@ -29,6 +29,9 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
   occlusion_seating.py       springs between the arches, seating solver, overlap map
   section.py                 Section & Analysis: section plane, slab (clipping), radiograph view
+  section_contours.py        live section contours, caps, overlap on the section
+  analysis.py                exact intersection volume (Boolean overlay, live or snapshot)
+  distance_map.py            distance map (Geometry Nodes modifier), closest-point marker
   ui.py                      sidebar tab "OMFS" in the 3D viewport
 app_template/omfs_planner/   Application Template: clean surgical UI + Developer mode
 tools/dev_link.sh            symlinks both into the Blender user dirs (development)

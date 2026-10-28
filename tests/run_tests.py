@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours  # noqa: E402
 
 omfs_planner.register()
 
@@ -760,6 +760,40 @@ def test_section_overlap_and_intersection():
         bpy.data.objects.remove(obj)
     for obj in hidden:
         obj.hide_set(False)
+
+
+def test_distance_map():
+    scene = bpy.context.scene
+    props = scene.omfs_section
+    target = box_object("Distance target", 'TEETH', (0, 0, 0), (10, 10, 10))
+    source = dense_box("Distance source", 'GUIDE', (10, 0, 0), (2, 2, 2))
+    attributes_before = len(source.data.attributes)
+    props.dist_source, props.dist_target = source, target
+    assert bpy.ops.omfs.distance_map() == {'FINISHED'}
+    d, p, q = distance_map.closest(source, bpy.context.evaluated_depsgraph_get())
+    assert abs(d - 4.0) < 1e-3 and abs(p.x - 9) < 1e-3 and abs(q.x - 5) < 1e-3, ("4 mm gap", d, p, q)
+
+    source.location.x = -4.5   # live: 0.5 mm inside the target's x = 5 face
+    d, _p, _q = distance_map.closest(source, bpy.context.evaluated_depsgraph_get())
+    assert abs(d - (-0.5)) < 1e-3, ("negative inside the target", d)
+
+    source.location.x = -2.5   # nearest vertices 1.5 mm from the face: yellow with defaults 1 / 2
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    mesh = source.evaluated_get(depsgraph).data
+    d = np.array([a.value for a in mesh.attributes[distance_map.DISTANCE].data])
+    colours = np.array([a.color for a in mesh.attributes[distance_map.COLOUR].data])
+    i = int(np.argmin(d))
+    assert abs(d[i] - 1.5) < 1e-3 and np.allclose(colours[i], distance_map.YELLOW), (d[i], colours[i])
+    props.dist_yellow = 1.4   # thresholds are live modifier inputs
+    mesh = source.evaluated_get(bpy.context.evaluated_depsgraph_get()).data
+    assert np.allclose(mesh.attributes[distance_map.COLOUR].data[i].color, distance_map.GREEN), "now green"
+    props.dist_yellow = params.DIST_YELLOW
+
+    assert len(source.data.attributes) == attributes_before, "the source mesh itself gets no attribute"
+    assert bpy.ops.omfs.distance_map() == {'FINISHED'} and not source.modifiers, "one click removes the map"
+    props.dist_source = props.dist_target = None
+    for obj in (source, target):
+        bpy.data.objects.remove(obj)
 
 
 def test_empty_folder_is_an_error():
