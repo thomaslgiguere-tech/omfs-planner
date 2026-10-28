@@ -172,6 +172,11 @@ def _on_depsgraph_update(scene, depsgraph):
 
 # --- Drawing ----------------------------------------------------------------------
 
+def snapshot_in_progress():
+    from . import snapshot   # snapshot imports this module
+    return snapshot._snapshotting
+
+
 def square_corners(m, centre, half):
     x, y = m.col[0].xyz * half, m.col[1].xyz * half
     return [centre - x - y, centre + x - y, centre + x + y, centre - x + y]
@@ -181,7 +186,7 @@ def _draw_plane():
     scene = bpy.context.scene
     props = scene.omfs_section
     m = active_plane(scene)
-    if m is None or not props.show_plane:
+    if m is None or not props.show_plane or snapshot_in_progress():
         return
     centre, half = plane_square(scene)
     corners = square_corners(m, centre, half)
@@ -274,6 +279,12 @@ class OMFS_SectionProperties(bpy.types.PropertyGroup):
     dist_marker: bpy.props.BoolProperty(
         name="Closest Point", default=True, update=_on_change,
         description="Line and label between the closest points of the source and the target")
+    show_caption: bpy.props.BoolProperty(
+        name="Caption", default=True, update=_on_change,
+        description="Plane, position, thickness and (orthographic views) a scale bar in the viewport corner")
+    snapshot_dir: bpy.props.StringProperty(
+        name="Folder", subtype='DIR_PATH',
+        description="Where snapshots are saved. Outside the git repository: they show patient anatomy")
     flip_view: bpy.props.BoolProperty(
         name="Other Side", description="Align View looks at the plane from the other side")
 

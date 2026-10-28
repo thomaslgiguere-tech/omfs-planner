@@ -307,8 +307,13 @@ responsive with CT meshes of several hundred thousand triangles.
    show white while the map is on (a viewport-wide setting). Generic: later used for
    screw-to-root clearance (target margin about 2 mm). Case1: a lower root at 0.86 mm from the
    canal segmentation.
-5. Snapshot: PNG of the section view with plane name, position, thickness and a scale bar, to a
-   folder outside the repo (documentation, thesis).
+5. Snapshot *(done)*: PNG of the section view with plane name, position, thickness and a scale
+   bar, to a folder outside the repo (documentation, thesis). The caption and scale bar are also
+   drawn live in the viewport corner ("Caption"); the scale bar needs an orthographic view
+   (Align View), a perspective view has no single scale. The PNG is the viewport redrawn
+   offscreen at its on-screen size, without Blender's interface, grid or 3D cursor. A folder
+   inside the git repository is refused. File name:
+   `section_<plane>_<position>mm_<thickness>mm_<date-time>.png`.
 
 ## Open questions
 

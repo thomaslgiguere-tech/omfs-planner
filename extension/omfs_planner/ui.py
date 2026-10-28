@@ -4,7 +4,7 @@ import textwrap
 
 import bpy
 
-from . import analysis, distance_map, guide_workshop, landmarks, locking, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, view
+from . import analysis, distance_map, guide_workshop, landmarks, locking, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, view
 
 
 def draw_text(layout, context, text):
@@ -131,6 +131,20 @@ class OMFS_PT_section(bpy.types.Panel):
                 row.label(text=f"{name_a} × {name_b}: {area:.1f} mm²", icon='ERROR')
             if not pairs:
                 col.label(text="No overlap on the section", icon='CHECKMARK')
+
+        box = layout.box()
+        box.active = props.enabled
+        box.label(text="Snapshot", icon='IMAGE_DATA')
+        box.prop(props, "show_caption", toggle=True, icon='FONT_DATA')
+        box.prop(props, "snapshot_dir", text="")
+        problem = snapshot.folder_problem(props.snapshot_dir)
+        row = box.row()
+        row.enabled = problem is None and props.enabled
+        row.operator("omfs.section_snapshot", icon='RENDER_STILL')
+        if problem and props.snapshot_dir:
+            warn = box.column()
+            warn.alert = True
+            draw_text(warn, context, problem)
 
         box = layout.box()
         box.label(text="Intersection volume (3D)", icon='MOD_BOOLEAN')

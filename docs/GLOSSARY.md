@@ -109,4 +109,6 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Evaluated mesh** | What Blender shows and exports after the modifiers have run, rebuilt whenever an input changes. The original mesh data stays as imported. | None. |
 | **Named attribute** | Extra data per vertex (or face...) stored under a name, e.g. "OMFS distance". A colour attribute can be shown in Solid mode with Color = Attribute. | Vertex colours. |
 | **Geometry Proximity node** | For every point, the nearest point on another geometry's surface and the distance to it. | Analysis > Deviation (colour map of distances between two meshes). |
+| **Offscreen render (GPUOffScreen)** | Draws a 3D view again into an invisible image instead of the screen: same scene, same shading and clipping, but none of the interface. Our snapshots use it, then draw the contours and caption on top. | File > Export screenshot (but that one captures the interface). |
+| **Scale bar (orthographic)** | In an orthographic view one millimetre has the same length everywhere on screen, so a bar of known length is a true scale. In perspective, nearer things look bigger: no single scale. | None. |
 

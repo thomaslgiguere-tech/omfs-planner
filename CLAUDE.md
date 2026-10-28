@@ -32,6 +32,7 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   section_contours.py        live section contours, caps, overlap on the section
   analysis.py                exact intersection volume (Boolean overlay, live or snapshot)
   distance_map.py            distance map (Geometry Nodes modifier), closest-point marker
+  snapshot.py                section caption + scale bar, PNG snapshot (offscreen render)
   ui.py                      sidebar tab "OMFS" in the 3D viewport
 app_template/omfs_planner/   Application Template: clean surgical UI + Developer mode
 tools/dev_link.sh            symlinks both into the Blender user dirs (development)
@@ -63,6 +64,16 @@ docs/APP_TEMPLATE.md         what the template hides, and what can't be hidden w
 - Never monkeypatch methods of a registered class (e.g. a GizmoGroup's draw_prepare) or call
   `wm.redraw_timer` from an MCP script: Blender crashed. Debug gizmos in a separate instance.
 - A live reload doesn't always rebuild gizmo groups; restart Blender to check gizmo changes.
+- Clipping planes: `rv3d.use_clip_planes = True` alone clips nothing; run `view3d.clip_border` once
+  (in a region override), then overwrite `rv3d.clip_planes`. A point is kept when n . p + d >= 0.
+- `screen.screenshot_area` returns the last drawn frame, which can be stale (window not redrawn,
+  e.g. unfocused): for images of the view use `GPUOffScreen.draw_view3d` (Python draw handlers are
+  not included: draw them into the offscreen yourself). `look` (MCP) doesn't show draw handlers either.
+- Blender 5 Geometry Nodes modifier inputs: `mod.properties.inputs.<socket identifier>.value`
+  (`mod["Socket_1"]` no longer works).
+- GPU index buffers need 4-byte ints: numpy arithmetic silently upcasts int32 to int64.
+- `mathutils.geometry.tessellate_polygon` mis-fills complex CT section loops (bridges separate
+  regions): fill sections row by row with the even-odd rule instead (section_contours.fill_rows).
 - Reload the extension live without `script.reload` (it would restart the MCP add-on): disable,
   drop `bl_ext.user_default.omfs_planner*` from `sys.modules`, enable.
 

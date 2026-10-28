@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot  # noqa: E402
 
 omfs_planner.register()
 
@@ -794,6 +794,36 @@ def test_distance_map():
     props.dist_source = props.dist_target = None
     for obj in (source, target):
         bpy.data.objects.remove(obj)
+
+
+def test_snapshot_helpers():
+    from types import SimpleNamespace as NS
+    assert snapshot.bar_length(12.0) == 10, "10 mm bar at 12 px/mm (120 px)"
+    assert snapshot.bar_length(1.0) == 100 and snapshot.bar_length(300.0) == 0.5
+    assert "repository" in snapshot.folder_problem(str(REPO / "docs")), "never inside the repo"
+    assert snapshot.folder_problem("") and snapshot.folder_problem("/no/such/folder")
+    with tempfile.TemporaryDirectory() as folder:
+        assert snapshot.folder_problem(folder) is None
+        scene = bpy.context.scene
+        scene.omfs_section.orientation, scene.omfs_section.offset = 'CORONAL', -12.34
+        name = snapshot.snapshot_name(scene)
+        assert name.startswith("section_coronal_-12.3mm_") and name.endswith(".png"), name
+
+        # Visible part of a 100 x 60 viewport: sidebar over the right 30 px, header over the top 10 px.
+        window = NS(type='WINDOW', x=0, y=0, width=100, height=60)
+        area = NS(x=0, y=0, regions=[window, NS(type='UI', x=70, y=0, width=30, height=60),
+                                     NS(type='TOOLS', x=0, y=0, width=1, height=60),
+                                     NS(type='HEADER', x=0, y=50, width=100, height=10)])
+        assert snapshot.visible_rect(area, window) == (0, 0, 70, 50), snapshot.visible_rect(area, window)
+
+        pixels = np.zeros((50, 70, 4), np.float32)
+        pixels[..., 0], pixels[..., 3] = 1, 1
+        out = str(Path(folder) / "out.png")
+        snapshot.save_png(pixels, out)
+        result = bpy.data.images.load(out)
+        assert tuple(result.size) == (70, 50), result.size
+        bpy.data.images.remove(result)
+    scene.omfs_section.orientation, scene.omfs_section.offset = 'AXIAL', 0.0
 
 
 def test_empty_folder_is_an_error():
