@@ -237,6 +237,17 @@ Naming used below (matches the object roles in code):
   - Overlap up to ~1.5 mm can be acceptable, rarely more than 1 mm (values TO CONFIRM, in params.py).
 - Next (to specify): movement of the maxillomandibular complex relative to the skull (Step 5), and
   intermediate / final splints.
+- Future tab "Mouvement chx orthognathique", idea noted by the surgeon: control of the rotation point
+  (pivot) of the maxillomandibular segment.
+  - The pivot decides what stays put during a rotation: e.g. correct the pitch from the posterior or
+    from the anterior (and vice versa).
+  - A movable pivot with a gizmo in the viewport, repositioned at any time while working, before the
+    transformation is locked. Example sequence: shift the maxilla laterally; put the pivot on the
+    midline and work the yaw there; once the lateral centring is right, move the pivot posteriorly
+    to control the pitch (superior / inferior) of the posterior maxilla.
+  - Moving the pivot never moves the segment; the numbers stay expressed in the reference frame.
+  - Ideas to confirm: snap the pivot to landmarks (upper incisor midpoint, PNS, molars, condyles),
+    show the pivot's position in clinical terms.
 - Troubleshooting:
   - Open scan meshes: faces on the open border are ignored by the contact test (the inside/outside
     sign means nothing there). Case1 scans checked: normals point outward (99.8 %).
