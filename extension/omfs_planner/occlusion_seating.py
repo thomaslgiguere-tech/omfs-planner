@@ -46,13 +46,13 @@ def legend():
     a, b, c = params.OCC_OVERLAP_STEPS
     contact, far = params.OCC_CONTACT, params.OCC_GAP_FAR
     return [
-        ('SEQUENCE_COLOR_07', f"Chevauchement > {c:g} mm"),
-        ('SEQUENCE_COLOR_01', f"Chevauchement {b:g} – {c:g} mm"),
-        ('SEQUENCE_COLOR_02', f"Chevauchement {a:g} – {b:g} mm"),
-        ('SEQUENCE_COLOR_03', f"Chevauchement 0 – {a:g} mm"),
-        ('SEQUENCE_COLOR_04', f"Contact (écart < {contact:g} mm)"),
-        ('SEQUENCE_COLOR_05', f"Écart {contact:g} – {far:g} mm"),
-        ('SEQUENCE_COLOR_09', f"Écart > {far:g} mm"),
+        ('STRIP_COLOR_07', f"Chevauchement > {c:g} mm"),
+        ('STRIP_COLOR_01', f"Chevauchement {b:g} – {c:g} mm"),
+        ('STRIP_COLOR_02', f"Chevauchement {a:g} – {b:g} mm"),
+        ('STRIP_COLOR_03', f"Chevauchement 0 – {a:g} mm"),
+        ('STRIP_COLOR_04', f"Contact (écart < {contact:g} mm)"),
+        ('STRIP_COLOR_05', f"Écart {contact:g} – {far:g} mm"),
+        ('STRIP_COLOR_09', f"Écart > {far:g} mm"),
     ]
 
 
@@ -148,16 +148,47 @@ def occlusion_points(scene):
     return [o for o in scene.objects if o.omfs.made_by == MADE_BY and o.omfs.landmark.startswith("OCC_")]
 
 
+CANINES = (   # (key, label): the two canine springs, weighted more than the others
+    ('CR', "Canine droite"),
+    ('CL', "Canine gauche"),
+)
+
+
+def pair_key(point):
+    """'1', '2', ... for ordinary springs, 'CR' / 'CL' for the canine springs."""
+    return point.omfs.landmark[5:]
+
+
+def is_canine(point):
+    return pair_key(point) in dict(CANINES)
+
+
+def pair_label(point):
+    key = pair_key(point)
+    return dict(CANINES).get(key, f"Ressort {key}")
+
+
 def point_pairs(scene):
-    """[(upper point, lower point)] in order. Each point is a child of its arch scan."""
+    """[(upper point, lower point)]: canines first, then the numbered springs in order.
+    Each point is a child of its arch scan."""
     points = {o.omfs.landmark: o for o in occlusion_points(scene)}
-    numbers = sorted({int(lm[5:]) for lm in points})
-    return [(points[f"OCC_U{i}"], points[f"OCC_L{i}"]) for i in numbers
-            if f"OCC_U{i}" in points and f"OCC_L{i}" in points]
+    keys = {lm[5:] for lm in points}
+    ordered = [k for k, _label in CANINES if k in keys] + sorted((k for k in keys if k.isdigit()), key=int)
+    return [(points[f"OCC_U{k}"], points[f"OCC_L{k}"]) for k in ordered
+            if f"OCC_U{k}" in points and f"OCC_L{k}" in points]
+
+
+def pair_weights(scene, canine_weight):
+    return np.array([canine_weight if is_canine(up) else 1.0 for up, _low in point_pairs(scene)])
 
 
 def next_pair_number(scene):
-    return max((int(o.omfs.landmark[5:]) for o in occlusion_points(scene)), default=0) + 1
+    return max((int(pair_key(o)) for o in occlusion_points(scene) if pair_key(o).isdigit()), default=0) + 1
+
+
+def remove_pair(scene, key):
+    for obj in [o for o in occlusion_points(scene) if o.omfs.landmark in (f"OCC_U{key}", f"OCC_L{key}")]:
+        bpy.data.objects.remove(obj)
 
 
 def add_point(scene, point_id, name, location, arch):
@@ -205,13 +236,14 @@ def rigid_rows(points, normals, centre):
     return np.hstack((np.cross(v, normals), normals))
 
 
-def seat_step(scene, tolerance, spring_share=params.OCC_SPRING_SHARE):
+def seat_step(scene, tolerance, spring_share=params.OCC_SPRING_SHARE, canine_weight=params.OCC_CANINE_WEIGHT):
     """One iteration: a small rigid motion of the lower block. Three efforts, solved together:
     - springs pull each lower point a fraction of the way towards its upper point;
     - the magnet closes the gaps between the arches (within range), like pushing the models together;
     - the teeth push back any overlap deeper than the tolerance (a constraint: it wins).
     Springs and magnet share the guidance (spring_share vs 1 - spring_share); each group is weighted
-    as a whole, so a thousand magnet points don't drown three springs.
+    as a whole, so a thousand magnet points don't drown three springs. Within the springs, each
+    canine spring counts canine_weight times an ordinary one.
     Returns (translation mm, rotation deg) applied."""
     props = scene.omfs_occlusion
     upper, lower = props.upper, props.lower
@@ -222,10 +254,11 @@ def seat_step(scene, tolerance, spring_share=params.OCC_SPRING_SHARE):
     pairs = point_pairs(scene)
     if pairs:
         rows, rhs = [], []
-        for up, low in pairs:
+        weights = pair_weights(scene, canine_weight)
+        for (up, low), w in zip(pairs, np.sqrt(weights / weights.mean())):
             p, q = np.array(low.matrix_world.translation), np.array(up.matrix_world.translation)
-            rows.append(np.hstack((-skew(p - centre), np.eye(3))))
-            rhs.append((q - p) * params.OCC_SPRING_STEP)
+            rows.append(w * np.hstack((-skew(p - centre), np.eye(3))))
+            rhs.append(w * (q - p) * params.OCC_SPRING_STEP)
         groups.append((np.vstack(rows), np.concatenate(rhs), spring_share))
 
     # Lower vertices against the upper surface (move along the upper normal), and upper vertices
@@ -285,23 +318,24 @@ def points_spread(scene):
     return float(np.linalg.svd(lower - lower.mean(axis=0), compute_uv=False)[1]) if len(lower) >= 3 else 0.0
 
 
-def point_fit(scene):
-    """World matrix of the lower block after a pure least-squares fit of the springs (Kabsch):
-    gets there from any starting pose, even a scan exported upside down."""
+def point_fit(scene, canine_weight=params.OCC_CANINE_WEIGHT):
+    """World matrix of the lower block after a pure least-squares fit of the springs (Kabsch,
+    canines weighted): gets there from any starting pose, even a scan exported upside down."""
     block = occlusion.find_block(scene, 'LOWER')
     lower, upper = pair_arrays(scene)
-    fit = Matrix(registration.rigid_fit(lower, upper).tolist())
+    fit = Matrix(registration.rigid_fit(lower, upper, pair_weights(scene, canine_weight)).tolist())
     return registration.as_rigid(fit @ block.matrix_world)
 
 
-def seat(scene, tolerance, spring_share=params.OCC_SPRING_SHARE, max_iterations=params.OCC_MAX_ITERATIONS):
+def seat(scene, tolerance, spring_share=params.OCC_SPRING_SHARE, canine_weight=params.OCC_CANINE_WEIGHT,
+         max_iterations=params.OCC_MAX_ITERATIONS):
     """Run the solver to the end (no animation): point fit, then springs against contact.
     Returns the number of contact iterations."""
     block = occlusion.find_block(scene, 'LOWER')
-    block.matrix_world = point_fit(scene)
+    block.matrix_world = point_fit(scene, canine_weight)
     bpy.context.view_layer.update()
     for i in range(1, max_iterations + 1):
-        if converged(seat_step(scene, tolerance, spring_share)):
+        if converged(seat_step(scene, tolerance, spring_share, canine_weight)):
             return i
     return max_iterations
 
@@ -447,7 +481,7 @@ def _draw_springs():
         p, q = low.matrix_world.translation, up.matrix_world.translation
         batch = batch_for_shader(shader, 'LINE_STRIP', {"pos": spring_coords(p, q)})
         shader.uniform_float("viewportSize", (region.width, region.height))
-        shader.uniform_float("lineWidth", 2.0)
+        shader.uniform_float("lineWidth", 4.0 if is_canine(up) else 2.0)
         shader.uniform_float("color", spring_colour((q - p).length))
         batch.draw(shader)
 
@@ -469,6 +503,17 @@ class OMFS_OT_add_occlusion_pair(bpy.types.Operator):
     bl_label = "Ajouter une paire"
     bl_options = {'REGISTER', 'UNDO'}
 
+    key: bpy.props.StringProperty(options={'SKIP_SAVE'},
+                                  description="Vide : nouveau ressort numéroté. CR / CL : ressort canin droit / gauche")
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.key in dict(CANINES):
+            return (f"{dict(CANINES)[properties.key]} : cliquez la pointe de la canine du haut, puis l'embrasure "
+                    "canine / 1re prémolaire du bas où elle doit s'accoter (classe I canine). Ce ressort pèse plus "
+                    "que les autres (Poids des canines). Refaire remplace l'ancien")
+        return cls.__doc__
+
     def invoke(self, context, event):
         if not arches_ready(context.scene):
             self.report({'ERROR'}, "Choisissez d'abord l'arcade du haut et l'arcade du bas")
@@ -477,7 +522,11 @@ class OMFS_OT_add_occlusion_pair(bpy.types.Operator):
         self.arches = (props.upper, props.lower)
         self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
             (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
-        self.number = next_pair_number(context.scene)
+        if self.key:
+            self.label = dict(CANINES)[self.key]
+        else:
+            self.key = str(next_pair_number(context.scene))
+            self.label = f"Ressort {self.key}"
         self.upper_point = None
         set_points_hidden(context.scene, False)
         self.prompt()
@@ -486,8 +535,12 @@ class OMFS_OT_add_occlusion_pair(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def prompt(self):
-        which = "l'arcade du HAUT" if self.upper_point is None else "l'arcade du BAS (point correspondant)"
-        self.area.header_text_set(f"Ressort {self.number} : cliquez sur {which}   |   Échap / clic droit : annuler")
+        if self.key in dict(CANINES):
+            which = ("la pointe de la canine du HAUT" if self.upper_point is None
+                     else "l'embrasure canine / 1re prémolaire du BAS")
+        else:
+            which = "l'arcade du HAUT" if self.upper_point is None else "l'arcade du BAS (point correspondant)"
+        self.area.header_text_set(f"{self.label} : cliquez sur {which}   |   Échap / clic droit : annuler")
 
     def finish(self, context):
         self.area.header_text_set(None)
@@ -508,12 +561,13 @@ class OMFS_OT_add_occlusion_pair(bpy.types.Operator):
             if location is None:
                 self.report({'WARNING'}, f"Cliquez sur {arch.name}")
                 return {'RUNNING_MODAL'}
+            short = "Can. D" if self.key == 'CR' else "Can. G" if self.key == 'CL' else self.key
             if self.upper_point is None:
-                self.upper_point = add_point(context.scene, f"OCC_U{self.number}", f"Haut {self.number}",
-                                             location, arch)
+                remove_pair(context.scene, self.key)   # redoing a canine spring replaces it
+                self.upper_point = add_point(context.scene, f"OCC_U{self.key}", f"Haut {short}", location, arch)
                 self.prompt()
                 return {'RUNNING_MODAL'}
-            add_point(context.scene, f"OCC_L{self.number}", f"Bas {self.number}", location, arch)
+            add_point(context.scene, f"OCC_L{self.key}", f"Bas {short}", location, arch)
             self.finish(context)
             return {'FINISHED'}
         return {'PASS_THROUGH'}
@@ -525,12 +579,10 @@ class OMFS_OT_delete_occlusion_pair(bpy.types.Operator):
     bl_label = "Supprimer le ressort"
     bl_options = {'REGISTER', 'UNDO'}
 
-    number: bpy.props.IntProperty()
+    key: bpy.props.StringProperty()
 
     def execute(self, context):
-        for obj in [o for o in occlusion_points(context.scene)
-                    if o.omfs.landmark in (f"OCC_U{self.number}", f"OCC_L{self.number}")]:
-            bpy.data.objects.remove(obj)
+        remove_pair(context.scene, self.key)
         return {'FINISHED'}
 
 
@@ -570,7 +622,7 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
             return {'CANCELLED'}
         scene = context.scene
         props = scene.omfs_occlusion
-        iterations = seat(scene, props.tolerance, props.spring_share / 100)
+        iterations = seat(scene, props.tolerance, props.spring_share / 100, props.canine_weight)
         write_overlap_map(scene)
         self.report({'INFO'}, f"Assise : {iterations} itérations")
         return {'FINISHED'}
@@ -581,7 +633,7 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
             return {'CANCELLED'}
         self.block = occlusion.find_block(context.scene, 'LOWER')
         self.start = self.block.matrix_world.copy()
-        self.fit = point_fit(context.scene)   # phase 1: glide to the point fit, phase 2: contact
+        self.fit = point_fit(context.scene, context.scene.omfs_occlusion.canine_weight)   # phase 1: glide to the point fit, phase 2: contact
         self.frame = 0
         self.iteration = 0
         _seating = True
@@ -615,7 +667,7 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
             return {'RUNNING_MODAL'}
         self.iteration += 1
         props = scene.omfs_occlusion
-        step = seat_step(scene, props.tolerance, props.spring_share / 100)
+        step = seat_step(scene, props.tolerance, props.spring_share / 100, props.canine_weight)
         longest = max(spring_lengths(scene), default=0.0)
         if self.area:
             self.area.header_text_set(f"Assise : itération {self.iteration}, ressort le plus long "

@@ -31,10 +31,13 @@ GREY = (0.6, 0.6, 0.6, 1.0)
 
 # --- Maths ---------------------------------------------------------------------------
 
-def rigid_fit(source, target):
-    """4x4 rotation + translation that best maps source points onto target points (Kabsch)."""
-    cs, ct = source.mean(axis=0), target.mean(axis=0)
-    u, _s, vt = np.linalg.svd((source - cs).T @ (target - ct))
+def rigid_fit(source, target, weights=None):
+    """4x4 rotation + translation that best maps source points onto target points (Kabsch),
+    optionally weighted per point."""
+    w = np.ones(len(source)) if weights is None else np.asarray(weights, dtype=float)
+    w = w / w.sum()
+    cs, ct = w @ source, w @ target
+    u, _s, vt = np.linalg.svd((source - cs).T @ ((target - ct) * w[:, None]))
     d = np.sign(np.linalg.det(vt.T @ u.T))            # never a mirror image
     rotation = vt.T @ np.diag((1.0, 1.0, d)) @ u.T
     m = np.eye(4)

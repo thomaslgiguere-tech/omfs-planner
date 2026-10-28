@@ -518,9 +518,34 @@ def test_occlusion_springs_and_overlap():
     d, _c, _n = occlusion_seating.signed_distances(np.array([[5.0, 0.0, -9.0]]), below, 20.0)   # side face
     assert d[0] > 0, d                                                      # closest = an edge: outside
     bpy.data.objects.remove(below)
+    # Canine springs (no shift wanted) against the three others (2 mm shift): the canines win more
+    # as their weight grows.
+    for up, _low in occlusion_seating.point_pairs(scene):
+        up.matrix_world = Matrix.Translation(up.matrix_world.translation + Vector((2, 0, 2)))   # back to x + 2, z = 7
+    for key, x in (('CR', -10), ('CL', 10)):
+        occlusion_seating.add_point(scene, f"OCC_U{key}", key, Vector((x, -12, 7)), upper)
+        occlusion_seating.add_point(scene, f"OCC_L{key}", key, Vector((x, -12, -6)), lower)
+    bpy.context.view_layer.update()
+    assert [occlusion_seating.pair_key(up) for up, _low in occlusion_seating.point_pairs(scene)][:2] == ['CR', 'CL']
+    left = {}
+    for weight in (1.0, 3.0):
+        occlusion.back_to_preop(block)
+        bpy.context.view_layer.update()
+        props.tolerance, props.spring_share, props.canine_weight = 5.0, 100.0, weight
+        bpy.ops.omfs.seat_occlusion()
+        lengths = occlusion_seating.spring_lengths(scene)                 # canines first
+        left[weight] = (np.mean(lengths[:2]), np.mean(lengths[2:]))
+    assert left[3.0][0] < 0.7 * left[1.0][0], left                       # canines held closer
+    assert left[3.0][1] > left[1.0][1], left                             # at the others' expense
+    for key in ('CR', 'CL'):
+        occlusion_seating.remove_pair(scene, key)
+
     d = np.array([-3.0, -0.4, -0.4, -0.3, 0.2])                        # one spike, then a real overlap
     area = np.array([0.01, 0.05, 0.05, 0.05, 1.0])
     assert abs(occlusion_seating.robust_overlap(d, area) - 0.4) < 1e-9
+
+    icons = bpy.types.UILayout.bl_rna.functions['prop'].parameters['icon'].enum_items.keys()
+    assert all(icon in icons for icon, _text in occlusion_seating.legend())
 
     colours = occlusion_seating.overlap_colours(np.array([-2.0, -1.2, -0.7, -0.2, 0.1, 0.5, 3.0, np.nan]))
     expected = [occlusion_seating.MAGENTA, occlusion_seating.RED, occlusion_seating.ORANGE, occlusion_seating.YELLOW,

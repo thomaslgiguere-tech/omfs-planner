@@ -300,12 +300,25 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             draw_text(warn, context, "Arcade du haut non recalée : elle est encore dans les coordonnées du "
                                      "scanner, et le bas (avec son os) y sera assis.")
         box.label(text="1. Ressorts (3 paires ou plus)")
+        pairs = occlusion_seating.point_pairs(scene)
+        lengths = dict(zip((occlusion_seating.pair_key(up) for up, _low in pairs), occlusion_seating.spring_lengths(scene)))
         col = box.column(align=True)
-        for (up, _low), length in zip(occlusion_seating.point_pairs(scene), occlusion_seating.spring_lengths(scene)):
-            number = int(up.omfs.landmark[5:])
+        for key, label in occlusion_seating.CANINES:   # the two canine springs, always listed
             row = col.row(align=True)
-            row.label(text=f"Ressort {number} : {length:.2f} mm", icon='FORCE_HARMONIC')
-            row.operator("omfs.delete_occlusion_pair", text="", icon='X').number = number
+            if key in lengths:
+                row.label(text=f"{label} : {lengths[key]:.2f} mm", icon='FORCE_FORCE')
+                row.operator("omfs.add_occlusion_pair", text="", icon='FILE_REFRESH').key = key
+                row.operator("omfs.delete_occlusion_pair", text="", icon='X').key = key
+            else:
+                row.operator("omfs.add_occlusion_pair", text=f"Ressort {label.lower()}", icon='ADD').key = key
+        col.prop(props, "canine_weight")
+        col = box.column(align=True)
+        for up, _low in pairs:
+            key = occlusion_seating.pair_key(up)
+            if key.isdigit():
+                row = col.row(align=True)
+                row.label(text=f"Ressort {key} : {lengths[key]:.2f} mm", icon='FORCE_HARMONIC')
+                row.operator("omfs.delete_occlusion_pair", text="", icon='X').key = key
         col.operator("omfs.add_occlusion_pair", icon='ADD')
         if occlusion_seating.occlusion_points(scene):
             visible = occlusion_seating.points_visible(scene)

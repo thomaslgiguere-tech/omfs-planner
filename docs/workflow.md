@@ -218,6 +218,11 @@ Naming used below (matches the object roles in code):
     start, even a scan exported upside down). Phase 2, the springs keep pulling while the teeth resist
     any overlap deeper than the "tolerated penetration" (0 = stop at contact; large = pure point fit,
     all the overlap the springs cause becomes visible). Esc cancels and goes back.
+  - Canine springs (right and left): the Class I canine relation matters more than the posterior
+    relation. Upper canine cusp tip, then the lower canine / first premolar embrasure where it should
+    rest. Each canine spring pulls "canine weight" times harder than another spring (3 by default),
+    so the anterior contact is right antero-posteriorly, even if the posterior springs are then less
+    well satisfied. Drawn thicker; always listed first; redoing one replaces it.
   - Magnet ("Seat the occlusion"): like pushing the two models together, it closes the gaps between
     the arches (within 3 mm) so stable contacts form, while the teeth still resist overlap beyond the
     tolerance. Springs and magnet share the guidance: springs 70 % by default ("Springs' share"),

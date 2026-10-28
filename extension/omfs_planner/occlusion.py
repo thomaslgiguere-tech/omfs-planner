@@ -345,6 +345,10 @@ class OMFS_OcclusionProperties(bpy.types.PropertyGroup):
         name="Part des ressorts", subtype='PERCENTAGE', default=params.OCC_SPRING_SHARE, min=0.0, max=100.0,
         description="Part du guidage faite par les ressorts ; le reste est l'aimant qui rapproche les arcades "
                     "jusqu'aux contacts stables. 100 % = ressorts seuls")
+    canine_weight: bpy.props.FloatProperty(
+        name="Poids des canines", default=params.OCC_CANINE_WEIGHT, min=1.0, soft_max=10.0, step=50,
+        description="Un ressort canin tire autant de fois plus fort qu'un autre ressort : la relation canine "
+                    "(classe I) prime, quitte à moins respecter les ressorts postérieurs")
     show_map: bpy.props.BoolProperty()
     max_overlap: bpy.props.FloatProperty(default=-1.0)
     area_right: bpy.props.FloatProperty()

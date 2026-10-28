@@ -50,6 +50,7 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Linked Duplicate (Alt+D)** | A new object that shares the same mesh data: no copy of the vertices, edits show on both. Used for the pre-op ghost. | None (Duplicate always copies). |
 | **Shape fingerprint** *(OMFS Planner)* | A hash of all the vertices and faces, taken when an object joins a block and checked whenever its geometry changes: ✔ = shape untouched. | None. |
 | **Spring (occlusion)** *(OMFS Planner)* | A pair of clicked points, upper then lower arch. Seating pulls the lower block so the springs shorten, while the teeth resist overlap beyond the tolerated penetration. | None in Meshmixer; IPS CaseDesigner's virtual occlusion springs. |
+| **Canine spring** *(OMFS Planner)* | One of two weighted springs (right, left): upper canine tip to the lower canine / premolar embrasure. Pulls harder than the others (canine weight), so the Class I canine relation wins. | None. |
 | **Magnet (occlusion)** *(OMFS Planner)* | During seating, pulls the gaps between the arches closed (within range) so stable contacts form, sharing the guidance with the springs (70 / 30 by default). | None. |
 | **Signed distance** | Distance from a point to a surface, negative when the point is behind the face normal (inside). Overlap between arches = negative distance. | Inspector / Deviation colour map (unsigned). |
 | **Open border** | Edges used by one face only: the cut edge of a scan. Inside/outside means nothing there, so contact tests skip those faces. | Inspector's "holes" (blue). |

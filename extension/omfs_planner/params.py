@@ -47,6 +47,7 @@ OCC_OVERLAP_MIN_AREA = 0.1      # mm²: max overlap is the depth reached over at
 OCC_SEARCH_DISTANCE = 5.0       # mm: farther surfaces are ignored by the contact search
 OCC_SAMPLES = 4000              # vertices per arch used by the spring solver
 OCC_SPRING_STEP = 0.25          # fraction of the spring length closed per iteration (animation)
+OCC_CANINE_WEIGHT = 3.0         # a canine spring pulls this many times harder than another spring
 OCC_SPRING_SHARE = 70.0         # %: springs' share of the guidance; the rest is the magnet (closing the gaps)
 OCC_MAGNET_RANGE = 3.0          # mm: gaps wider than this are not pulled by the magnet
 OCC_MAGNET_STEP = 0.25          # fraction of each gap closed per iteration
