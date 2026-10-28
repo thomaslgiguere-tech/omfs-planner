@@ -202,6 +202,11 @@ Naming used below (matches the object roles in code):
   - Pre-op ghost: semi-transparent linked duplicates (same mesh data) frozen at the pre-op position.
   - Warnings: an arch with associated objects but no teeth registration; a moved block when trying
     to register its scan.
+- Pre-positioning the upper arch (done), before seating: "Flip and place above" turns the upper
+  scan teeth down (about the front-back axis, incisors stay anterior) and places it 5 mm above the
+  lower arch, centred; "Adjust by hand" unlocks it for G / R. This sets the scan's starting (pre-op)
+  pose, not a surgical movement: "Back to pre-op" keeps it. Computed in the lower scan's frame, so it
+  also works once the lower arch is registered onto the CBCT.
 - Part 2 (done): virtual seating, modelled on IPS CaseDesigner (KLS Martin) virtual occlusion.
   - The final occlusion comes entirely from virtual seating in Blender (no scan of articulated models).
   - The lower arch (and its block) is seated onto the fixed upper arch.

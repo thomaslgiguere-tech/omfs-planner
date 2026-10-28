@@ -15,12 +15,13 @@ checked again whenever its geometry changes, as proof that only the position cha
 """
 
 import hashlib
+from math import pi
 
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 
-from . import locking, params, reference_frame, roles
+from . import locking, params, reference_frame, registration, roles
 
 COLLECTION = "Occlusion"
 ARCHES = (   # (id, block name, label)
@@ -207,6 +208,50 @@ def back_to_preop(block):
     block.matrix_world = preop_matrix(block)
 
 
+# --- Pre-positioning the upper arch -------------------------------------------------
+#
+# Scans often come in the scanner's own frame, each arch teeth up, one inside the other. This
+# changes the upper scan's own transform (its pre-op pose), never its block: it is not a surgical
+# movement, and "Back to pre-op" keeps it.
+
+def flip_above(upper, lower, gap):
+    """Pre-op pose of the upper scan: turned teeth down (about the front-back axis, so the incisors
+    stay anterior) and placed gap mm above the lower arch, centred on it. Computed in the lower
+    scan's own coordinates, where both scanner exports are teeth up, so it also works once the
+    lower arch has been registered onto the CBCT."""
+    up = registration.vertex_coords(upper, world=False)
+    low = registration.vertex_coords(lower, world=False)
+    flip = Matrix.Rotation(pi, 4, 'Y')
+    flipped = up @ np.array(flip.to_3x3()).T
+    shift = Vector((*(low[:, :2].mean(axis=0) - flipped[:, :2].mean(axis=0)),
+                    low[:, 2].max() + gap - flipped[:, 2].min()))
+    return lower.matrix_basis @ Matrix.Translation(shift) @ flip   # lower.matrix_basis = its pre-op pose
+
+
+def recentre_block(block, arch):
+    """Move a block that is still pre-op to the centre of its arch (the pivot for R), without
+    moving anything: each member keeps its world position."""
+    if movement_summary(bpy.context.scene, block) is not None:
+        return
+    bpy.context.view_layer.update()
+    rotation = block.matrix_world.to_quaternion()
+    matrix = Matrix.LocRotScale(world_bbox_centre(arch), rotation, None)
+    block.matrix_world = matrix
+    block.omfs_occl.preop = matrix
+    for obj in members(block):
+        obj.matrix_parent_inverse = matrix.inverted()
+
+
+def set_upper_preop(scene, matrix):
+    props = scene.omfs_occlusion
+    upper = props.upper
+    upper.matrix_basis = registration.as_rigid(matrix)
+    bpy.context.view_layer.update()
+    block = find_block(scene, 'UPPER')
+    if block is not None:
+        recentre_block(block, upper)
+
+
 # --- Pre-op ghost --------------------------------------------------------------------
 
 def all_ghosts(scene):
@@ -380,8 +425,57 @@ class OMFS_OT_toggle_ghost(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class OMFS_OT_flip_upper_arch(bpy.types.Operator):
+    """Retourner l'arcade du haut (dents vers le bas) et la placer au-dessus de l'arcade du bas,
+    centrée, avec un écart. Change la position de départ du scan, pas son bloc"""
+    bl_idname = "omfs.flip_upper_arch"
+    bl_label = "Retourner et placer au-dessus"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    gap: bpy.props.FloatProperty(name="Écart", subtype='DISTANCE', default=params.OCC_PREPOSITION_GAP, min=0.0)
+
+    def execute(self, context):
+        props = context.scene.omfs_occlusion
+        if props.upper is None or props.lower is None:
+            self.report({'ERROR'}, "Choisissez d'abord l'arcade du haut et l'arcade du bas")
+            return {'CANCELLED'}
+        set_upper_preop(context.scene, flip_above(props.upper, props.lower, self.gap))
+        return {'FINISHED'}
+
+
+class OMFS_OT_adjust_upper_arch(bpy.types.Operator):
+    """Déverrouiller et sélectionner l'arcade du haut pour l'ajuster à la main (G / R), puis la
+    reverrouiller. Change sa position de départ, pas son bloc"""
+    bl_idname = "omfs.adjust_upper_arch"
+    bl_label = "Ajuster à la main"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        scene = context.scene
+        upper = scene.omfs_occlusion.upper
+        if upper is None:
+            return {'CANCELLED'}
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        if locking.is_locked(upper):
+            locking.set_locked(upper, False)
+            upper.lock_scale = (True,) * 3   # rigid only
+            for obj in context.selected_objects:
+                obj.select_set(False)
+            upper.select_set(True)
+            context.view_layer.objects.active = upper
+        else:
+            locking.set_locked(upper, True)
+            context.view_layer.objects.active = None
+            block = find_block(scene, 'UPPER')
+            if block is not None:
+                recentre_block(block, upper)
+        return {'FINISHED'}
+
+
 classes = (OMFS_OcclusionProperties, OMFS_OcclusionObjectProperties, OMFS_OT_remove_from_block,
-           OMFS_OT_block_preop, OMFS_OT_select_block, OMFS_OT_toggle_ghost)
+           OMFS_OT_block_preop, OMFS_OT_select_block, OMFS_OT_toggle_ghost,
+           OMFS_OT_flip_upper_arch, OMFS_OT_adjust_upper_arch)
 
 
 def register():

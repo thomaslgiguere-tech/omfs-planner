@@ -286,6 +286,8 @@ class OMFS_PT_occlusion(bpy.types.Panel):
         col = box.column(align=True)
         col.prop(props, "upper")
         col.prop(props, "lower")
+        if props.upper is not None and props.lower is not None:
+            self.draw_preposition(context, layout.box(), props)
         for arch_id, _name, label in occlusion.ARCHES:
             block = occlusion.find_block(context.scene, arch_id)
             if block is not None and occlusion.arch_of(context.scene, arch_id) is not None:
@@ -349,6 +351,18 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             leg.scale_y = 0.8
             for icon, text in occlusion_seating.legend():
                 leg.label(text=text, icon=icon)
+
+    def draw_preposition(self, context, box, props):
+        box.label(text="Préposition de l'arcade du haut", icon='ORIENTATION_GIMBAL')
+        draw_text(box, context, "Avant l'assise. Change la position de départ du scan, pas son bloc "
+                                "(Retour préop la garde).")
+        col = box.column(align=True)
+        col.operator("omfs.flip_upper_arch", icon='FILE_REFRESH')
+        adjusting = not locking.is_locked(props.upper)
+        col.operator("omfs.adjust_upper_arch", text="Terminer l'ajustement" if adjusting else "Ajuster à la main",
+                     icon='CHECKMARK' if adjusting else 'UNLOCKED', depress=adjusting)
+        if adjusting:
+            draw_text(box, context, "G : déplacer, R : tourner (X / Y / Z pour un axe). Puis Terminer.")
 
     def draw_block(self, context, box, props, arch_id, block, label):
         box.label(text=f"Bouge avec {label}", icon='LINKED')

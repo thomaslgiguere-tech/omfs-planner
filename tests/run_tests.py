@@ -523,6 +523,32 @@ def test_open_border_is_ignored():
     bpy.data.objects.remove(plane)
 
 
+def test_flip_upper_above_lower():
+    scene = bpy.context.scene
+    props = scene.omfs_occlusion
+    upper = dense_box("Upper stacked", 'SCAN', (1, 2, 4), (40, 30, 8))   # both scanner exports teeth up,
+    lower = dense_box("Lower stacked", 'SCAN', (0, 0, 4), (40, 30, 8))   # one inside the other
+    for registered in (Matrix(), Matrix.Translation((10, -5, 30)) @ Matrix.Rotation(radians(20), 4, 'X')):
+        lower.matrix_world = registered
+        props.upper, props.lower = upper, lower
+        bpy.ops.omfs.flip_upper_arch(gap=5.0)
+        bpy.context.view_layer.update()
+        relative = lower.matrix_world.inverted() @ upper.matrix_world   # in the lower scan's frame
+        assert_close(relative.col[2].xyz, (0, 0, -1), "teeth down")
+        assert_close(relative.col[1].xyz, (0, 1, 0), "incisors stay anterior")
+        low_top = max(v.co.z for v in lower.data.vertices)
+        up_bottom = min((relative @ v.co).z for v in upper.data.vertices)
+        assert abs(up_bottom - low_top - 5.0) < 1e-3, up_bottom - low_top
+        block = occlusion.find_block(scene, 'UPPER')
+        assert occlusion.movement_summary(scene, block) is None            # not a surgical movement
+        assert_close(block.matrix_world.translation, occlusion.world_bbox_centre(upper), "block recentred")
+        props.upper = props.lower = None
+    for obj in (upper, lower):
+        bpy.data.objects.remove(obj)
+    for arch_id in ('UPPER', 'LOWER'):
+        bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
+
+
 def test_empty_folder_is_an_error():
     with tempfile.TemporaryDirectory() as folder:
         try:

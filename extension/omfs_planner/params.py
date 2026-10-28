@@ -48,3 +48,4 @@ OCC_SAMPLES = 4000              # vertices per arch used by the spring solver
 OCC_SPRING_STEP = 0.25          # fraction of the spring length closed per iteration (animation)
 OCC_MAX_ITERATIONS = 300
 OCC_ANTERIOR_HALF_WIDTH = 15.0  # mm each side of the midline: anterior contacts, beyond = left / right
+OCC_PREPOSITION_GAP = 5.0       # mm between the arches after "flip and place above the lower arch"
