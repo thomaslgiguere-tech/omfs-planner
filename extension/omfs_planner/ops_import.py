@@ -23,7 +23,9 @@ class OMFS_OT_import_case(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     directory: bpy.props.StringProperty(name="Case folder", subtype='DIR_PATH')
+    # The browser lists folders and the mesh files, so you can see what will be imported.
     filter_folder: bpy.props.BoolProperty(default=True, options={'HIDDEN'})
+    filter_glob: bpy.props.StringProperty(default="*.stl;*.obj;*.ply", options={'HIDDEN'})
 
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)   # opens the file browser
