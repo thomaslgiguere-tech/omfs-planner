@@ -278,6 +278,11 @@ class OMFS_PT_occlusion(bpy.types.Panel):
         props = context.scene.omfs_occlusion
         box = layout.box()
         box.label(text="Empreintes optiques", icon='MESH_DATA')
+        if not any(o.type == 'MESH' and o.omfs.role == 'SCAN' for o in context.scene.objects):
+            warn = box.column()
+            warn.alert = True
+            draw_text(warn, context, "Aucun objet de rôle Scan : réglez le rôle des empreintes sur Scan dans "
+                                     "le panneau Case (ou importez avec Import Case).")
         col = box.column(align=True)
         col.prop(props, "upper")
         col.prop(props, "lower")
