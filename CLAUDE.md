@@ -108,7 +108,9 @@ Millimetres everywhere: **1 Blender unit = 1 mm** (scene unit scale 0.001, lengt
 
 Orthognathic extension: Le Fort I / BSSO osteotomy design and segment separation, then occlusion
 seating (upper and lower arch scans set into the final occlusion; done: arches, mobile blocks,
-associations, shape check, pre-op ghost, springs + overlap map), then movement of the maxillomandibular complex.
+shape check, pre-op ghost, springs + magnet + overlap map), then a "Mouvement chx orthognathique"
+tab: what moves with each arch (associations, code kept in occlusion.py) and movement of the
+maxillomandibular complex.
 
 ## Interaction rules
 

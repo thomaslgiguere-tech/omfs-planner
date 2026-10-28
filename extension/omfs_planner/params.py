@@ -43,9 +43,15 @@ OCC_OVERLAP_STEPS = (0.5, 1.0, 1.5)  # mm: yellow / orange / red bands, magenta 
 OCC_OVERLAP_RARE = 1.0          # mm: overlap above this is rare, warn, TO CONFIRM
 OCC_OVERLAP_MAX = 1.5           # mm: overlap above this is beyond what is tolerated, TO CONFIRM
 OCC_GAP_FAR = 1.0               # mm: gaps beyond this are grey (no contact)
+OCC_OVERLAP_MIN_AREA = 0.1      # mm²: max overlap is the depth reached over at least this area (ignores lone spikes)
 OCC_SEARCH_DISTANCE = 5.0       # mm: farther surfaces are ignored by the contact search
 OCC_SAMPLES = 4000              # vertices per arch used by the spring solver
 OCC_SPRING_STEP = 0.25          # fraction of the spring length closed per iteration (animation)
+OCC_SPRING_SHARE = 70.0         # %: springs' share of the guidance; the rest is the magnet (closing the gaps)
+OCC_MAGNET_RANGE = 3.0          # mm: gaps wider than this are not pulled by the magnet
+OCC_MAGNET_STEP = 0.25          # fraction of each gap closed per iteration
+OCC_CONTACT_WEIGHT = 20.0       # resistance of the teeth vs springs + magnet (1.0): overlap stays near tolerance
+OCC_TRIPOD_MIN_AREA = 1.0       # mm²: contact area right, anterior and left for a stable "tripod"
 OCC_MAX_ITERATIONS = 300
 OCC_ANTERIOR_HALF_WIDTH = 15.0  # mm each side of the midline: anterior contacts, beyond = left / right
 OCC_PREPOSITION_GAP = 5.0       # mm between the arches after "flip and place above the lower arch"

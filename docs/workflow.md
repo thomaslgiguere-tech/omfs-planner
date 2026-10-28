@@ -196,8 +196,9 @@ Naming used below (matches the object roles in code):
   Rigid displacement only; a shape check proves the mesh data is unchanged.
 - Part 1 (done):
   - Top of the panel: choose which scan is the upper arch and which is the lower arch.
-  - Each arch has a mobile block. Lists "moves with the upper arch" / "moves with the lower arch"
-    associate other objects (CBCT teeth, bone segment, nerve). Optional; one block per object.
+  - Each arch has a mobile block. Associating other objects with an arch (CBCT teeth, bone segment,
+    nerve: "moves with the upper / lower arch") is kept in the code but removed from this panel: it
+    belongs to a future tab, "Mouvement chx orthognathique".
   - Removing an object from a block puts it back at its pre-op position. "Back to pre-op" resets a block.
   - Pre-op ghost: semi-transparent linked duplicates (same mesh data) frozen at the pre-op position.
   - Warnings: an arch with associated objects but no teeth registration; a moved block when trying
@@ -217,7 +218,13 @@ Naming used below (matches the object roles in code):
     start, even a scan exported upside down). Phase 2, the springs keep pulling while the teeth resist
     any overlap deeper than the "tolerated penetration" (0 = stop at contact; large = pure point fit,
     all the overlap the springs cause becomes visible). Esc cancels and goes back.
-  - Then fine-tune by hand (select the lower block, G / R); the map refreshes when the movement stops.
+  - Magnet ("Seat the occlusion"): like pushing the two models together, it closes the gaps between
+    the arches (within 3 mm) so stable contacts form, while the teeth still resist overlap beyond the
+    tolerance. Springs and magnet share the guidance: springs 70 % by default ("Springs' share"),
+    magnet 30 %. The springs bring the key positions roughly; the occlusion itself finishes the seating.
+  - Contacts may be as large as the dental anatomy allows: more contact area is better, no upper limit.
+  - Stability: "stable tripod" when there is contact on the right, anterior and left (>= 1 mm² each).
+  - Then fine-tune by hand (adjust the lower arch, G / R); the map refreshes when the movement stops.
   - What I need to see: overlap map on both arches, in bands: magenta > 1.5 mm, red 1.0-1.5, orange
     0.5-1.0, yellow 0-0.5 overlap; green contact (gap < 0.3 mm); light blue gap 0.3-1.0; grey > 1.0.
     Legend in the panel. Deepest overlap in mm (warn > 1.0 mm "rare", alert > 1.5 mm "beyond tolerated":
@@ -233,6 +240,9 @@ Naming used below (matches the object roles in code):
     otherwise the lower arch (and its bone) is seated in scanner coordinates (warning in the panel).
   - Points nearly on one line are refused (rotation about that line undetermined).
   - Overlap > 3 mm usually means inverted normals or a scan border, not real overlap (hint shown).
+  - Lone spiky vertices: max overlap is the depth reached over at least 0.1 mm², not a single vertex.
+  - Points whose closest point is on an edge of the other mesh count as outside (the face normal
+    says nothing about the sign there). Case1 had one such vertex reading 3.8 mm.
   - Orthodontic brackets and wires create false contacts; gingiva can overlap.
 - Nuances: (add here)
 

@@ -288,10 +288,6 @@ class OMFS_PT_occlusion(bpy.types.Panel):
         col.prop(props, "lower")
         if props.upper is not None and props.lower is not None:
             self.draw_preposition(context, layout.box(), props)
-        for arch_id, _name, label in occlusion.ARCHES:
-            block = occlusion.find_block(context.scene, arch_id)
-            if block is not None and occlusion.arch_of(context.scene, arch_id) is not None:
-                self.draw_block(context, layout.box(), props, arch_id, block, label)
         if occlusion_seating.arches_ready(context.scene):
             self.draw_seating(context, layout.box(), props)
 
@@ -317,11 +313,27 @@ class OMFS_PT_occlusion(bpy.types.Panel):
                          icon='HIDE_OFF' if visible else 'HIDE_ON')
 
         box.label(text="2. Asseoir")
-        box.prop(props, "tolerance")
+        col = box.column(align=True)
+        col.prop(props, "spring_share")
+        col.prop(props, "tolerance")
         row = box.row()
         row.enabled = len(occlusion_seating.point_pairs(scene)) >= 3
         row.operator("omfs.seat_occlusion", icon='PLAY')
-        draw_text(box, context, "Ajustez ensuite à la main : Sélectionner le bloc (bloc inférieur), G / R.")
+        block = occlusion.find_block(scene, 'LOWER')
+        summary = occlusion.movement_summary(scene, block)
+        if summary is None:
+            box.label(text="Arcade du bas : position de départ", icon='CHECKMARK')
+        else:
+            (x, y, z), angle, in_frame = summary
+            names = ("Gauche", "Avant", "Haut") if in_frame else ("X", "Y", "Z")
+            box.label(text="  ".join(f"{n} {v:+.1f}" for n, v in zip(names, (x, y, z))) + f" mm   {angle:.1f}°",
+                      icon='ORIENTATION_GLOBAL')
+        row = box.row(align=True)
+        row.operator("omfs.select_block", text="Ajuster le bas (G / R)", icon='RESTRICT_SELECT_OFF').arch = 'LOWER'
+        row.operator("omfs.block_preop", text="Départ", icon='LOOP_BACK').arch = 'LOWER'
+        shown = bool(occlusion.ghosts(block))
+        box.operator("omfs.toggle_ghost", text="Cacher le fantôme" if shown else "Fantôme de départ",
+                     icon='GHOST_ENABLED' if shown else 'GHOST_DISABLED').arch = 'LOWER'
 
         box.label(text="3. Chevauchement")
         box.operator("omfs.toggle_overlap_map", text="Cacher la carte" if props.show_map else "Carte de chevauchement",
@@ -343,7 +355,10 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             col.label(text="Surface de contact (mm²)")
             row = col.row(align=True)
             for name, area in (("D", props.area_right), ("Ant", props.area_anterior), ("G", props.area_left)):
-                row.label(text=f"{name} {area:.0f}", icon='CHECKMARK' if area > 0 else 'X')
+                row.label(text=f"{name} {area:.0f}", icon='CHECKMARK' if area >= params.OCC_TRIPOD_MIN_AREA else 'X')
+            stable = occlusion_seating.tripod(props)
+            col.label(text="Tripode stable" if stable else "Pas de tripode : contacts manquants",
+                      icon='CHECKMARK' if stable else 'ERROR')
             if not current:
                 box.operator("omfs.refresh_overlap_map", text="Position changée : actualiser", icon='FILE_REFRESH')
         if props.show_map:
@@ -363,48 +378,6 @@ class OMFS_PT_occlusion(bpy.types.Panel):
                      icon='CHECKMARK' if adjusting else 'UNLOCKED', depress=adjusting)
         if adjusting:
             draw_text(box, context, "G : déplacer, R : tourner (X / Y / Z pour un axe). Puis Terminer.")
-
-    def draw_block(self, context, box, props, arch_id, block, label):
-        box.label(text=f"Bouge avec {label}", icon='LINKED')
-        col = box.column(align=True)
-        arch = occlusion.arch_of(context.scene, arch_id)
-        for obj in sorted(occlusion.members(block), key=lambda o: o is not arch):
-            row = col.row(align=True)
-            intact = occlusion.shape_intact(obj)
-            row.alert = not intact or bool(obj.modifiers)
-            icon = 'CHECKMARK' if intact and not obj.modifiers else 'ERROR'
-            row.label(text=obj.name, icon=icon)
-            if not intact:
-                row.label(text="FORME MODIFIÉE")
-            elif obj.modifiers:
-                row.label(text="modificateur")
-            if obj is arch:
-                row.label(text="", icon='PINNED')
-            else:
-                row.operator("omfs.remove_from_block", text="", icon='X').object_name = obj.name
-        col.prop(props, f"pick_{arch_id.lower()}", icon='ADD')
-
-        if arch.omfs_reg.rms < 0 and len(occlusion.members(block)) > 1:
-            warn = box.column()
-            warn.alert = True
-            draw_text(warn, context, "Arcade non recalée (Teeth Registration) : l'os et les dents CBCT "
-                                     "suivront une arcade mal placée.")
-
-        summary = occlusion.movement_summary(context.scene, block)
-        status = box.column(align=True)
-        if summary is None:
-            status.label(text="Position préopératoire", icon='CHECKMARK')
-        else:
-            (x, y, z), angle, in_frame = summary
-            names = ("Gauche", "Avant", "Haut") if in_frame else ("X", "Y", "Z")
-            status.label(text="  ".join(f"{n} {v:+.1f}" for n, v in zip(names, (x, y, z))) + " mm", icon='ORIENTATION_GLOBAL')
-            status.label(text=f"Rotation totale {angle:.1f}° (au centre de l'arcade)", icon='BLANK1')
-        row = box.row(align=True)
-        row.operator("omfs.select_block", icon='RESTRICT_SELECT_OFF').arch = arch_id
-        row.operator("omfs.block_preop", icon='LOOP_BACK').arch = arch_id
-        shown = bool(occlusion.ghosts(block))
-        box.operator("omfs.toggle_ghost", text="Cacher le fantôme préop" if shown else "Fantôme préop",
-                     icon='GHOST_ENABLED' if shown else 'GHOST_DISABLED').arch = arch_id
 
 
 class OMFS_PT_guide(bpy.types.Panel):

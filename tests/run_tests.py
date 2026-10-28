@@ -480,6 +480,7 @@ def test_occlusion_springs_and_overlap():
             block.matrix_world = start @ block.matrix_world
         bpy.context.view_layer.update()
         props.tolerance = tolerance
+        props.spring_share = 100.0   # springs only: the magnet would also pull the box sides together
         bpy.ops.omfs.seat_occlusion()
         overlap = top_of_lower() - 6.0
         assert abs(overlap - expected) < 0.1, (tolerance, overlap)
@@ -488,6 +489,20 @@ def test_occlusion_springs_and_overlap():
         assert abs(props.max_overlap - expected) < 0.15, (tolerance, props.max_overlap)
         assert props.area_anterior > 0 and props.area_left > 0 and props.area_right > 0
     assert lower.data.color_attributes.get(occlusion_seating.MAP_ATTRIBUTE) is not None
+
+    # Springs that stop 1 mm short of contact: alone they leave the gap, with the magnet it closes.
+    for up, _low in occlusion_seating.point_pairs(scene):
+        up.matrix_world = Matrix.Translation(up.matrix_world.translation - Vector((2, 0, 2)))   # z = 5, no shift
+    gaps = {}
+    for share in (100.0, 70.0):
+        occlusion.back_to_preop(block)
+        bpy.context.view_layer.update()
+        props.tolerance, props.spring_share = 0.2, share
+        bpy.ops.omfs.seat_occlusion()
+        gaps[share] = 6.0 - top_of_lower()
+    assert abs(gaps[100.0] - 1.0) < 0.1, gaps
+    assert gaps[70.0] < params.OCC_CONTACT, gaps                         # pulled into contact
+    assert occlusion_seating.tripod(props), (props.area_right, props.area_anterior, props.area_left)
     occlusion.back_to_preop(block)
     bpy.context.view_layer.update()
     occlusion_seating.add_point(scene, "OCC_U4", "Haut 4", Vector((0, -8, 7)), upper)   # all lower points
@@ -498,6 +513,14 @@ def test_occlusion_springs_and_overlap():
     bpy.context.view_layer.update()
     assert occlusion_seating.points_spread(scene) < occlusion_seating.MIN_SPREAD   # one line: refused
     assert occlusion.shape_fingerprint(lower) == shape          # only the block moved
+
+    below = box_object("Edge probe", 'SCAN', (0, 0, 0), (10, 10, 10))          # point straight below a
+    d, _c, _n = occlusion_seating.signed_distances(np.array([[5.0, 0.0, -9.0]]), below, 20.0)   # side face
+    assert d[0] > 0, d                                                      # closest = an edge: outside
+    bpy.data.objects.remove(below)
+    d = np.array([-3.0, -0.4, -0.4, -0.3, 0.2])                        # one spike, then a real overlap
+    area = np.array([0.01, 0.05, 0.05, 0.05, 1.0])
+    assert abs(occlusion_seating.robust_overlap(d, area) - 0.4) < 1e-9
 
     colours = occlusion_seating.overlap_colours(np.array([-2.0, -1.2, -0.7, -0.2, 0.1, 0.5, 3.0, np.nan]))
     expected = [occlusion_seating.MAGENTA, occlusion_seating.RED, occlusion_seating.ORANGE, occlusion_seating.YELLOW,

@@ -341,6 +341,10 @@ class OMFS_OcclusionProperties(bpy.types.PropertyGroup):
         min=0.0, soft_max=2.0, step=5,
         description="Les dents ne résistent qu'au-delà de ce chevauchement. 0 = s'arrête au contact ; "
                     "grand = ajustement pur aux points (tout le chevauchement devient visible)")
+    spring_share: bpy.props.FloatProperty(
+        name="Part des ressorts", subtype='PERCENTAGE', default=params.OCC_SPRING_SHARE, min=0.0, max=100.0,
+        description="Part du guidage faite par les ressorts ; le reste est l'aimant qui rapproche les arcades "
+                    "jusqu'aux contacts stables. 100 % = ressorts seuls")
     show_map: bpy.props.BoolProperty()
     max_overlap: bpy.props.FloatProperty(default=-1.0)
     area_right: bpy.props.FloatProperty()

@@ -32,6 +32,7 @@ SPRING_COILS = 8
 SPRING_RADIUS = 0.4     # mm, zig-zag amplitude of the drawn springs
 MAX_STEP = 1.0          # mm and degrees per iteration, so the animation stays smooth
 CONVERGED = 1e-3        # mm per iteration
+SIGN_MIN_COS = 0.3      # inside only if the point is this clearly behind the closest face
 FIT_FRAMES = 40         # animation frames of the first phase (pure point fit)
 MIN_SPREAD = 3.0        # mm: lower points closer than this to a single line are refused
 
@@ -115,7 +116,9 @@ def signed_distances(points, target, max_distance):
         if loc is None or border[index]:
             continue
         loc, nor = m @ loc, (rot @ nor).normalized()
-        d[i] = dist if (p - loc).dot(nor) >= 0 else -dist
+        # Inside only if clearly behind the face. When the closest point is on an edge, the face
+        # normal says nothing about the sign (the point looks along the face): count it as outside.
+        d[i] = -dist if dist > 1e-9 and (p - loc).dot(nor) < -SIGN_MIN_COS * dist else dist
         closest[i], normals[i] = loc, nor
     return d, closest, normals
 
@@ -196,40 +199,61 @@ def skew(v):
     return np.array(((0.0, -z, y), (z, 0.0, -x), (-y, x, 0.0)))
 
 
-def seat_step(scene, tolerance):
-    """One iteration: a small rigid motion of the lower block that shortens the springs and pushes
-    overlaps deeper than the tolerance back out. Returns (translation mm, rotation deg) applied."""
+def rigid_rows(points, normals, centre):
+    """Rows of the linearised rigid motion (rotation, translation) along a normal at each point."""
+    v = points - centre
+    return np.hstack((np.cross(v, normals), normals))
+
+
+def seat_step(scene, tolerance, spring_share=params.OCC_SPRING_SHARE):
+    """One iteration: a small rigid motion of the lower block. Three efforts, solved together:
+    - springs pull each lower point a fraction of the way towards its upper point;
+    - the magnet closes the gaps between the arches (within range), like pushing the models together;
+    - the teeth push back any overlap deeper than the tolerance (a constraint: it wins).
+    Springs and magnet share the guidance (spring_share vs 1 - spring_share); each group is weighted
+    as a whole, so a thousand magnet points don't drown three springs.
+    Returns (translation mm, rotation deg) applied."""
     props = scene.omfs_occlusion
     upper, lower = props.upper, props.lower
     block = occlusion.find_block(scene, 'LOWER')
     centre = np.array(block.matrix_world.translation)
-    rows, rhs = [], []
+    groups = []   # (rows, rhs, total weight of the group)
 
-    # Springs: each pulls its lower point a fraction of the way towards its upper point.
-    for up, low in point_pairs(scene):
-        p, q = np.array(low.matrix_world.translation), np.array(up.matrix_world.translation)
-        rows.append(np.hstack((-skew(p - centre), np.eye(3))))
-        rhs.append((q - p) * params.OCC_SPRING_STEP)
+    pairs = point_pairs(scene)
+    if pairs:
+        rows, rhs = [], []
+        for up, low in pairs:
+            p, q = np.array(low.matrix_world.translation), np.array(up.matrix_world.translation)
+            rows.append(np.hstack((-skew(p - centre), np.eye(3))))
+            rhs.append((q - p) * params.OCC_SPRING_STEP)
+        groups.append((np.vstack(rows), np.concatenate(rhs), spring_share))
 
-    # Lower vertices inside the upper surface: move them out along the upper normal.
-    points = world_points(lower, samples(lower))
-    d, _closest, normals = signed_distances(points, upper, params.OCC_SEARCH_DISTANCE)
-    deep = d < -tolerance
-    v = points[deep] - centre
-    rows.append(np.hstack((np.cross(v, normals[deep]), normals[deep])))
-    rhs.append(-tolerance - d[deep])
+    # Lower vertices against the upper surface (move along the upper normal), and upper vertices
+    # against the lower surface (move the lower surface against its own normal: signs flipped).
+    lp = world_points(lower, samples(lower))
+    d1, _closest, n1 = signed_distances(lp, upper, params.OCC_SEARCH_DISTANCE)
+    up_ = world_points(upper, samples(upper))
+    d2, c2, n2 = signed_distances(up_, lower, params.OCC_SEARCH_DISTANCE)
+    with np.errstate(invalid='ignore'):
+        deep1, deep2 = d1 < -tolerance, d2 < -tolerance
+        near1 = (d1 > 0) & (d1 < params.OCC_MAGNET_RANGE)
+        near2 = (d2 > 0) & (d2 < params.OCC_MAGNET_RANGE)
 
-    # Upper vertices inside the lower surface: move the lower surface away (against its normal).
-    points = world_points(upper, samples(upper))
-    d, closest, normals = signed_distances(points, lower, params.OCC_SEARCH_DISTANCE)
-    deep = d < -tolerance
-    v = closest[deep] - centre
-    rows.append(np.hstack((np.cross(v, normals[deep]), normals[deep])))
-    rhs.append(d[deep] + tolerance)
+    contact_rows = np.vstack((rigid_rows(lp[deep1], n1[deep1], centre), rigid_rows(c2[deep2], n2[deep2], centre)))
+    contact_rhs = np.concatenate((-tolerance - d1[deep1], d2[deep2] + tolerance))
+    groups.append((contact_rows, contact_rhs, params.OCC_CONTACT_WEIGHT))
 
-    a = np.vstack([np.atleast_2d(r) for r in rows if np.size(r)] + [1e-3 * np.eye(6)])
-    b = np.concatenate([np.ravel(r) for r in rhs] + [np.zeros(6)])
-    x, *_ = np.linalg.lstsq(a, b, rcond=None)
+    magnet_rows = np.vstack((rigid_rows(lp[near1], n1[near1], centre), rigid_rows(c2[near2], n2[near2], centre)))
+    magnet_rhs = np.concatenate((-d1[near1], d2[near2])) * params.OCC_MAGNET_STEP   # close the gap
+    groups.append((magnet_rows, magnet_rhs, 1.0 - spring_share))
+
+    a, b = [1e-3 * np.eye(6)], [np.zeros(6)]
+    for rows, rhs, weight in groups:
+        if len(rows) and weight > 0:
+            w = np.sqrt(weight / len(rows))
+            a.append(w * rows)
+            b.append(w * rhs)
+    x, *_ = np.linalg.lstsq(np.vstack(a), np.concatenate(b), rcond=None)
     omega, t = Vector(x[:3]), Vector(x[3:])
     angle = min(omega.length, np.radians(MAX_STEP))
     if t.length > MAX_STEP:
@@ -270,14 +294,14 @@ def point_fit(scene):
     return registration.as_rigid(fit @ block.matrix_world)
 
 
-def seat(scene, tolerance, max_iterations=params.OCC_MAX_ITERATIONS):
+def seat(scene, tolerance, spring_share=params.OCC_SPRING_SHARE, max_iterations=params.OCC_MAX_ITERATIONS):
     """Run the solver to the end (no animation): point fit, then springs against contact.
     Returns the number of contact iterations."""
     block = occlusion.find_block(scene, 'LOWER')
     block.matrix_world = point_fit(scene)
     bpy.context.view_layer.update()
     for i in range(1, max_iterations + 1):
-        if converged(seat_step(scene, tolerance)):
+        if converged(seat_step(scene, tolerance, spring_share)):
             return i
     return max_iterations
 
@@ -296,6 +320,19 @@ def vertex_areas(obj):
     return out
 
 
+def robust_overlap(d, area):
+    """Deepest overlap reached over at least OCC_OVERLAP_MIN_AREA mm², so a single spiky vertex
+    (a scan artefact) doesn't set the maximum."""
+    with np.errstate(invalid='ignore'):
+        inside = d < 0
+    if not inside.any():
+        return 0.0
+    order = np.argsort(d[inside])                      # deepest first
+    cumulative = np.cumsum(area[inside][order])
+    k = min(np.searchsorted(cumulative, params.OCC_OVERLAP_MIN_AREA), len(order) - 1)
+    return float(-d[inside][order][k])
+
+
 def write_overlap_map(scene):
     """Colour both arches by their signed distance to the other one; store the summary."""
     props = scene.omfs_occlusion
@@ -309,8 +346,7 @@ def write_overlap_map(scene):
             MAP_ATTRIBUTE, 'FLOAT_COLOR', 'POINT')
         attr.data.foreach_set("color", overlap_colours(d).ravel())
         mesh.color_attributes.active_color = attr
-        if np.any(d < 0):
-            deepest = max(deepest, float(-np.nanmin(d)))
+        deepest = max(deepest, robust_overlap(d, vertex_areas(obj)))
         if obj is lower:
             contact_areas(scene, lower, points, d)
     props.max_overlap = deepest
@@ -330,6 +366,11 @@ def contact_areas(scene, lower, points, d):
     props.area_right = float(area[touching & (x < -w)].sum())
     props.area_anterior = float(area[touching & (np.abs(x) <= w)].sum())
     props.area_left = float(area[touching & (x > w)].sum())
+
+
+def tripod(props):
+    """Stable occlusion: contacts on the right, anterior and left at once."""
+    return min(props.area_right, props.area_anterior, props.area_left) >= params.OCC_TRIPOD_MIN_AREA
 
 
 def map_key(scene):
@@ -505,10 +546,11 @@ class OMFS_OT_toggle_occlusion_points(bpy.types.Operator):
 
 
 class OMFS_OT_seat_occlusion(bpy.types.Operator):
-    """Les ressorts tirent l'arcade du bas (et son bloc) vers l'arcade du haut fixe ; les dents résistent
-    au-delà de la pénétration tolérée. Animé dans la vue ; Échap : annuler et revenir au départ"""
+    """L'arcade du bas vient s'asseoir sur l'arcade du haut fixe : les ressorts guident (part réglable),
+    l'aimant rapproche les arcades jusqu'aux contacts stables, et les dents résistent au-delà de la
+    pénétration tolérée. Animé dans la vue ; Échap : annuler et revenir au départ"""
     bl_idname = "omfs.seat_occlusion"
-    bl_label = "Asseoir (ressorts)"
+    bl_label = "Asseoir l'occlusion"
     bl_options = {'REGISTER', 'UNDO'}
 
     def ready(self, context):
@@ -527,7 +569,8 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
         if not self.ready(context):
             return {'CANCELLED'}
         scene = context.scene
-        iterations = seat(scene, scene.omfs_occlusion.tolerance)
+        props = scene.omfs_occlusion
+        iterations = seat(scene, props.tolerance, props.spring_share / 100)
         write_overlap_map(scene)
         self.report({'INFO'}, f"Assise : {iterations} itérations")
         return {'FINISHED'}
@@ -571,7 +614,8 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
                 self.area.tag_redraw()
             return {'RUNNING_MODAL'}
         self.iteration += 1
-        step = seat_step(scene, scene.omfs_occlusion.tolerance)
+        props = scene.omfs_occlusion
+        step = seat_step(scene, props.tolerance, props.spring_share / 100)
         longest = max(spring_lengths(scene), default=0.0)
         if self.area:
             self.area.header_text_set(f"Assise : itération {self.iteration}, ressort le plus long "
