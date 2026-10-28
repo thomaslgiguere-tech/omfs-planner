@@ -262,6 +262,31 @@ Naming used below (matches the object roles in code):
   - Orthodontic brackets and wires create false contacts; gingiva can overlap.
 - Nuances: (add here)
 
+## Cross-cutting tool: Section & Analysis
+
+Not a step: a panel usable at every planning step to inspect how objects (bone, teeth, scan,
+moved segments, guide, screws, sleeves) interact, like scrolling through CT slices but for
+meshes. Everything is non-destructive (no original mesh is ever modified) and must stay
+responsive with CT meshes of several hundred thousand triangles.
+
+1. Section plane *(done)*: axial / coronal / sagittal, in the reference frame when built (scanner
+   axes otherwise), or the local XY plane of any object. Position slider along the normal
+   (+ = up / anterior / left), thickness 0.2 to 10 mm for a slab centred on the plane, "Slab Only"
+   hides everything outside the slab in every 3D viewport (Blender's clipping region, GPU-side,
+   instant on large meshes), "Align View" looks perpendicular to the plane in orthographic, like a
+   radiograph (axial from the feet, coronal from the front, sagittal from the patient's right;
+   "Other Side" flips). Hook: a new plane (e.g. a user-defined occlusal plane) is a new orientation
+   in `section.base_matrix`.
+2. Section contours: outline of every visible object on the plane, in its colour, live with the
+   slider; optional filled caps.
+3. Overlap highlight: red where two objects interpenetrate on the section; separate 3D toggle for
+   the exact intersection volume of two picked objects, with its volume in mm³.
+4. Distance map: source surface coloured by distance to a target (defaults red < 1 mm, yellow
+   < 2 mm, green beyond; editable), legend, minimum distance and a marker at the closest point.
+   Generic: later used for screw-to-root clearance (target margin about 2 mm).
+5. Snapshot: PNG of the section view with plane name, position, thickness and a scale bar, to a
+   folder outside the repo (documentation, thesis).
+
 ## Open questions
 
 - Superimposition: confirm the 0.5 mm flag threshold with a supervisor or the program's usual practice.

@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles  # noqa: E402
+from omfs_planner import guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section  # noqa: E402
 
 omfs_planner.register()
 
@@ -595,6 +595,45 @@ def test_flip_upper_above_lower():
         bpy.data.objects.remove(obj)
     for arch_id in ('UPPER', 'LOWER'):
         bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
+
+
+def test_section_plane():
+    scene = bpy.context.scene
+    props = scene.omfs_section
+    props.use_frame, props.thickness = False, 2.0
+    for orientation, normal in (('AXIAL', (0, 0, 1)), ('CORONAL', (0, -1, 0)), ('SAGITTAL', (1, 0, 0))):
+        props.orientation, props.offset = orientation, 10.0
+        m = section.plane_matrix(scene)
+        assert_close(m.col[2].xyz, normal, f"{orientation} normal (up / anterior / left)")
+        assert abs(m.to_3x3().determinant() - 1) < 1e-6, f"{orientation}: right-handed axes"
+        assert_close(m.translation, Vector(normal) * 10, f"{orientation}: 10 mm along the normal")
+        n = Vector(normal)
+        assert section.in_slab(scene, n * 10.9) and section.in_slab(scene, n * 9.1), "inside the 2 mm slab"
+        assert not section.in_slab(scene, n * 11.1) and not section.in_slab(scene, n * 8.9), "outside the slab"
+        view_dir = section.view_rotation(scene) @ Vector((0, 0, 1))   # towards the viewer
+        assert abs(abs(view_dir.dot(n)) - 1) < 1e-6, f"{orientation}: view perpendicular to the plane"
+    props.orientation = 'AXIAL'
+    assert_close(section.view_rotation(scene) @ Vector((0, 0, 1)), (0, 0, -1), "axial seen from the feet")
+    props.flip_view = True
+    assert_close(section.view_rotation(scene) @ Vector((0, 0, 1)), (0, 0, 1), "other side: from above")
+    props.flip_view = False
+
+    # The reference frame drives the standard planes (hook for the clinical planes).
+    frame = reference_frame.find_frame(scene)
+    props.use_frame, props.offset = True, 0.0
+    assert_close(section.plane_matrix(scene).translation, frame.matrix_world.translation, "offset 0 = frame origin")
+
+    # A custom object: its local XY plane.
+    empty = bpy.data.objects.new("Section test", None)
+    scene.collection.objects.link(empty)
+    empty.matrix_world = Matrix.Translation((5, 6, 7)) @ Euler((0.4, 0, 0)).to_matrix().to_4x4()
+    props.orientation, props.custom, props.offset = 'CUSTOM', empty, 3.0
+    z = empty.matrix_world.col[2].xyz
+    assert_close(section.plane_matrix(scene).translation, Vector((5, 6, 7)) + 3 * z, "custom plane, shifted 3 mm")
+    props.custom = None
+    assert section.plane_matrix(scene) is None and section.slab_planes(scene) is None
+    bpy.data.objects.remove(empty)
+    props.orientation, props.offset = 'AXIAL', 0.0
 
 
 def test_empty_folder_is_an_error():

@@ -28,6 +28,7 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   ops_import.py              "Import Case" operator
   occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
   occlusion_seating.py       springs between the arches, seating solver, overlap map
+  section.py                 Section & Analysis: section plane, slab (clipping), radiograph view
   ui.py                      sidebar tab "OMFS" in the 3D viewport
 app_template/omfs_planner/   Application Template: clean surgical UI + Developer mode
 tools/dev_link.sh            symlinks both into the Blender user dirs (development)
@@ -111,6 +112,11 @@ seating (upper and lower arch scans set into the final occlusion; done: arches, 
 shape check, pre-op ghost, springs + magnet + overlap map), then a "Mouvement chx orthognathique"
 tab: what moves with each arch (associations, code kept in occlusion.py) and movement of the
 maxillomandibular complex.
+
+Cross-cutting tool (not a numbered step, usable at every step): **Section & Analysis** panel.
+Section plane + slab, section contours, overlap highlight and intersection volume, distance map,
+PNG snapshot. Strictly non-destructive: clipping, draw handlers, modifiers or overlay objects,
+never the original mesh data. Details in docs/workflow.md.
 
 ## Interaction rules
 

@@ -95,3 +95,7 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Application Template** | A startup configuration that replaces Blender's default UI and scene. Ours is the clean OMFS Planner interface. | None. |
 | **Preferences** | User-level settings (enabled extensions, keymap, themes). Saved separately from .blend files. | Meshmixer Preferences. |
 | **bpy** | Blender's Python API: everything in this project is written with it. | None. |
+| **Clipping region (Alt + B)** | Hides everything outside a box in one 3D viewport. The GPU discards the hidden part at draw time: the mesh data is untouched, and it is instant on large meshes. Our **Slab Only** sets it to two parallel planes of any orientation (the slab). Alt + B again removes it. | Hide / Show tools have no clipping; the closest is a Plane Cut preview without accepting it. |
+| **Section plane / slab** *(OMFS Planner)* | A plane moved along its normal in mm, and a slab of chosen thickness centred on it. Drawn by a draw handler, not an object. | Plane Cut's plane, without cutting. |
+| **Orthographic view** | A view without perspective: parallel lines stay parallel and sizes do not shrink with depth, so distances on screen are true to scale, like a radiograph. Toggle with numpad 5 (or 5 with Emulate Numpad). | View > Orthographic. |
+

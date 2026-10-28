@@ -4,7 +4,7 @@ import textwrap
 
 import bpy
 
-from . import guide_workshop, landmarks, locking, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, view
+from . import guide_workshop, landmarks, locking, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, view
 
 
 def draw_text(layout, context, text):
@@ -71,6 +71,42 @@ class OMFS_PT_view(bpy.types.Panel):
         layout.operator("wm.tool_set_by_id", text="Navigate Tool", icon='ORIENTATION_VIEW').name = "omfs.navigate"
         if not view.navigation_preferences_ok(context.preferences):
             layout.operator("omfs.navigation_preferences", icon='PREFERENCES')
+
+
+class OMFS_PT_section(bpy.types.Panel):
+    bl_label = "Section & Analysis"
+    bl_idname = "OMFS_PT_section"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        props = scene.omfs_section
+        box = layout.box()
+        box.label(text="Section plane", icon='MOD_MIRROR')
+        box.row().prop(props, "orientation", expand=True)
+        if props.orientation == 'CUSTOM':
+            box.prop(props, "custom", text="")
+        elif reference_frame.find_frame(scene):
+            box.prop(props, "use_frame")
+        else:
+            box.label(text="Scanner axes (no reference frame yet)", icon='INFO')
+        if section.plane_matrix(scene) is None:
+            box.label(text="Pick the plane object", icon='ERROR')
+            return
+        row = box.row(align=True)
+        row.prop(props, "offset")
+        row.operator("omfs.section_centre", text="", icon='PIVOT_MEDIAN')
+        box.prop(props, "thickness")
+        row = box.row(align=True)
+        row.prop(props, "slab_only", toggle=True, icon='MOD_BEVEL')
+        row.prop(props, "show_plane", toggle=True, icon='HIDE_OFF' if props.show_plane else 'HIDE_ON')
+        row = box.row(align=True)
+        row.operator("omfs.section_view", icon='VIEW_ORTHO')
+        row.prop(props, "flip_view", toggle=True, icon='ARROW_LEFTRIGHT')
 
 
 class OMFS_PT_registration(bpy.types.Panel):
@@ -483,7 +519,7 @@ class OMFS_PT_guide_recipe(bpy.types.Panel):
 
 GUIDE_SECTION_PANELS = tuple(make_guide_section(*s) for s in guide_workshop.SECTIONS)
 
-classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_registration, OMFS_PT_landmarks, OMFS_PT_reference_frame, OMFS_PT_osteotomy,
+classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_section, OMFS_PT_registration, OMFS_PT_landmarks, OMFS_PT_reference_frame, OMFS_PT_osteotomy,
            OMFS_PT_occlusion,
            OMFS_PT_guide, *GUIDE_SECTION_PANELS, OMFS_PT_guide_recipe)
 

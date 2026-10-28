@@ -56,3 +56,9 @@ OCC_TRIPOD_MIN_AREA = 1.0       # mm²: contact area right, anterior and left fo
 OCC_MAX_ITERATIONS = 300
 OCC_ANTERIOR_HALF_WIDTH = 15.0  # mm each side of the midline: anterior contacts, beyond = left / right
 OCC_PREPOSITION_GAP = 5.0       # mm between the arches after "flip and place above the lower arch"
+
+# Section & Analysis (cross-cutting viewing tool)
+SECTION_THICKNESS = 2.0         # mm, default slab thickness
+SECTION_THICKNESS_MIN = 0.2     # mm
+SECTION_THICKNESS_MAX = 10.0    # mm
+SECTION_PLANE_SIZE = 140.0      # mm, smallest square drawn for the plane
