@@ -81,10 +81,14 @@ class OMFS_PT_section(bpy.types.Panel):
     bl_category = "OMFS"
     bl_options = {'DEFAULT_CLOSED'}
 
+    def draw_header(self, context):
+        self.layout.prop(context.scene.omfs_section, "enabled", text="")
+
     def draw(self, context):
         layout = self.layout
         scene = context.scene
         props = scene.omfs_section
+        layout.active = props.enabled
         box = layout.box()
         box.label(text="Section plane", icon='MOD_MIRROR')
         box.row().prop(props, "orientation", expand=True)
@@ -107,6 +111,14 @@ class OMFS_PT_section(bpy.types.Panel):
         row = box.row(align=True)
         row.operator("omfs.section_view", icon='VIEW_ORTHO')
         row.prop(props, "flip_view", toggle=True, icon='ARROW_LEFTRIGHT')
+
+        box = layout.box()
+        box.label(text="Section contours", icon='MOD_OUTLINE')
+        row = box.row(align=True)
+        row.prop(props, "show_contours", toggle=True)
+        sub = row.row(align=True)
+        sub.active = props.slab_only   # a cap is only visible once the slab hides what covers it
+        sub.prop(props, "show_caps", toggle=True)
 
 
 class OMFS_PT_registration(bpy.types.Panel):

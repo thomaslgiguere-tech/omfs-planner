@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section  # noqa: E402
+from omfs_planner import guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours  # noqa: E402
 
 omfs_planner.register()
 
@@ -634,6 +634,67 @@ def test_section_plane():
     assert section.plane_matrix(scene) is None and section.slab_planes(scene) is None
     bpy.data.objects.remove(empty)
     props.orientation, props.offset = 'AXIAL', 0.0
+
+
+def section_measures(obj, scene):
+    """(contour length, cap area, number of loops, open lines?) of obj on the section plane."""
+    plane = section.plane_matrix(scene)
+    cut = section_contours.cut(obj, plane, bpy.context.evaluated_depsgraph_get())
+    length = float(np.linalg.norm(cut.segments[:, 1] - cut.segments[:, 0], axis=1).sum())
+    area = section_contours.rows_area(section_contours.cap_rows(plane, cut.loops))
+    return length, area, len(cut.loops), cut.open_lines
+
+
+def test_section_contours():
+    scene = bpy.context.scene
+    props = scene.omfs_section
+    props.use_frame, props.orientation, props.offset = False, 'AXIAL', 0.0
+    box = dense_box("Contour box", 'BONE', (0, 0, 0), (20, 10, 10))
+    length, area, loops, open_lines = section_measures(box, scene)
+    assert abs(length - 60) < 1e-3 and abs(area - 200) < 1e-3 and loops == 1 and not open_lines, (length, area)
+    plane = section.plane_matrix(scene)
+    cut = section_contours.cut(box, plane, bpy.context.evaluated_depsgraph_get())
+    points, tris = section_contours.rows_quads(plane, section_contours.cap_rows(plane, cut.loops))
+    assert tris.dtype == np.int32 and points.dtype == np.float32, "GPU buffers: 4-byte ints and floats"
+
+    props.offset = -5 + 3 * 10 / 13   # exactly through a row of vertices
+    length, area, loops, _ = section_measures(box, scene)
+    assert abs(length - 60) < 1e-3 and abs(area - 200) < 1e-3 and loops == 1, ("through vertices", length, area)
+    props.offset = 7.0
+    assert section_measures(box, scene)[0] == 0, "plane above the box: nothing"
+
+    box.location.z = 6.0   # the box follows its object transform
+    length, area, _, _ = section_measures(box, scene)
+    assert abs(area - 200) < 1e-3, ("moved box", area)
+    box.location.z = 0.0
+
+    # A box with a box-shaped hole: the cap is a ring (even-odd fill).
+    props.offset = 0.0
+    hole = box_object("Contour hole", 'BONE', (0, 0, 0), (10, 4, 20))
+    tube = box.copy()
+    tube.data = box.data.copy()
+    scene.collection.objects.link(tube)
+    bm = bmesh.new()
+    bm.from_mesh(tube.data)
+    bm.from_mesh(hole.data)   # second shell inside the first
+    bm.to_mesh(tube.data)
+    bm.free()
+    length, area, loops, _ = section_measures(tube, scene)
+    assert loops == 2 and abs(area - (200 - 40)) < 1e-3, ("ring", loops, area)
+
+    # An open surface (like a scan): outline, no cap.
+    bm = bmesh.new()
+    bmesh.ops.create_grid(bm, x_segments=10, y_segments=10, size=5)
+    bmesh.ops.rotate(bm, verts=bm.verts, matrix=Matrix.Rotation(radians(90), 3, 'X'))
+    sheet = bpy.data.objects.new("Contour sheet", bpy.data.meshes.new("Contour sheet"))
+    bm.to_mesh(sheet.data)
+    bm.free()
+    scene.collection.objects.link(sheet)
+    length, area, loops, open_lines = section_measures(sheet, scene)
+    assert open_lines and loops == 0 and abs(length - 10) < 1e-3, ("open sheet", length, loops)
+
+    for obj in (box, hole, tube, sheet):
+        bpy.data.objects.remove(obj)
 
 
 def test_empty_folder_is_an_error():

@@ -277,8 +277,13 @@ responsive with CT meshes of several hundred thousand triangles.
    radiograph (axial from the feet, coronal from the front, sagittal from the patient's right;
    "Other Side" flips). Hook: a new plane (e.g. a user-defined occlusal plane) is a new orientation
    in `section.base_matrix`.
-2. Section contours: outline of every visible object on the plane, in its colour, live with the
-   slider; optional filled caps.
+2. Section contours *(done)*: outline of every visible object on the plane, in its colour, drawn
+   on top (always readable), live with the slider (about 2 ms per slider step for a
+   900 000-triangle mandible: vertices and triangles are read once and cached). "Caps" fills the
+   cut of closed objects, row by row every 0.05 mm with the even-odd rule (holes such as sinuses,
+   canals and self-intersecting segmentations are handled); visible with Slab Only, since outside
+   the slab the object covers its own cap. Open meshes (scans) give an outline only. A master
+   checkbox in the panel header turns the whole tool on / off.
 3. Overlap highlight: red where two objects interpenetrate on the section; separate 3D toggle for
    the exact intersection volume of two picked objects, with its volume in mm³.
 4. Distance map: source surface coloured by distance to a target (defaults red < 1 mm, yellow

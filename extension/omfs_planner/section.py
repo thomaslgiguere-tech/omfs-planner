@@ -62,6 +62,11 @@ def plane_matrix(scene):
     return Matrix.Translation(base.col[2].xyz * props.offset) @ base
 
 
+def active_plane(scene):
+    """The plane when the section tool is on, else None."""
+    return plane_matrix(scene) if scene.omfs_section.enabled else None
+
+
 def view_rotation(scene):
     """Rotation of a viewer looking perpendicular to the plane."""
     props = scene.omfs_section
@@ -144,7 +149,7 @@ def set_clipping(context, on):
 def update_clipping(context):
     if context.window_manager is None or bpy.app.background:
         return
-    set_clipping(context, context.scene.omfs_section.slab_only and plane_matrix(context.scene) is not None)
+    set_clipping(context, context.scene.omfs_section.slab_only and active_plane(context.scene) is not None)
 
 
 def _on_change(self, context):
@@ -157,7 +162,7 @@ def _on_change(self, context):
 def _on_depsgraph_update(scene, depsgraph):
     """Keep the slab on the plane when its custom object or the reference frame moves."""
     props = scene.omfs_section
-    if not props.slab_only:
+    if not (props.enabled and props.slab_only):
         return
     source = props.custom if props.orientation == 'CUSTOM' else reference_frame.find_frame(scene)
     if source and any(u.is_updated_transform and u.id.original == source for u in depsgraph.updates
@@ -175,10 +180,8 @@ def square_corners(m, centre, half):
 def _draw_plane():
     scene = bpy.context.scene
     props = scene.omfs_section
-    if not props.show_plane:
-        return
-    m = plane_matrix(scene)
-    if m is None:
+    m = active_plane(scene)
+    if m is None or not props.show_plane:
         return
     centre, half = plane_square(scene)
     corners = square_corners(m, centre, half)
@@ -189,7 +192,9 @@ def _draw_plane():
         fill = gpu.shader.from_builtin('UNIFORM_COLOR')
         batch = batch_for_shader(fill, 'TRIS', {"pos": corners}, indices=((0, 1, 2), (0, 2, 3)))
         fill.uniform_float("color", (*PLANE_COLOUR, 0.08))
+        gpu.state.depth_mask_set(False)   # a veil: must not hide the caps drawn on the same plane
         batch.draw(fill)
+        gpu.state.depth_mask_set(True)
     line = gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR')
     region = bpy.context.region
     line.uniform_float("viewportSize", (region.width, region.height))
@@ -210,6 +215,9 @@ _draw_handle = None
 # --- Settings and operators ---------------------------------------------------------
 
 class OMFS_SectionProperties(bpy.types.PropertyGroup):
+    enabled: bpy.props.BoolProperty(
+        name="Section", update=_on_change,
+        description="Turn the section tool on: plane, slab, contours. Off: nothing drawn, no clipping")
     orientation: bpy.props.EnumProperty(
         name="Plane", update=_on_change,
         items=(('AXIAL', "Axial", "Horizontal plane, offset + = up"),
@@ -235,6 +243,12 @@ class OMFS_SectionProperties(bpy.types.PropertyGroup):
         description="Hide everything outside the slab, in every 3D viewport (Blender's clipping region, "
                     "like Alt + B). The meshes are not changed")
     show_plane: bpy.props.BoolProperty(name="Show Plane", default=True, update=_on_change)
+    show_contours: bpy.props.BoolProperty(
+        name="Contours", default=True, update=_on_change,
+        description="Outline of every visible object on the plane, in its colour")
+    show_caps: bpy.props.BoolProperty(
+        name="Caps", update=_on_change,
+        description="Fill the cut of closed objects, so they don't look hollow in the slab (open scans: outline only)")
     flip_view: bpy.props.BoolProperty(
         name="Other Side", description="Align View looks at the plane from the other side")
 

@@ -62,3 +62,5 @@ SECTION_THICKNESS = 2.0         # mm, default slab thickness
 SECTION_THICKNESS_MIN = 0.2     # mm
 SECTION_THICKNESS_MAX = 10.0    # mm
 SECTION_PLANE_SIZE = 140.0      # mm, smallest square drawn for the plane
+SECTION_LINE_WIDTH = 3.0        # px, contour lines
+SECTION_FILL_STEP = 0.05        # mm between the rows that fill caps and measure overlap areas
