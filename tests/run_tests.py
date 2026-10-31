@@ -968,6 +968,32 @@ def test_movement_on_osteotomy_plane():
     cut.omfs_cut.frontal_angle = 0.0
 
 
+def test_polish_protects_intrados():
+    scene = bpy.context.scene
+    bone = box_object("Polish bone", 'BONE', (0, 300, 0), (40, 40, 20))   # top face at z = 10
+    scene.omfs_guide.source = bone
+    bm = bmesh.new()
+    bmesh.ops.create_grid(bm, x_segments=8, y_segments=8, size=10.0)
+    bmesh.ops.translate(bm, vec=(0, 300, 10), verts=bm.verts)
+    mesh = bpy.data.meshes.new("Footprint")
+    bm.to_mesh(mesh)
+    bm.free()
+    guide = bpy.data.objects.new("Footprint", mesh)
+    scene.collection.objects.link(guide)
+    guide.modifiers.new("Solidify", 'SOLIDIFY')
+    guide_workshop.finish_extracted_guide(bpy.context, guide)
+    assert guide_workshop.TOOLS['APPLY_MODIFIERS'].run(bpy.context) is None
+    protected = guide_workshop.protect_intrados(bpy.context, guide)
+    mask = np.array([d.value for d in guide.data.attributes[guide_workshop.MASK].data])
+    z = np.array([v.co.z for v in guide.data.vertices])
+    assert protected == int((mask == 1).sum()) and protected > 0
+    assert np.allclose(z[mask == 1], 10 + params.GUIDE_CLEARANCE, atol=1e-3), "the intrados is protected"
+    assert np.allclose(z[mask == 0], 10 + params.GUIDE_CLEARANCE + params.GUIDE_THICKNESS, atol=1e-3), \
+        "the outer surface is free to polish"
+    for obj in (guide, bone):
+        bpy.data.objects.remove(obj)
+
+
 def test_empty_folder_is_an_error():
     with tempfile.TemporaryDirectory() as folder:
         try:

@@ -12,6 +12,7 @@ from math import radians
 
 import bpy
 import numpy as np
+from mathutils.bvhtree import BVHTree
 
 from . import landmarks, locking, osteotomy, params
 
@@ -733,6 +734,74 @@ def apply_modifiers(context):
     return None
 
 
+def intrados(obj, bone, depsgraph):
+    """Boolean per vertex of obj: closer to the bone surface than GUIDE_PROTECT_DISTANCE
+    (the side of the guide that fits the bone)."""
+    tree = BVHTree.FromObject(bone, depsgraph)   # in the bone's local coordinates
+    to_bone = bone.matrix_world.inverted() @ obj.matrix_world
+    scale = bone.matrix_world.to_scale().x       # 1 for our meshes (raw file coordinates)
+    near = np.zeros(len(obj.data.vertices), bool)
+    for i, v in enumerate(obj.data.vertices):
+        _location, _normal, _index, distance = tree.find_nearest(to_bone @ v.co)
+        near[i] = distance is not None and distance * scale < params.GUIDE_PROTECT_DISTANCE
+    return near
+
+
+def protect_intrados(context, obj):
+    """Mask the intrados of an applied guide (Object Mode). Returns the number of protected vertices,
+    or an error message."""
+    bone = props(context).source or props(context).work_copy
+    if bone is None:
+        return "Choisissez l'objet de départ (l'os sous le guide) en haut du panneau"
+    near = intrados(obj, bone, context.evaluated_depsgraph_get())
+    if not near.any():
+        return f"Aucune face du guide à moins de {params.GUIDE_PROTECT_DISTANCE:g} mm de {bone.name}"
+    attribute = obj.data.attributes.get(MASK) or obj.data.attributes.new(MASK, 'FLOAT', 'POINT')
+    attribute.data.foreach_set("value", near.astype(np.float32))
+    obj.data.update()
+    return int(near.sum())
+
+
+@tool('POLISH_OUTSIDE', "Polir l'extérieur au pinceau", 'SCULPTMODE_HLT', 'SHAPE',
+      "Applique les modificateurs (la coque devient un vrai maillage), protège l'intrados par un masque "
+      "(tout ce qui est à moins de 1 mm de l'os, en gris foncé), puis passe en Sculpture avec le pinceau "
+      "Smooth. Polissez au glisser; les autres pinceaux de la barre de gauche (Clay Strips pour ajouter, "
+      "Flatten pour aplatir...) sont aussi sans danger pour l'ajustement. F = taille, Maj+F = force.",
+      "Sculpt > Robust Smooth avec l'intrados en Freeze", "Maj = lisser avec n'importe quel pinceau")
+def polish_outside(context):
+    obj, error = editable_active(context)
+    if error:
+        return error
+    if obj == props(context).work_copy:
+        return "Sélectionnez le guide, pas la copie de travail (bouton « Sélectionner le guide »)"
+    if context.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    for mod in list(obj.modifiers):
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+    protected = protect_intrados(context, obj)
+    if isinstance(protected, str):
+        return protected
+    bpy.ops.object.mode_set(mode='SCULPT')
+    try:
+        bpy.ops.brush.asset_activate(asset_library_type='ESSENTIALS', relative_asset_identifier=SMOOTH_BRUSH)
+    except RuntimeError:
+        return "Pinceau Smooth introuvable: choisissez-le dans la barre d'outils de gauche"
+    return None
+
+
+@tool('POLISH_FILTER', "Lisser tout l'extérieur (1 passe)", 'MOD_SMOOTH', 'SHAPE',
+      "Après « Polir l'extérieur »: lisse d'un coup toute la surface non masquée (l'intrados masqué ne "
+      "bouge pas). Une passe par clic; Ctrl+Z annule la dernière.",
+      "Deform > Smooth sur tout, intrados en Freeze", "Sculpt > Filtre (Mesh Filter: Smooth)")
+def polish_filter(context):
+    obj = context.active_object
+    if context.mode != 'SCULPT' or obj is None or obj.data.attributes.get(MASK) is None:
+        return "Cliquez d'abord « Polir l'extérieur au pinceau » sur le guide"
+    with viewport(context):
+        bpy.ops.sculpt.mesh_filter(type='SMOOTH', strength=0.5)
+    return None
+
+
 # --- 4. Cylinders and Boolean ------------------------------------------------------------
 
 @tool('CURSOR_TOOL', "Placer le curseur 3D", 'PIVOT_CURSOR', 'BOOLEAN',
@@ -918,6 +987,7 @@ RECIPE = (
         "selon l'axe de la vis, choisir le tube dans « Avec », Unir au guide.",
         "[4] Cylindre trou au même endroit, le choisir dans « Avec », Soustraire du guide.",
         "[3] Remesh étanche, puis Appliquer les modificateurs.",
+        "[3] Polir l'extérieur au pinceau (intrados protégé), ou Lisser tout l'extérieur par passes.",
         "[5] Garder au-dessus ou en dessous du trait: le bord du guide suit la coupe.",
         "[6] Montrer les défauts (rien ne doit être sélectionné), Marquer comme guide.",
     )),

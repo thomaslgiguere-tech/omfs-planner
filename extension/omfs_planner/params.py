@@ -31,6 +31,7 @@ GUIDE_THICKNESS = 3.0           # mm, guide body away from the saw path
 GUIDE_CLEARANCE = 0.10          # mm gap between bone and guide (fit)
 SELECT_FLAT_ANGLE = 40.0        # deg, "linked flat faces": stops at the rim of the guide
 GUIDE_REMESH_VOXEL = 0.2        # mm, voxel size when remeshing a guide watertight
+GUIDE_PROTECT_DISTANCE = 1.0    # mm: guide vertices closer than this to the bone are the intrados (protected when polishing)
 SLEEVE_OUTER_DIAMETER = 4.0     # mm, MatrixMANDIBLE sleeve 03.503.045: just under 4 mm, TO MEASURE
 SLEEVE_FIT_CLEARANCE = 0.10     # mm added to the sleeve diameter for the tube bore, TO TEST (print)
 SLEEVE_TUBE_LENGTH = 5.0        # mm

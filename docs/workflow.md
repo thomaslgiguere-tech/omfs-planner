@@ -167,6 +167,10 @@ Naming used below (matches the object roles in code):
   mask. Several zones at once (guide contact, cut window, sleeves, areas to avoid), sharp borders,
   kept with the working copy; pick a zone by clicking it, grow / shrink / isolate it, then extract it
   as a shell. The mask stays as an option (1b) to smooth a zone's border before extracting.
+- Polishing the outside of a guide by hand: "Polir l'extérieur au pinceau" applies the modifiers,
+  masks the intrados (guide vertices closer than 1 mm to the bone: params.GUIDE_PROTECT_DISTANCE) and
+  opens Sculpt Mode with the Smooth brush; any brush is then safe for the fit. "Lisser tout
+  l'extérieur" smooths the whole unmasked surface one pass per click.
 
 ### Cutting guide
 
