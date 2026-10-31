@@ -291,6 +291,13 @@ def test_guide_workshop():
     assert [m.type for m in guide.modifiers] == ['DISPLACE', 'SOLIDIFY'], [m.type for m in guide.modifiers]
     assert abs(guide.modifiers[1].thickness - params.GUIDE_THICKNESS) < 1e-6
     assert not guide.modifiers[1].use_even_offset, "even thickness spikes at sharp border folds"
+    assert copy.hide_get(), "the copy is hidden after an extraction: clicks must reach the guide"
+    assert not any(m.show_in_editmode for m in guide.modifiers), "Edit Mode shows the footprint, not the shell"
+    run('TOGGLE_WORK_COPY')
+    assert not copy.hide_get()
+    guide_workshop.make_active(bpy.context, copy)
+    run('SELECT_GUIDE')
+    assert bpy.context.active_object == guide
 
     # Cylinders at the 3D cursor, Boolean, apply.
     scene.cursor.location = (-300, 0, 10)

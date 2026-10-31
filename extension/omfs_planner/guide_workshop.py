@@ -189,6 +189,33 @@ def remove_work_copy(context):
     return None
 
 
+@tool('TOGGLE_WORK_COPY', "Cacher / montrer la copie", 'HIDE_OFF', 'START',
+      "Le guide extrait est posé exactement sur la copie de travail: cachez la copie pour cliquer le "
+      "guide (elle est cachée automatiquement après une extraction, et réaffichée pour peindre).",
+      "Hide (Object Browser, icône œil)", "H / Alt+H (en mode Objet)")
+def toggle_work_copy(context):
+    copy = props(context).work_copy
+    if copy is None:
+        return "Aucune copie de travail"
+    if context.mode != 'OBJECT' and context.active_object == copy:
+        bpy.ops.object.mode_set(mode='OBJECT')
+    copy.hide_set(not copy.hide_get())
+    return None
+
+
+@tool('SELECT_GUIDE', "Sélectionner le guide", 'RESTRICT_SELECT_OFF', 'START',
+      "Rend le guide actif (le dernier extrait), en mode Objet, prêt à être modifié.",
+      "Cliquer l'objet dans l'Object Browser", "Clic dans l'Outliner, ou Alt+clic pour passer à l'objet derrière")
+def select_guide(context):
+    guides = [o for o in workshop_collection(context.scene).objects if o.omfs.role == 'GUIDE']
+    if not guides:
+        return "Aucun guide: extrayez d'abord une zone"
+    guide = guides[-1]
+    guide.hide_set(False)
+    make_active(context, guide)
+    return None
+
+
 @tool('OBJECT_MODE', "Revenir en mode Objet", 'OBJECT_DATAMODE', 'START',
       "Quitte le mode Sculpture, Édition ou Peinture. En mode Objet on manipule des objets entiers "
       "(et l'outil Navigate fait tourner la vue au glisser).",
@@ -205,6 +232,7 @@ def need_sculpt(context):
     copy = props(context).work_copy
     if copy is None:
         return "Créez d'abord une copie de travail"
+    copy.hide_set(False)   # hidden after an extraction, so the guide can be clicked
     if context.active_object != copy:
         make_active(context, copy)
     if context.mode != 'SCULPT':
@@ -485,6 +513,15 @@ def finish_extracted_guide(context, guide):
     clearance.mid_level = 0.0
     clearance.direction = 'NORMAL'
     guide.modifiers.move(len(guide.modifiers) - 1, 0)   # gap first, then thickness
+    # In Edit Mode, show the surface being edited (the footprint on the bone), not the shell
+    # built on it: the shell would hide the vertices.
+    for mod in guide.modifiers:
+        mod.show_in_editmode = False
+    # The guide's footprint lies exactly on the working copy: hide the copy, or every click
+    # lands on it. Painting a zone shows it again.
+    copy = props(context).work_copy
+    if copy is not None:
+        copy.hide_set(True)
 
 
 # --- 2. Edit Mode ------------------------------------------------------------------------
@@ -493,6 +530,9 @@ def finish_extracted_guide(context, guide):
       "Montre les sommets, arêtes et faces de l'objet actif pour les sélectionner et les modifier.",
       "Select tool (sélection de triangles)", "Tab")
 def edit_mode(context):
+    copy = props(context).work_copy
+    if copy is not None and context.active_object not in (None, copy):
+        copy.hide_set(True)   # editing the guide: its vertices lie on the copy's surface
     return need_mode(context, 'EDIT_MESH')
 
 

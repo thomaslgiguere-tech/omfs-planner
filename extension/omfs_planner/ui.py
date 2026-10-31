@@ -600,7 +600,11 @@ class OMFS_PT_guide(bpy.types.Panel):
             tool_button(row, 'WORK_COPY')
         else:
             row.label(text=props.work_copy.name, icon='DUPLICATE')
+            hidden = props.work_copy.hide_get()
+            row.operator("omfs.guide_tool", text="", icon='HIDE_ON' if hidden else 'HIDE_OFF',
+                         depress=not hidden).tool = 'TOGGLE_WORK_COPY'
             tool_button(row, 'REMOVE_WORK_COPY', text="")
+            tool_button(layout, 'SELECT_GUIDE')
         obj = context.active_object
         layout.label(text=f"Actif: {obj.name if obj else '-'}   Mode: {context.mode.replace('_', ' ').title()}")
         if context.mode != 'OBJECT':
