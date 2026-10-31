@@ -301,6 +301,28 @@ Naming used below (matches the object roles in code):
   - Orthodontic brackets and wires create false contacts; gingiva can overlap.
 - Nuances: (add here)
 
+## Object creator: Splint / Chape
+
+- Goal: a thin occlusal splint (intermediate or final) between the two arch scans in their planned
+  positions, or a cap (chape) on one arch. Example the surgeon showed: "Teeth impression: up to
+  brackets", "Buccal contour: thin".
+- Holes where the teeth touch are accepted (surgeon, 2026-10-31): no need to open the bite.
+- Method (chosen over extracting tooth zones, which follows undercuts and makes one shell per arch):
+  a blank swept along an arch curve, then the tooth imprints by projection along the insertion axis
+  (no undercuts by construction, open scans are fine), 0.10 mm clearance.
+- Steps:
+  1. Arch curve *(done)*: type (Intermédiaire / Finale / Chape) and arches (default: those of the
+     occlusion seating). "Cliquer les points": 5 to 7 clicks on the occlusal surfaces, from the last
+     molar on one side to the other through the incisors; Backspace removes the last one. For a
+     splint, each click is moved halfway between the lower and upper occlusal surfaces on the vertical
+     (reference frame up), so the curve runs through the middle of the bite. Bezier curve with
+     automatic handles: passes through every point. Drawn thick in orange, points numbered, on top.
+     "Modifier": Edit Mode on the curve with snapping onto the surfaces (G, X, Tab).
+  2. Parametric blank along the curve (to come).
+  3. Tooth imprints by projection (to come).
+  4. Engraved text and print checks (to come).
+- Nuances: (add here)
+
 ## Cross-cutting tool: Section & Analysis
 
 Not a step: a panel usable at every planning step to inspect how objects (bone, teeth, scan,

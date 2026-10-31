@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint  # noqa: E402
 
 omfs_planner.register()
 
@@ -993,6 +993,38 @@ def test_polish_protects_intrados():
     assert np.allclose(z[mask == 0], 10 + params.GUIDE_CLEARANCE + params.GUIDE_THICKNESS, atol=1e-3), \
         "the outer surface is free to polish"
     for obj in (guide, bone):
+        bpy.data.objects.remove(obj)
+
+
+def test_arch_curve():
+    scene = bpy.context.scene
+    reference_frame.build(scene, FRAME_POINTS)       # up = world Z
+    lower = box_object("Lower arch scan", 'SCAN', (0, -400, -5), (60, 50, 10))   # occlusal surface z = 0
+    upper = box_object("Upper arch scan", 'SCAN', (0, -400, 9), (60, 50, 10))    # occlusal surface z = 4
+    bpy.context.view_layer.update()
+    props = scene.omfs_splint
+    props.kind, props.upper, props.lower, props.centre = 'FINAL', upper, lower, True
+    assert splint.arches(scene) == [upper, lower]
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    clicks = [(-25, -390, 0), (-15, -410, 0), (0, -420, 4), (15, -410, 0), (25, -390, 0)]   # on either arch
+    for c in clicks:
+        placed = splint.add_point(scene, Vector(c), depsgraph)
+        assert abs(placed.z - 2.0) < 1e-4, f"halfway between the arches: {placed}"
+    curve = splint.find_curve(scene)
+    points = splint.curve_points(curve)
+    assert len(points) == 5 and curve.omfs.role == 'ARCH'
+    assert all((p - Vector((c[0], c[1], 2.0))).length < 1e-4 for p, c in zip(points, clicks)), "through each click"
+    chord = sum(((points[i + 1] - points[i]).length for i in range(4)))
+    assert splint.curve_length(curve) >= chord - 1e-3
+    splint.remove_last_point(scene)
+    assert len(splint.curve_points(curve)) == 4
+
+    props.kind, props.cap_arch = 'CHAPE', lower      # a cap: points stay on the surface clicked
+    assert splint.arches(scene) == [lower]
+    assert abs(splint.add_point(scene, Vector((0, -400, 0)), depsgraph).z) < 1e-6
+    bpy.ops.omfs.arch_curve_clear()
+    assert splint.find_curve(scene) is None
+    for obj in (lower, upper):
         bpy.data.objects.remove(obj)
 
 

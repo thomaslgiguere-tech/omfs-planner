@@ -23,6 +23,7 @@ ROLES = (
     ('CUT', "Cut", "Osteotomy plane"),
     ('BLOCK', "Block", "Mobile block: Empty carrying an arch and what moves with it"),
     ('MARKER', "Marker", "Visual marker, never a constraint (e.g. star below a foramen)"),
+    ('ARCH', "Arch curve", "Curve along the dental arch that drives a splint or cap"),
     ('ANALYSIS', "Analysis", "Overlay shown by Section & Analysis (e.g. an intersection), removable in one click"),
     ('OTHER', "Other", "Anything else"),
 )
@@ -41,6 +42,7 @@ COLORS = {
     'CUT': (1.00, 0.85, 0.10, 0.35),     # transparent yellow
     'BLOCK': (0.60, 0.60, 0.60, 1.0),    # Empty: colour unused
     'MARKER': (1.00, 0.90, 0.00, 1.0),   # yellow
+    'ARCH': (1.00, 0.55, 0.10, 1.0),     # orange
     'ANALYSIS': (1.00, 0.10, 0.10, 1.0), # red
     'OTHER': (0.60, 0.60, 0.60, 1.0),    # grey
 }
@@ -49,7 +51,7 @@ COLORS = {
 LOCKED_BY_DEFAULT = {'BONE', 'TEETH', 'NERVE', 'SKIN'}
 
 # Helpers drawn in the viewport, not anatomy: clicks to place landmarks go through them.
-NOT_SURFACES = {'LANDMARK', 'REFERENCE', 'CUT', 'MARKER', 'BLOCK', 'ANALYSIS'}
+NOT_SURFACES = {'LANDMARK', 'REFERENCE', 'CUT', 'MARKER', 'BLOCK', 'ANALYSIS', 'ARCH'}
 
 # Filename keywords, checked in this order (a file called "ios_teeth" is a scan, not teeth,
 # and "mandibular canal" is a nerve, not bone).

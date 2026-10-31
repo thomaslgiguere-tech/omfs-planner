@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, distance_map, guide_workshop, landmarks, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, view
+from . import analysis, distance_map, guide_workshop, landmarks, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, view
 
 
 def draw_text(layout, context, text):
@@ -581,6 +581,59 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             draw_text(box, context, "G : déplacer, R : tourner (X / Y / Z pour un axe). Puis Terminer.")
 
 
+class OMFS_PT_splint(bpy.types.Panel):
+    bl_label = "Object creator: Splint / Chape"
+    bl_idname = "OMFS_PT_splint"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        props = scene.omfs_splint
+        layout.row().prop(props, "kind", expand=True)
+        col = layout.column(align=True)
+        if props.kind == 'CHAPE':
+            col.prop(props, "cap_arch")
+        else:
+            col.prop(props, "upper", text="Haut")
+            col.prop(props, "lower", text="Bas")
+            upper, lower = splint.upper_arch(scene), splint.lower_arch(scene)
+            if props.upper is None and upper is not None:
+                col.label(text=f"Haut: {upper.name} (assise)", icon='LINKED')
+            if props.lower is None and lower is not None:
+                col.label(text=f"Bas: {lower.name} (assise)", icon='LINKED')
+            hint = ("Arcade du haut déplacée, arcade du bas en préop." if props.kind == 'INTERMEDIATE'
+                    else "Les deux arcades en occlusion finale (Assise de l'occlusion).")
+            draw_text(layout, context, f"Placez d'abord les arcades: {hint} Trous permis aux points de contact.")
+
+        box = layout.box()
+        box.label(text="1. Courbe d'arcade", icon='CURVE_BEZCURVE')
+        draw_text(box, context, "Cliquez 5 à 7 points sur les faces occlusales, d'une dernière molaire à "
+                                "l'autre en passant par les incisives. La courbe passe par chaque point.")
+        if props.kind != 'CHAPE':
+            box.prop(props, "centre")
+        curve = splint.find_curve(scene)
+        n = len(splint.curve_points(curve))
+        box.operator("omfs.arch_curve_click", text="Ajouter des points" if n else "Cliquer les points",
+                     icon='RESTRICT_SELECT_OFF')
+        if n:
+            box.label(text=f"{n} points, {splint.curve_length(curve):.0f} mm", icon='CHECKMARK' if n >= 5 else 'INFO')
+            row = box.row(align=True)
+            row.operator("omfs.arch_curve_undo", text="Dernier", icon='BACK')
+            row.operator("omfs.arch_curve_edit", text="Modifier", icon='EDITMODE_HLT')
+            row.operator("omfs.arch_curve_clear", text="", icon='TRASH')
+            if curve.mode == 'EDIT':
+                draw_text(box, context, "G: déplacer (aimanté aux surfaces), X: supprimer. Tab pour terminer.")
+
+        for title, icon in (("2. Bloc paramétrique", 'MESH_CUBE'), ("3. Empreinte des dents (projection)", 'MOD_SHRINKWRAP'),
+                            ("4. Texte et vérification", 'FONT_DATA')):
+            box = layout.box()
+            box.enabled = False
+            box.label(text=f"{title}: à venir", icon=icon)
+
+
 class OMFS_PT_guide(bpy.types.Panel):
     bl_label = "Confection de guide"
     bl_idname = "OMFS_PT_guide"
@@ -688,7 +741,7 @@ class OMFS_PT_guide_recipe(bpy.types.Panel):
 GUIDE_SECTION_PANELS = tuple(make_guide_section(*s) for s in guide_workshop.SECTIONS)
 
 classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_section, OMFS_PT_registration, OMFS_PT_landmarks, OMFS_PT_reference_frame, OMFS_PT_osteotomy,
-           OMFS_PT_movement, OMFS_PT_occlusion,
+           OMFS_PT_movement, OMFS_PT_occlusion, OMFS_PT_splint,
            OMFS_PT_guide, *GUIDE_SECTION_PANELS, OMFS_PT_guide_recipe)
 
 
