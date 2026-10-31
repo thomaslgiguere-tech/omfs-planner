@@ -58,6 +58,15 @@ OCC_MAX_ITERATIONS = 300
 OCC_ANTERIOR_HALF_WIDTH = 15.0  # mm each side of the midline: anterior contacts, beyond = left / right
 OCC_PREPOSITION_GAP = 5.0       # mm between the arches after "flip and place above the lower arch"
 
+# Object creator: Splint / Chape
+SPLINT_BUCCAL_MARGIN = 1.5      # mm beyond the most buccal crown surface (more for a segmental splint)
+SPLINT_LINGUAL_MARGIN = 1.5     # mm beyond the most lingual crown surface
+SPLINT_DISTAL_MARGIN = 1.5      # mm beyond the last tooth at each end of the curve
+SPLINT_DEPTH = 3.0              # mm the splint reaches onto the teeth, above and below the middle of the bite
+SPLINT_RESOLUTION = 0.3         # mm between the blank's vertices (the imprint is only as fine as this)
+SPLINT_MEASURE_STEP = 1.0       # mm between the curve stations where the arch width is measured
+SPLINT_SMOOTH = 3.0             # mm: the outline is smoothed over this length along the arch
+
 # Section & Analysis (cross-cutting viewing tool)
 SECTION_THICKNESS = 2.0         # mm, default slab thickness
 SECTION_THICKNESS_MIN = 0.2     # mm

@@ -627,7 +627,36 @@ class OMFS_PT_splint(bpy.types.Panel):
             if curve.mode == 'EDIT':
                 draw_text(box, context, "G: déplacer (aimanté aux surfaces), X: supprimer. Tab pour terminer.")
 
-        for title, icon in (("2. Bloc paramétrique", 'MESH_CUBE'), ("3. Empreinte des dents (projection)", 'MOD_SHRINKWRAP'),
+        box = layout.box()
+        box.label(text="2. Bloc paramétrique", icon='MESH_CUBE')
+        box.enabled = n >= 2
+        col = box.column(align=True)
+        col.label(text="Débord au-delà des couronnes")
+        col.prop(props, "buccal_margin")
+        col.prop(props, "lingual_margin")
+        col.prop(props, "distal_margin")
+        col = box.column(align=True)
+        col.label(text="Profondeur sur les dents (depuis le milieu de l'occlusion)")
+        if props.kind == 'CHAPE':
+            col.prop(props, "depth_up", text="Au-dessus")
+            col.prop(props, "depth_low", text="Sur les dents")
+        else:
+            col.prop(props, "depth_up")
+            col.prop(props, "depth_low")
+        box.prop(props, "resolution")
+        blank = splint.find_blank(scene)
+        if blank is None:
+            box.operator("omfs.build_splint_blank", icon='MESH_CUBE')
+        else:
+            stale = splint.blank_stale(scene, blank)
+            box.operator("omfs.build_splint_blank", text="Courbe ou arcades modifiées: mettre à jour" if stale
+                         else "Reconstruire le bloc", icon='ERROR' if stale else 'FILE_REFRESH')
+            info = splint.blank_info(blank)
+            if info:
+                box.label(text=f"{info['length']:.0f} mm de long, {info['width_min']:.1f} à "
+                               f"{info['width_max']:.1f} mm de large")
+
+        for title, icon in (("3. Empreinte des dents (projection)", 'MOD_SHRINKWRAP'),
                             ("4. Texte et vérification", 'FONT_DATA')):
             box = layout.box()
             box.enabled = False

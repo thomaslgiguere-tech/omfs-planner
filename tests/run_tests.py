@@ -1028,6 +1028,59 @@ def test_arch_curve():
         bpy.data.objects.remove(obj)
 
 
+def tube_scan(name, z):
+    verts, tris = make_test_case.arch_tube(arch_radius=45, tube_radius=5, z=z)   # crown 10 mm wide, 16 high
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], tris)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.omfs.role = 'SCAN'
+    obj.location.y = 500
+    return obj
+
+
+def test_splint_blank():
+    scene = bpy.context.scene
+    reference_frame.build(scene, FRAME_POINTS)       # up = world Z
+    lower, upper = tube_scan("Lower tube", 0), tube_scan("Upper tube", 18)   # 2 mm gap: bite at z = 9
+    bpy.context.view_layer.update()
+    props = scene.omfs_splint
+    props.kind, props.upper, props.lower, props.centre = 'FINAL', upper, lower, True
+    bpy.ops.omfs.arch_curve_clear()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    for a in (10, 50, 90, 130, 170):
+        u = radians(a)
+        splint.add_point(scene, Vector((45 * np.cos(u), 500 + 45 * np.sin(u), 8)), depsgraph)
+    assert all(abs(p.z - 9) < 1e-3 for p in splint.curve_points(splint.find_curve(scene)))
+
+    blank = splint.build_blank(scene, depsgraph)
+    assert not isinstance(blank, str), blank
+    mesh = blank.data
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    assert all(e.is_manifold for e in bm.edges) and bm.calc_volume() > 0, "closed, outward normals"
+    bm.free()
+    # Crown band: 3 mm on each side of the bite (z 6 to 12). The 16-sided tubes have a vertex ring at
+    # 67.5 degrees in that band (z 7.4), 5 * cos(67.5) = 1.91 mm off their axis: plus the 1.5 mm margins.
+    info = splint.blank_info(blank)
+    expected = 2 * (5 * np.cos(radians(67.5)) + 1.5)
+    assert abs(info["width_max"] - expected) < 0.4 and abs(info["width_min"] - expected) < 0.6, info
+    top = [v.co.z for v in mesh.vertices if v.index in set(range(len(mesh.vertices) // 2))]
+    assert abs(min(top) - 12) < 1e-3 and abs(max(top) - 12) < 1e-3, "top = bite + 3 mm"
+    # The tubes go on 10 degrees past the curve ends (about 7 mm along the end tangent): covered + 1.5 mm.
+    curve_length = splint.curve_length(splint.find_curve(scene))
+    assert info["length"] > curve_length + 2 * (6.0 + 1.5), (info["length"], curve_length)
+
+    props.buccal_margin = 4.0                        # segmental: only the buccal side grows, live
+    assert abs(splint.blank_info(blank)["width_max"] - (expected + 2.5)) < 0.4
+    assert not splint.blank_stale(scene, blank)
+    splint.add_point(scene, Vector((45, 500, 8)), depsgraph)
+    assert splint.blank_stale(scene, blank), "a changed curve asks for an update"
+    for obj in (lower, upper, blank):
+        bpy.data.objects.remove(obj)
+    bpy.ops.omfs.arch_curve_clear()
+
+
 def test_empty_folder_is_an_error():
     with tempfile.TemporaryDirectory() as folder:
         try:
