@@ -21,9 +21,9 @@ def draw_text(layout, context, text):
 def tool_button(layout, tool_id, text=None):
     t = guide_workshop.TOOLS[tool_id]
     if t.operator:   # own operator, so its settings show in Adjust Last Operation (F9)
-        layout.operator(t.operator, text=text or t.label, icon=t.icon)
+        layout.operator(t.operator, text=t.label if text is None else text, icon=t.icon)
     else:
-        layout.operator("omfs.guide_tool", text=text or t.label, icon=t.icon).tool = tool_id
+        layout.operator("omfs.guide_tool", text=t.label if text is None else text, icon=t.icon).tool = tool_id
 
 
 class OMFS_PT_case(bpy.types.Panel):
@@ -594,17 +594,27 @@ class OMFS_PT_guide(bpy.types.Panel):
         props = context.scene.omfs_guide
         draw_text(layout, context, "Atelier d'outils natifs de Blender. Survolez un bouton pour son "
                                    "explication, son raccourci et l'équivalent Meshmixer.")
-        layout.prop(props, "source")
-        row = layout.row(align=True)
+        box = layout.box()
+        box.label(text="Copie de travail (zones)", icon='DUPLICATE')
+        row = box.row(align=True)
         if props.work_copy is None:
-            tool_button(row, 'WORK_COPY')
+            row.prop(props, "source", text="")
+            tool_button(row, 'WORK_COPY', text="Copier")
         else:
-            row.label(text=props.work_copy.name, icon='DUPLICATE')
+            row.label(text=props.work_copy.name)
             hidden = props.work_copy.hide_get()
             row.operator("omfs.guide_tool", text="", icon='HIDE_ON' if hidden else 'HIDE_OFF',
                          depress=not hidden).tool = 'TOGGLE_WORK_COPY'
             tool_button(row, 'REMOVE_WORK_COPY', text="")
-            tool_button(layout, 'SELECT_GUIDE')
+        box = layout.box()
+        guide = guide_workshop.target_guide(context)
+        box.label(text="Guide à modifier", icon='MOD_BUILD')
+        if guide is None:
+            box.label(text="Pas encore de guide: extrayez une zone (section 1)")
+        else:
+            box.prop(props, "guide", text="", icon='MESH_DATA')
+            if props.guide is None:
+                box.label(text=f"Par défaut: {guide.name}")
         obj = context.active_object
         layout.label(text=f"Actif: {obj.name if obj else '-'}   Mode: {context.mode.replace('_', ' ').title()}")
         if context.mode != 'OBJECT':

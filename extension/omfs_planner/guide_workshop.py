@@ -99,14 +99,33 @@ def make_active(context, obj):
     obj.select_set(True)
 
 
+def is_guide(obj):
+    return obj is not None and obj.type == 'MESH' and obj.omfs.role == 'GUIDE'
+
+
+def target_guide(context):
+    """The guide chosen at the top of the panel, else the last one extracted (None if none)."""
+    chosen = props(context).guide
+    if is_guide(chosen) and chosen.name in context.scene.objects:
+        return chosen
+    guides = [o for o in context.scene.objects if is_guide(o)]
+    return guides[-1] if guides else None
+
+
 def editable_active(context):
-    """The active object if it may be edited (a mesh that isn't locked anatomy), else an error."""
+    """The object the modelling tools act on: the active object if it is a free mesh (the guide,
+    a cylinder...), else the guide. The working copy is only for painting zones, and anatomy is
+    locked: with either active, the tools go to the guide instead."""
     obj = context.active_object
-    if obj is None or obj.type != 'MESH':
-        return None, "Sélectionnez d'abord un maillage (le guide ou la copie de travail)"
-    if locking.is_locked(obj):
-        return None, f"{obj.name} est verrouillé (anatomie): travaillez sur une copie de travail"
-    return obj, None
+    if (obj is not None and obj.type == 'MESH' and not locking.is_locked(obj)
+            and obj != props(context).work_copy):
+        return obj, None
+    guide = target_guide(context)
+    if guide is None:
+        return None, "Pas encore de guide: extrayez une zone (section 1)"
+    guide.hide_set(False)
+    make_active(context, guide)
+    return guide, None
 
 
 def need_mode(context, mode):
@@ -201,19 +220,6 @@ def toggle_work_copy(context):
     if context.mode != 'OBJECT' and context.active_object == copy:
         bpy.ops.object.mode_set(mode='OBJECT')
     copy.hide_set(not copy.hide_get())
-    return None
-
-
-@tool('SELECT_GUIDE', "Sélectionner le guide", 'RESTRICT_SELECT_OFF', 'START',
-      "Rend le guide actif (le dernier extrait), en mode Objet, prêt à être modifié.",
-      "Cliquer l'objet dans l'Object Browser", "Clic dans l'Outliner, ou Alt+clic pour passer à l'objet derrière")
-def select_guide(context):
-    guides = [o for o in workshop_collection(context.scene).objects if o.omfs.role == 'GUIDE']
-    if not guides:
-        return "Aucun guide: extrayez d'abord une zone"
-    guide = guides[-1]
-    guide.hide_set(False)
-    make_active(context, guide)
     return None
 
 
@@ -500,6 +506,7 @@ def finish_extracted_guide(context, guide):
     workshop_collection(context.scene).objects.link(guide)
     guide.omfs.role = 'GUIDE'
     make_active(context, guide)
+    props(context).guide = guide   # the modelling tools act on it from now on
     solidify = next((m for m in guide.modifiers if m.type == 'SOLIDIFY'), None)
     if solidify is not None:
         solidify.name = "Épaisseur"
@@ -737,7 +744,7 @@ def apply_modifiers(context):
 def intrados(obj, bone, depsgraph):
     """Boolean per vertex of obj: closer to the bone surface than GUIDE_PROTECT_DISTANCE
     (the side of the guide that fits the bone)."""
-    tree = BVHTree.FromObject(bone, depsgraph)   # in the bone's local coordinates
+    tree = BVHTree.FromObject(bone, depsgraph, deform=False)   # mesh data only, in the bone's local coordinates
     to_bone = bone.matrix_world.inverted() @ obj.matrix_world
     scale = bone.matrix_world.to_scale().x       # 1 for our meshes (raw file coordinates)
     near = np.zeros(len(obj.data.vertices), bool)
@@ -752,7 +759,7 @@ def protect_intrados(context, obj):
     or an error message."""
     bone = props(context).source or props(context).work_copy
     if bone is None:
-        return "Choisissez l'objet de départ (l'os sous le guide) en haut du panneau"
+        return "Os sous le guide inconnu: recréez une copie de travail de cet os"
     near = intrados(obj, bone, context.evaluated_depsgraph_get())
     if not near.any():
         return f"Aucune face du guide à moins de {params.GUIDE_PROTECT_DISTANCE:g} mm de {bone.name}"
@@ -977,7 +984,7 @@ def mark_guide(context):
 
 RECIPE = (
     ("Guide de coupe (sur l'os)", (
-        "Départ: la mandibule. Créer une copie de travail.",
+        "Copier la mandibule: Créer une copie de travail.",
         "[1] Peindre une zone sur la corticale vestibulaire du menton, de part et d'autre du "
         "trait de coupe. Agrandir ou Réduire au besoin; Isoler pour y voir clair.",
         "[1] Extraire la zone en coque: un objet « Guide » apparaît avec Dégagement (0,10 mm) et "
@@ -992,7 +999,7 @@ RECIPE = (
         "[6] Montrer les défauts (rien ne doit être sélectionné), Marquer comme guide.",
     )),
     ("Guide de repositionnement (sur les dents)", (
-        "Départ: le scan intra-oral recalé. Créer une copie de travail.",
+        "Copier le scan intra-oral recalé: Créer une copie de travail.",
         "[1] Peindre une zone sur les faces occlusales et vestibulaires des dents, pas la gencive.",
         "[1] Extraire la zone en coque, puis [3] régler Dégagement et Épaisseur.",
         "[2] En mode Édition, sélectionner une zone et l'extruder vers le guide de coupe (bras de connexion).",
@@ -1004,13 +1011,24 @@ RECIPE = (
 
 # --- Properties and operator -------------------------------------------------------------
 
+def _on_guide(context):
+    guide = props(context).guide
+    if guide is not None and context.mode == 'OBJECT':
+        guide.hide_set(False)
+        make_active(context, guide)
+
+
 def _is_source(_props, obj):
     return obj.type == 'MESH' and obj.omfs.role in {'BONE', 'SEGMENT', 'TEETH', 'SCAN'}
 
 
 class OMFS_GuideProperties(bpy.types.PropertyGroup):
-    source: bpy.props.PointerProperty(name="Départ", type=bpy.types.Object, poll=_is_source,
-                                      description="Os, segment ou dents sur lequel le guide s'appuie")
+    source: bpy.props.PointerProperty(name="Copier", type=bpy.types.Object, poll=_is_source,
+                                      description="Os, segment ou dents sur lequel le guide s'appuie: "
+                                                  "on en fait une copie de travail pour y peindre les zones")
+    guide: bpy.props.PointerProperty(name="Guide", type=bpy.types.Object, poll=lambda _p, o: is_guide(o),
+                                     update=lambda self, context: _on_guide(context),
+                                     description="Guide que les outils modifient (le dernier extrait, par défaut)")
     work_copy: bpy.props.PointerProperty(name="Copie de travail", type=bpy.types.Object)
     zone: bpy.props.IntProperty(name="Zone", min=0, description="Face set chosen by clic (0 = the last painted)")
     cutter: bpy.props.PointerProperty(name="Avec", type=bpy.types.Object,

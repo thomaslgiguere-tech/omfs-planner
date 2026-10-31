@@ -167,6 +167,11 @@ Naming used below (matches the object roles in code):
   mask. Several zones at once (guide contact, cut window, sleeves, areas to avoid), sharp borders,
   kept with the working copy; pick a zone by clicking it, grow / shrink / isolate it, then extract it
   as a shell. The mask stays as an option (1b) to smooth a zone's border before extracting.
+- Which object the tools act on (surgeon's feedback 2026-10-31: a global "Départ" picker was
+  counter-productive, modifiers landed on the working copy): the object to copy is asked only when
+  creating the working copy; a "Guide à modifier" picker (default: the last extracted guide) is what
+  sections 2 to 6 modify. With the working copy or locked anatomy active, the tools go to the guide;
+  another free mesh that is active (e.g. a sleeve cylinder) is used as is.
 - Polishing the outside of a guide by hand: "Polir l'extérieur au pinceau" applies the modifiers,
   masks the intrados (guide vertices closer than 1 mm to the bone: params.GUIDE_PROTECT_DISTANCE) and
   opens Sculpt Mode with the Smooth brush; any brush is then safe for the fit. "Lisser tout

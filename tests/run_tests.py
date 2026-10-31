@@ -295,9 +295,11 @@ def test_guide_workshop():
     assert not any(m.show_in_editmode for m in guide.modifiers), "Edit Mode shows the footprint, not the shell"
     run('TOGGLE_WORK_COPY')
     assert not copy.hide_get()
+    assert scene.omfs_guide.guide == guide, "the extracted guide is the one the tools modify"
     guide_workshop.make_active(bpy.context, copy)
-    run('SELECT_GUIDE')
-    assert bpy.context.active_object == guide
+    run('ADD_CLEARANCE')                             # copy active: the modifier goes to the guide
+    assert not copy.modifiers and bpy.context.active_object == guide
+    assert [m.type for m in guide.modifiers] == ['DISPLACE', 'SOLIDIFY'], "updated, not duplicated"
 
     # Cylinders at the 3D cursor, Boolean, apply.
     scene.cursor.location = (-300, 0, 10)
@@ -328,7 +330,7 @@ def test_guide_workshop():
     assert [tuple(v.co) for v in bone.data.vertices] == vertices_before, "zones live on the copy only"
 
     bpy.context.view_layer.objects.active = bone
-    assert guide_workshop.editable_active(bpy.context)[1], "locked anatomy must be refused"
+    assert guide_workshop.editable_active(bpy.context)[0] == guide, "locked anatomy: the tools act on the guide"
     run('REMOVE_WORK_COPY')
     assert scene.omfs_guide.work_copy is None and not bone.hide_get()
     assert [tuple(v.co) for v in bone.data.vertices] == vertices_before, "the bone must never change"
