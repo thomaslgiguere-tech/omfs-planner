@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot  # noqa: E402
 
 omfs_planner.register()
 
@@ -824,6 +824,88 @@ def test_snapshot_helpers():
         assert tuple(result.size) == (70, 50), result.size
         bpy.data.images.remove(result)
     scene.omfs_section.orientation, scene.omfs_section.offset = 'AXIAL', 0.0
+
+
+def test_segment_movement():
+    scene = bpy.context.scene
+    reference_frame.build(scene, FRAME_POINTS)       # frame axes = world axes (x left, y posterior)
+    for obj in [o for o in scene.objects if o.omfs.role == 'SEGMENT']:
+        obj.omfs.role = 'OTHER'                       # earlier tests' segments: not the one moved here
+    seg = box_object("Chin segment", 'SEGMENT', (0, -10, -60), (40, 30, 15))
+    landmarks.place(scene, 'POG', (0, -25, -58), seg)
+    landmarks.place(scene, 'ME', (0, -20, -67), seg)
+    bpy.context.view_layer.update()                  # matrix_world of the new landmarks
+    vertices = [v.co.copy() for v in seg.data.vertices]
+    movement.init_segment(scene, seg)
+    props = seg.omfs_move
+    assert movement.active_segment(scene) == seg and props.pivot_kind == 'POG'
+    assert seg.lock_location[0] and seg.lock_rotation[0], "G / R must not bypass the movement values"
+    preop = seg.matrix_world.copy()
+
+    props.anterior, props.up, props.left = 6.0, -2.0, 1.0
+    assert_close(seg.matrix_world.translation, (1, -6, -2), "6 forward (-y), 2 down, 1 left")
+    rows = {name: d for name, _p, d in movement.tracked_rows(scene, seg)}
+    assert_close(rows["Pogonion"], (1, 6, -2), "pogonion moves by the translation")
+    assert movement.describe(*rows["Pogonion"]) == ["6.0 mm avance", "2.0 mm bas", "1.0 mm gauche"]
+
+    props.pitch = radians(10)                        # front up, about the pogonion
+    rows = {name: d for name, _p, d in movement.tracked_rows(scene, seg)}
+    assert_close(rows["Pogonion"], (1, 6, -2), "the pivot only translates")
+    # Menton is 5 mm behind, 9 mm below the pogonion: front up swings it forward.
+    angle = radians(10)
+    y, z = 5 * np.cos(angle) - 9 * np.sin(angle), -5 * np.sin(angle) - 9 * np.cos(angle)
+    assert_close(rows["Menton"], (1, 6 + (5 - y), -2 + (z + 9)), "menton about the pogonion")
+    assert rows["Menton"][1] > 6 and rows["Menton"][2] < -2, "forward and down"
+
+    for kind in ('ME', 'CENTRE', 'POG'):              # changing the pivot never moves the segment
+        before = seg.matrix_world.copy()
+        props.pivot_kind = kind
+        assert_same_matrix(seg.matrix_world, before, f"pivot {kind}")
+    assert abs(props.anterior - 6.0) < 1e-4, "back on the pogonion: same numbers"
+
+    props.roll, props.yaw = radians(5), radians(-3)
+    menton = landmarks.find(scene, 'ME').matrix_world.translation
+    moved = seg.matrix_world @ preop.inverted() @ menton
+    d = movement.displacement(scene, seg, menton)
+    assert_close((moved - menton), (d[0], -d[1], d[2]), "labels = where the segment takes the point")
+
+    props.yaw = radians(5)                           # + yaw: the front turns to the left
+    front = seg.matrix_world @ preop.inverted() @ Vector((0, -40, -60))
+    pivot_now = seg.matrix_world @ preop.inverted() @ Vector((0, -25, -58))
+    assert (front - pivot_now).x > 0
+    props.roll, props.yaw = 0.0, radians(0)
+    props.roll = radians(5)                          # + roll: the left side goes up
+    side_l = seg.matrix_world @ preop.inverted() @ Vector((20, -25, -58))
+    side_r = seg.matrix_world @ preop.inverted() @ Vector((-20, -25, -58))
+    assert side_l.z > side_r.z
+
+    bpy.ops.omfs.segment_preop()
+    assert_same_matrix(seg.matrix_world, preop, "back to pre-op")
+    assert all((v.co - c).length == 0 for v, c in zip(seg.data.vertices, vertices)), "mesh untouched"
+    bpy.data.objects.remove(seg)
+    for lm in ('POG', 'ME'):
+        bpy.data.objects.remove(landmarks.find(scene, lm))
+
+
+def test_reapplied_cut_keeps_movement():
+    scene = bpy.context.scene
+    reference_frame.build(scene, FRAME_POINTS)
+    bone = box_object("Chin bone 2", 'BONE', (0, 0, -50), (60, 40, 30))
+    landmarks.place(scene, 'MF_R', (-20, 0, -40), bone)
+    landmarks.place(scene, 'MF_L', (20, 0, -40), bone)
+    landmarks.place(scene, 'POG', (0, -20, -55), bone)
+    bpy.context.view_layer.update()
+    cut = osteotomy.add_cut(scene)
+    cut.omfs_cut.source = bone
+    segment, _proximal = osteotomy.apply_cut(bpy.context, cut)
+    assert segment.omfs_move.has_preop and segment.omfs_move.pivot_kind == 'POG'
+    segment.omfs_move.anterior = 4.0
+    segment.omfs_move.pitch = radians(-5)
+    moved = segment.matrix_world.copy()
+    cut.omfs_cut.below_foramina = 6.0
+    segment, _proximal = osteotomy.apply_cut(bpy.context, cut)
+    assert abs(segment.omfs_move.anterior - 4.0) < 1e-6 and abs(segment.omfs_move.pitch + radians(5)) < 1e-6
+    assert_same_matrix(segment.matrix_world, moved, "the new segment takes the planned position")
 
 
 def test_empty_folder_is_an_error():

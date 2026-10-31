@@ -26,6 +26,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   mesh_io.py                 STL / OBJ / PLY import with raw coordinates
   locking.py                 lock / unlock anatomy
   ops_import.py              "Import Case" operator
+  movement.py                segment movement (Step 5): 6 DOF in the reference frame, tracked points
+  movement_gizmos.py         drag arrows / rings for the segment movement, on the frame axes
   occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
   occlusion_seating.py       springs between the arches, seating solver, overlap map
   section.py                 Section & Analysis: section plane, slab (clipping), radiograph view
@@ -115,6 +117,7 @@ Millimetres everywhere: **1 Blender unit = 1 mm** (scene unit scale 0.001, lengt
 3. Reference frame: three perpendicular planes from landmarks (Frankfort horizontal by default)
 4. Osteotomy plane(s): technique picker, then place the cut planes
 5. Segment movement in 6 degrees of freedom, in the reference frame, with live measurements
+   *(done: Mouvement du segment)*
 6. Soft tissue check (not in version 1)
 7. Bicortical fixation screws / drill-sleeve channels with collision checks (roots, nerve)
 8. Guides: surface-to-shell, cutting guide + drill-sleeve tubes, guide fixation holes, text labels,

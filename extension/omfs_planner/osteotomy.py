@@ -6,7 +6,8 @@ midpoint of the mental foramina. Its parameters live on the object (obj.omfs_cut
 techniques can later add more cuts of the same kind.
 
 Applying the cut never changes the source bone: the segment and the proximal part are new
-objects made with an exact Boolean, and the source is only hidden.
+objects made with an exact Boolean, and the source is only hidden. The segment's pre-op pose is
+stored for the movement (movement.py); re-applying the cut keeps the planned movement.
 """
 
 from math import cos, radians, sin
@@ -15,7 +16,7 @@ import bpy
 import numpy as np
 from mathutils import Euler, Matrix, Vector
 
-from . import landmarks, locking, params, reference_frame
+from . import landmarks, locking, movement, params, reference_frame
 
 COLLECTION = "Osteotomy"
 CUT_NAME = "Osteotomy plane"
@@ -312,7 +313,10 @@ def apply_cut(context, cut):
     """Split the source bone into segment + proximal part. Re-applying replaces the old result."""
     props = cut.omfs_cut
     source = props.source
+    previous = None
     for obj in [o for o in context.scene.objects if o.omfs.made_by == cut.name]:
+        if obj.omfs.role == 'SEGMENT':
+            previous = movement.remember(obj)   # a re-applied cut keeps the planned movement
         mesh = obj.data
         bpy.data.objects.remove(obj)
         if mesh.users == 0:
@@ -334,6 +338,7 @@ def apply_cut(context, cut):
         obj.omfs.role = role
         obj.omfs.made_by = cut.name
         locking.set_locked(obj, role == 'BONE')
+    movement.init_segment(context.scene, segment, previous)
     source.hide_set(True)
     set_cut_helpers_hidden(context.scene, True)   # the plan is done: show the result
     props.applied_state = repr(state(props))

@@ -103,6 +103,23 @@ Naming used below (matches the object roles in code):
 - Dragging updates the numbers live; typing a number updates the segment.
 - What I need to see: the segment moving, the bony gap / overlap at the cut, the live numbers.
 - Soft tissue: not in version 1, but the design should leave room to show it later (see Step 6).
+- Done: "Mouvement du segment" panel (movement.py, movement_gizmos.py).
+  - Six values on the segment: advance / up / left (mm, net translation of the pivot) and pitch
+    (+ front up), roll (+ left side up), yaw (+ front to the left), all in the reference frame.
+  - Pivot: pogonion (default), menton or segment centre, taken before the move. Changing the pivot
+    never moves the segment; the translation is rewritten as the new pivot's displacement.
+  - Drag: three arrows (left red, anterior green, up blue) and three rings at the pivot, on the
+    frame axes (not the object's or the world's). Typing and dragging write the same values.
+    "Lock segment" hides the handles. The segment's own transform is locked, so G / R can't desync.
+  - Live boxes next to the pogonion and menton where the segment takes them, with their net
+    translation in words (e.g. "6.0 mm avance, 2.0 mm bas, 0.0 mm gauche/droite") and the total;
+    a magenta line from the pre-op point. Same numbers in the panel.
+  - Pre-op pose stored when the cut is applied ("Retour préop" is exact); re-applying the cut keeps
+    the planned movement.
+  - Rotations are Euler angles applied X (pitch), then Y (roll), then Z (yaw): with several
+    rotations at once, each number is that component, not an independent geometric angle.
+  - Limitation: the numbers use the current reference frame; rebuilding the frame after moving
+    the segment changes what the same numbers mean (the segment stays where it is until a value changes).
 - Nuances: (add here)
 
 ## Step 6. Check soft tissue

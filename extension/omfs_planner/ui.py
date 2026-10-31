@@ -3,8 +3,9 @@
 import textwrap
 
 import bpy
+from mathutils import Vector
 
-from . import analysis, distance_map, guide_workshop, landmarks, locking, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, view
+from . import analysis, distance_map, guide_workshop, landmarks, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, view
 
 
 def draw_text(layout, context, text):
@@ -387,6 +388,59 @@ class OMFS_PT_osteotomy(bpy.types.Panel):
             layout.operator("omfs.apply_cut", text="Re-apply Cut", icon='FILE_REFRESH')
 
 
+class OMFS_PT_movement(bpy.types.Panel):
+    bl_label = "Mouvement du segment"
+    bl_idname = "OMFS_PT_movement"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        if reference_frame.find_frame(scene) is None:
+            layout.label(text="Build the reference frame first", icon='ERROR')
+            return
+        obj = movement.active_segment(scene)
+        if obj is None:
+            layout.label(text="Apply the cut first (Osteotomy)", icon='INFO')
+            return
+        if sum(movement.is_segment(o) for o in scene.objects) > 1:
+            layout.prop(scene.omfs_movement, "segment", text="")
+        layout.label(text=obj.name, icon='MESH_DATA')
+        props = obj.omfs_move
+        if not props.has_preop:
+            layout.label(text="No pre-op pose: re-apply the cut", icon='ERROR')
+            return
+
+        row = layout.row(align=True)
+        row.prop(props, "locked", toggle=True, icon='LOCKED' if props.locked else 'UNLOCKED')
+        row.operator("omfs.segment_preop", icon='LOOP_BACK')
+
+        col = layout.column(align=True)
+        col.label(text="Translation of the pivot (mm)")
+        col.prop(props, "anterior")
+        col.prop(props, "up")
+        col.prop(props, "left")
+        col = layout.column(align=True)
+        col.label(text="Rotation about the pivot")
+        col.prop(props, "pitch", text="Pitch (+ front up)")
+        col.prop(props, "roll", text="Roll (+ left up)")
+        col.prop(props, "yaw", text="Yaw (+ front to left)")
+        layout.prop(props, "pivot_kind")
+
+        rows = movement.tracked_rows(scene, obj)
+        if not rows:
+            layout.label(text="Place the pogonion and menton to follow them", icon='INFO')
+        for name, _point, d in rows:
+            box = layout.box()
+            box.label(text=f"{name}: {Vector(d).length:.1f} mm net", icon='EMPTY_SINGLE_ARROW')
+            col = box.column(align=True)
+            for text in movement.describe(*d):
+                col.label(text=text)
+        layout.prop(props, "show_labels")
+
+
 class OMFS_PT_occlusion(bpy.types.Panel):
     bl_label = "Assise de l'occlusion"
     bl_idname = "OMFS_PT_occlusion"
@@ -606,7 +660,7 @@ class OMFS_PT_guide_recipe(bpy.types.Panel):
 GUIDE_SECTION_PANELS = tuple(make_guide_section(*s) for s in guide_workshop.SECTIONS)
 
 classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_section, OMFS_PT_registration, OMFS_PT_landmarks, OMFS_PT_reference_frame, OMFS_PT_osteotomy,
-           OMFS_PT_occlusion,
+           OMFS_PT_movement, OMFS_PT_occlusion,
            OMFS_PT_guide, *GUIDE_SECTION_PANELS, OMFS_PT_guide_recipe)
 
 
