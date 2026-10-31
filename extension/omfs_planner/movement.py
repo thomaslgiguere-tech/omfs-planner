@@ -1,18 +1,25 @@
-"""Segment movement (Step 5): 6 degrees of freedom in the reference frame, with live numbers.
+"""Segment movement (Step 5): 6 degrees of freedom on clinical axes, with live numbers.
 
 Generic: any SEGMENT object (the genioplasty chin today, Le Fort I / BSSO segments later).
-Genioplasty specifics are presets: the tracked points (pogonion, menton) and the default pivot.
+Genioplasty specifics are presets: the tracked points (pogonion, menton) and the pivots offered.
 
-The movement is stored as six numbers on the segment (obj.omfs_move), in clinical terms:
-translation left / anterior / up (mm) and rotation pitch / roll / yaw (degrees), about a pivot.
-The segment's matrix is always computed from them:
+The movement is stored as six numbers on the segment (obj.omfs_move): translation left /
+anterior / up (mm) and rotation pitch / roll / yaw (degrees), about a pivot, on one of two sets
+of axes:
+- Osteotomy plane (default for a cut segment): "up" is the cut's normal, "anterior" runs along
+  the cut in the facial midsagittal plane (forward as in the facial frame), "left" completes them. Advancing slides
+  the segment along the cut, as in surgery; "up" opens (+) or closes the cut. The midline is
+  the plane perpendicular to the cut through the pivot (pogonion or menton).
+- Reference frame: Frankfort / midsagittal / coronal.
 
-    segment.matrix_world = F @ L @ F^-1 @ preop
-    L = Translation(t + p) @ R @ Translation(-p)      (frame-local, p = pivot before the move)
+The segment's matrix is always computed from the numbers (A = axes rotation, P = pivot before
+the move, both in world space):
 
-F is the reference frame, so the axes are the clinical ones and the translation is exactly the
-net displacement of the pivot. The pre-op pose is stored when the segment is created: the
-mesh data is never touched and "Back to pre-op" is always exact.
+    segment.matrix_world = W @ preop,  W = Translation(A t + P) @ (A R A^-1) @ Translation(-P)
+
+so the translation is exactly the net displacement of the pivot. The pre-op pose is stored when
+the segment is created: the mesh data is never touched and "Back to pre-op" is always exact.
+Changing the pivot or the axes rewrites the numbers for the same pose, so the segment never jumps.
 
 Dragging (movement_gizmos.py) and typing in the panel write the same six numbers, so they
 are always in sync. The segment's own transform is locked, so G / R can't bypass them.
@@ -30,11 +37,17 @@ from . import landmarks, reference_frame
 # Genioplasty preset: the points whose net movement is shown, and the pivots offered.
 TRACKED = ('POG', 'ME')
 PIVOTS = (
-    ('POG', "Pogonion", "Rotate about the pogonion (before the move)"),
-    ('ME', "Menton", "Rotate about the menton (before the move)"),
+    ('POG', "Pogonion", "Rotate about the pogonion (before the move); the midline goes through it"),
+    ('ME', "Menton", "Rotate about the menton (before the move); the midline goes through it"),
     ('CENTRE', "Segment centre", "Rotate about the centre of the segment's bounding box"),
 )
+AXES = (
+    ('CUT', "Osteotomy plane", "Advance slides along the cut (in the midsagittal plane), "
+                               "up is perpendicular to the cut"),
+    ('FRAME', "Reference frame", "Frankfort horizontal, midsagittal and coronal planes"),
+)
 VALUES = ('left', 'anterior', 'up', 'pitch', 'roll', 'yaw')
+CARRIED = (*VALUES, 'axes', 'pivot_kind', 'pivot', 'locked', 'show_labels')
 
 LABEL_BACKGROUND = (0.0, 0.0, 0.0, 0.65)
 LABEL_TEXT = (1.0, 1.0, 1.0, 1.0)
@@ -43,44 +56,100 @@ TRACK_COLOUR = (1.0, 0.2, 0.6, 1.0)   # landmark magenta
 _syncing = False   # True while several values are written at once: apply only at the end
 
 
+# --- Axes ----------------------------------------------------------------------------
+
+def frame_axes(scene):
+    """Rotation of the reference frame (columns: left, posterior, up), or None."""
+    frame = reference_frame.find_frame(scene)
+    return frame.matrix_world.to_3x3().normalized() if frame else None
+
+
+def cut_of(scene, obj):
+    """The osteotomy plane this segment was cut with, if it still exists."""
+    cut = scene.objects.get(obj.omfs.made_by)
+    return cut if cut is not None and cut.omfs.role == 'CUT' else None
+
+
+def cut_axes(scene, obj):
+    """Columns: left and posterior on the cut, up = the cut's normal. None without a cut."""
+    from . import osteotomy   # osteotomy imports this module
+    frame, cut = frame_axes(scene), cut_of(scene, obj)
+    if frame is None or cut is None:
+        return None
+    up = (cut.matrix_world.to_3x3().normalized() @ osteotomy.plane_normal(cut.omfs_cut)).normalized()
+    # Anterior runs where the cut meets the midsagittal plane: advancing never shifts sideways.
+    posterior = up.cross(frame.col[0]).normalized()
+    left = posterior.cross(up)
+    return Matrix((left, posterior, up)).transposed()
+
+
+def axes(scene, obj):
+    """Rotation whose columns are the movement axes (left, posterior, up), or None."""
+    if obj.omfs_move.axes == 'CUT':
+        return cut_axes(scene, obj) or frame_axes(scene)
+    return frame_axes(scene)
+
+
+def axes_label(scene, obj):
+    if obj.omfs_move.axes == 'CUT' and cut_axes(scene, obj) is None:
+        return "Reference frame (no osteotomy plane)"
+    return dict((k, n) for k, n, _d in AXES)[obj.omfs_move.axes]
+
+
 # --- Maths ---------------------------------------------------------------------------
 
-def frame_matrix(scene):
-    frame = reference_frame.find_frame(scene)
-    return frame.matrix_world.normalized() if frame else None
-
-
 def rotation(props):
-    """Frame-local rotation. + pitch = anterior up (about -X), + roll = left side up (about -Y),
-    + yaw = anterior towards the left (about +Z): same signs as the osteotomy angles."""
-    return Euler((-props.pitch, -props.roll, props.yaw), 'XYZ').to_matrix().to_4x4()
+    """Rotation on the movement axes. + pitch = anterior up (about -X), + roll = left side up
+    (about -Y), + yaw = anterior towards the left (about +Z): same signs as the osteotomy angles."""
+    return Euler((-props.pitch, -props.roll, props.yaw), 'XYZ').to_matrix()
 
 
 def translation(props):
-    """Frame-local translation (frame Y is posterior)."""
+    """Translation on the movement axes (Y is posterior)."""
     return Vector((props.left, -props.anterior, props.up))
 
 
-def local_movement(props):
+def world_movement(scene, obj):
+    """World matrix taking the pre-op segment to its planned position."""
+    props = obj.omfs_move
+    a = axes(scene, obj)
     p = Vector(props.pivot)
-    return Matrix.Translation(translation(props) + p) @ rotation(props) @ Matrix.Translation(-p)
+    turn = (a @ rotation(props) @ a.transposed()).to_4x4()
+    return Matrix.Translation(a @ translation(props) + p) @ turn @ Matrix.Translation(-p)
 
 
-def world_movement(scene, props):
-    f = frame_matrix(scene)
-    return f @ local_movement(props) @ f.inverted()
+def current_movement(obj):
+    """The movement the segment shows now (whatever the numbers or axes say)."""
+    return obj.matrix_world @ obj.omfs_move.preop.inverted()
 
 
 def to_clinical(local):
-    """Frame-local displacement -> (left, anterior, up)."""
+    """Displacement on the axes (left, posterior, up) -> (left, anterior, up)."""
     return local.x, -local.y, local.z
 
 
-def displacement(scene, obj, point):
-    """Net translation (left, anterior, up) of a pre-op world point carried by the segment."""
-    f = frame_matrix(scene)
-    p = f.inverted() @ Vector(point)
-    return to_clinical(local_movement(obj.omfs_move) @ p - p)
+def displacement(scene, obj, point, on_axes=None):
+    """Net translation (left, anterior, up) of a pre-op world point carried by the segment,
+    on the movement axes (or on the axes given)."""
+    a = on_axes if on_axes is not None else axes(scene, obj)
+    point = Vector(point)
+    return to_clinical(a.transposed() @ (world_movement(scene, obj) @ point - point))
+
+
+def set_movement(scene, obj, movement):
+    """Write the six numbers that give this world movement, on the current axes and pivot."""
+    global _syncing
+    props = obj.omfs_move
+    a = axes(scene, obj)
+    p = Vector(props.pivot)
+    turn = (a.transposed() @ movement.to_3x3().normalized() @ a).to_euler('XYZ')
+    _syncing = True
+    try:
+        props.left, props.anterior, props.up = to_clinical(a.transposed() @ (movement @ p - p))
+        props.pitch, props.roll, props.yaw = -turn.x, -turn.y, turn.z
+    finally:
+        _syncing = False
+    apply(scene, obj)
 
 
 # --- Segment -------------------------------------------------------------------------
@@ -119,14 +188,12 @@ def init_segment(scene, obj, previous=None):
     _syncing = True
     try:
         if previous is not None:
-            for name in (*VALUES, 'pivot_kind', 'pivot', 'locked', 'show_labels'):
+            for name in CARRIED:
                 setattr(props, name, previous[name])
         else:
-            kind = next((k for k in ('POG', 'ME') if landmarks.find(scene, k)), 'CENTRE')
-            props.pivot_kind = kind
-            f = frame_matrix(scene)
-            if f is not None:
-                props.pivot = f.inverted() @ pivot_world(scene, obj, kind)
+            props.axes = 'CUT' if cut_of(scene, obj) else 'FRAME'
+            props.pivot_kind = next((k for k in ('POG', 'ME') if landmarks.find(scene, k)), 'CENTRE')
+            props.pivot = pivot_world(scene, obj, props.pivot_kind)
     finally:
         _syncing = False
     apply(scene, obj)
@@ -138,36 +205,26 @@ def remember(obj):
     if not props.has_preop:
         return None
     return {name: (tuple(getattr(props, name)) if name == 'pivot' else getattr(props, name))
-            for name in (*VALUES, 'pivot_kind', 'pivot', 'locked', 'show_labels')}
+            for name in CARRIED}
 
 
 def apply(scene, obj):
     """Place the segment from its six numbers."""
     props = obj.omfs_move
-    if _syncing or not props.has_preop or frame_matrix(scene) is None:
+    if _syncing or not props.has_preop or frame_axes(scene) is None:
         return
-    obj.matrix_world = world_movement(scene, props) @ props.preop
+    obj.matrix_world = world_movement(scene, obj) @ props.preop
 
 
 def set_pivot(scene, obj, kind):
     """Rotate about another point from now on. The segment doesn't move: the translation is
     rewritten as the displacement of the new pivot."""
-    global _syncing
-    props = obj.omfs_move
-    f = frame_matrix(scene)
     world = pivot_world(scene, obj, kind)
-    if f is None or world is None:
+    if world is None or frame_axes(scene) is None:
         return False
-    movement = local_movement(props)
-    p = f.inverted() @ world
-    left, anterior, up = to_clinical(movement @ p - p)
-    _syncing = True
-    try:
-        props.pivot = p
-        props.left, props.anterior, props.up = left, anterior, up
-    finally:
-        _syncing = False
-    apply(scene, obj)
+    movement = current_movement(obj)
+    obj.omfs_move.pivot = world
+    set_movement(scene, obj, movement)
     return True
 
 
@@ -186,14 +243,14 @@ def is_moved(obj):
     return any(abs(getattr(obj.omfs_move, name)) > 1e-6 for name in VALUES)
 
 
-def tracked_rows(scene, obj):
+def tracked_rows(scene, obj, on_axes=None):
     """[(landmark name, pre-op world point, (left, anterior, up))] for the tracked points placed."""
     rows = []
     for lm_id in TRACKED:
         lm = landmarks.find(scene, lm_id)
         if lm is not None:
             point = lm.matrix_world.translation.copy()
-            rows.append((landmarks.BY_ID[lm_id][1], point, displacement(scene, obj, point)))
+            rows.append((landmarks.BY_ID[lm_id][1], point, displacement(scene, obj, point, on_axes)))
     return rows
 
 
@@ -215,6 +272,13 @@ def _on_value(props, context):
 def _on_pivot_kind(props, context):
     if not _syncing:
         set_pivot(context.scene, props.id_data, props.pivot_kind)
+
+
+def _on_axes(props, context):
+    """Same pose, numbers rewritten on the new axes."""
+    obj = props.id_data
+    if not _syncing and props.has_preop and frame_axes(context.scene) is not None:
+        set_movement(context.scene, obj, current_movement(obj))
 
 
 class OMFS_MoveProperties(bpy.types.PropertyGroup):
@@ -239,7 +303,9 @@ class OMFS_MoveProperties(bpy.types.PropertyGroup):
         description="Rotation about the vertical axis; + = the front of the segment turns to the patient's left")
     pivot_kind: bpy.props.EnumProperty(name="Pivot", items=PIVOTS, update=_on_pivot_kind,
                                        description="Point the rotations turn about (the segment doesn't move when it changes)")
-    pivot: bpy.props.FloatVectorProperty(size=3, options={'HIDDEN'})   # frame-local, before the move
+    axes: bpy.props.EnumProperty(name="Axes", items=AXES, update=_on_axes,
+                                 description="Axes the six values are measured on (the segment doesn't move when it changes)")
+    pivot: bpy.props.FloatVectorProperty(size=3, options={'HIDDEN'})   # world, before the move
     preop: bpy.props.FloatVectorProperty(size=(4, 4), subtype='MATRIX', options={'HIDDEN'})
     has_preop: bpy.props.BoolProperty(options={'HIDDEN'})
     locked: bpy.props.BoolProperty(name="Lock segment",
@@ -275,7 +341,7 @@ def _shown(context):
     obj = active_segment(scene)
     if obj is None or not obj.omfs_move.has_preop or not obj.omfs_move.show_labels:
         return None
-    if not obj.visible_get() or frame_matrix(scene) is None:
+    if not obj.visible_get() or frame_axes(scene) is None:
         return None
     return obj
 
@@ -286,7 +352,7 @@ def _draw_tracks():
     obj = _shown(context)
     if obj is None or not is_moved(obj):
         return
-    movement = world_movement(context.scene, obj.omfs_move)
+    movement = world_movement(context.scene, obj)
     points = [(p, movement @ p) for _name, p, _d in tracked_rows(context.scene, obj)]
     if not points:
         return
@@ -310,7 +376,7 @@ def _draw_labels():
     if obj is None:
         return
     region, rv3d = context.region, context.region_data
-    movement = world_movement(context.scene, obj.omfs_move)
+    movement = world_movement(context.scene, obj)
     scale = context.preferences.system.ui_scale
     font = 0
     blf.size(font, 13 * scale)

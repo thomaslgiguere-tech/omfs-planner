@@ -1,9 +1,9 @@
 """Drag handles for the segment movement (like Meshmixer's transform widget, but on the
-reference frame's axes, not the object's or the world's).
+movement axes: the osteotomy plane or the reference frame, never the object's or the world's).
 
 Three arrows (left, anterior, up) and three rings (pitch, roll, yaw) at the pivot, where the
 segment has taken it. Each handle is bound to one of the six movement values, so dragging it
-and typing in the panel are the same thing. Colours follow the frame: X (left) red, Y
+and typing in the panel are the same thing. Colours follow the axes: X (left) red, Y
 (anterior) green, Z (up) blue, like Blender's own axes and the plane each axis is normal to.
 """
 
@@ -59,7 +59,7 @@ class OMFS_GGT_segment_movement(bpy.types.GizmoGroup):
         obj = movement.active_segment(context.scene)
         return (context.mode == 'OBJECT' and obj is not None and obj.visible_get()
                 and obj.omfs_move.has_preop and not obj.omfs_move.locked
-                and movement.frame_matrix(context.scene) is not None)
+                and movement.frame_axes(context.scene) is not None)
 
     def setup(self, context):
         self.arrows = []
@@ -85,9 +85,8 @@ class OMFS_GGT_segment_movement(bpy.types.GizmoGroup):
         scene = context.scene
         obj = movement.active_segment(scene)
         props = obj.omfs_move
-        f = movement.frame_matrix(scene)
-        rotation = f.to_3x3()
-        pivot = f @ (movement.local_movement(props) @ Vector(props.pivot))   # where the pivot is now
+        rotation = movement.axes(scene, obj)
+        pivot = movement.world_movement(scene, obj) @ Vector(props.pivot)   # where the pivot is now
         for gz, (name, axis, _colour) in zip(self.arrows, ARROWS):
             direction = rotation @ Vector(axis)
             # An arrow is drawn shifted by its value along its axis: start it that far back,

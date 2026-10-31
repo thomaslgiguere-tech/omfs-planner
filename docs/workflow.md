@@ -105,11 +105,19 @@ Naming used below (matches the object roles in code):
 - Soft tissue: not in version 1, but the design should leave room to show it later (see Step 6).
 - Done: "Mouvement du segment" panel (movement.py, movement_gizmos.py).
   - Six values on the segment: advance / up / left (mm, net translation of the pivot) and pitch
-    (+ front up), roll (+ left side up), yaw (+ front to the left), all in the reference frame.
+    (+ front up), roll (+ left side up), yaw (+ front to the left).
+  - Axes (surgeon's choice, 2026-10-31): by default the **osteotomy plane**, as in a sliding
+    genioplasty: "up" = the cut's normal (+ opens the cut, - closes it), "advance" = along the cut
+    where it meets the facial midsagittal plane (forward as on the face, never sideways),
+    "left" completes them; the midline is perpendicular to the cut, through the pivot (pogonion or
+    menton). Alternative: the reference frame (Frankfort / midsagittal / coronal). Changing the
+    axes never moves the segment: the numbers are rewritten for the same pose.
+  - With the osteotomy axes, the panel also gives each tracked point's movement in the reference
+    frame (e.g. 6 mm along a 12° cut = 5.9 mm forward, 1.2 mm up on the face).
   - Pivot: pogonion (default), menton or segment centre, taken before the move. Changing the pivot
     never moves the segment; the translation is rewritten as the new pivot's displacement.
   - Drag: three arrows (left red, anterior green, up blue) and three rings at the pivot, on the
-    frame axes (not the object's or the world's). Typing and dragging write the same values.
+    movement axes (not the object's or the world's). Typing and dragging write the same values.
     "Lock segment" hides the handles. The segment's own transform is locked, so G / R can't desync.
   - Live boxes next to the pogonion and menton where the segment takes them, with their net
     translation in words (e.g. "6.0 mm avance, 2.0 mm bas, 0.0 mm gauche/droite") and the total;
@@ -118,8 +126,9 @@ Naming used below (matches the object roles in code):
     the planned movement.
   - Rotations are Euler angles applied X (pitch), then Y (roll), then Z (yaw): with several
     rotations at once, each number is that component, not an independent geometric angle.
-  - Limitation: the numbers use the current reference frame; rebuilding the frame after moving
-    the segment changes what the same numbers mean (the segment stays where it is until a value changes).
+  - Limitation: the numbers use the current axes; rebuilding the frame or changing the cut angles
+    after moving the segment changes what the same numbers mean (the segment stays where it is until
+    a value changes). Re-applying the cut keeps the six numbers, so the segment follows the new cut.
 - Nuances: (add here)
 
 ## Step 6. Check soft tissue

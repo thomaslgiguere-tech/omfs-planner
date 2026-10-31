@@ -839,6 +839,7 @@ def test_segment_movement():
     movement.init_segment(scene, seg)
     props = seg.omfs_move
     assert movement.active_segment(scene) == seg and props.pivot_kind == 'POG'
+    assert props.axes == 'FRAME', "no osteotomy plane: reference frame axes"
     assert seg.lock_location[0] and seg.lock_rotation[0], "G / R must not bypass the movement values"
     preop = seg.matrix_world.copy()
 
@@ -906,6 +907,41 @@ def test_reapplied_cut_keeps_movement():
     segment, _proximal = osteotomy.apply_cut(bpy.context, cut)
     assert abs(segment.omfs_move.anterior - 4.0) < 1e-6 and abs(segment.omfs_move.pitch + radians(5)) < 1e-6
     assert_same_matrix(segment.matrix_world, moved, "the new segment takes the planned position")
+
+
+def test_movement_on_osteotomy_plane():
+    scene = bpy.context.scene
+    cut = osteotomy.find_cut(scene)                  # from test_reapplied_cut_keeps_movement
+    cut.omfs_cut.profile_angle = radians(10)         # the cut rises anteriorly
+    segment, _proximal = osteotomy.apply_cut(bpy.context, cut)
+    props = segment.omfs_move
+    assert props.axes == 'CUT'
+    movement.back_to_preop(scene, segment)
+    a = movement.cut_axes(scene, segment)
+    assert_close(a.col[2], (0, np.sin(radians(10)), np.cos(radians(10))), "up = the cut's normal")
+    assert_close(a.col[0], (1, 0, 0), "left unchanged by a profile angle")
+
+    props.anterior = 5.0                             # slides along the cut: forward and up on the face
+    pog = landmarks.find(scene, 'POG').matrix_world.translation
+    on_cut = movement.displacement(scene, segment, pog)
+    on_face = movement.displacement(scene, segment, pog, movement.frame_axes(scene))
+    assert_close(on_cut, (0, 5, 0), "5 mm along the cut")
+    assert_close(on_face, (0, 5 * np.cos(radians(10)), 5 * np.sin(radians(10))), "= forward + up on the face")
+
+    props.pitch, props.up = radians(4), -1.0
+    before = segment.matrix_world.copy()
+    props.axes = 'FRAME'                             # same pose, numbers rewritten
+    assert_same_matrix(segment.matrix_world, before, "changing the axes never moves the segment")
+    props.axes = 'CUT'
+    assert_same_matrix(segment.matrix_world, before, "and back")
+    assert abs(props.anterior - 5.0) < 1e-4 and abs(props.up + 1.0) < 1e-4 and abs(props.pitch - radians(4)) < 1e-5
+
+    frontal = movement.cut_axes(scene, segment)      # a frontal tilt keeps anterior in the midsagittal plane
+    cut.omfs_cut.frontal_angle = radians(8)
+    tilted = movement.cut_axes(scene, segment)
+    assert abs(tilted.col[1].x) < 1e-6 and abs(tilted.col[2].dot(tilted.col[1])) < 1e-6
+    assert (tilted.col[2] - frontal.col[2]).length > 0.1
+    cut.omfs_cut.frontal_angle = 0.0
 
 
 def test_empty_folder_is_an_error():

@@ -26,8 +26,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   mesh_io.py                 STL / OBJ / PLY import with raw coordinates
   locking.py                 lock / unlock anatomy
   ops_import.py              "Import Case" operator
-  movement.py                segment movement (Step 5): 6 DOF in the reference frame, tracked points
-  movement_gizmos.py         drag arrows / rings for the segment movement, on the frame axes
+  movement.py                segment movement (Step 5): 6 DOF on the osteotomy plane or frame axes
+  movement_gizmos.py         drag arrows / rings for the segment movement, on the movement axes
   occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
   occlusion_seating.py       springs between the arches, seating solver, overlap map
   section.py                 Section & Analysis: section plane, slab (clipping), radiograph view

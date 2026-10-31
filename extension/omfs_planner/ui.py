@@ -417,6 +417,9 @@ class OMFS_PT_movement(bpy.types.Panel):
         row.prop(props, "locked", toggle=True, icon='LOCKED' if props.locked else 'UNLOCKED')
         row.operator("omfs.segment_preop", icon='LOOP_BACK')
 
+        layout.prop(props, "axes")
+        if props.axes == 'CUT' and movement.cut_axes(scene, obj) is None:
+            layout.label(text="No osteotomy plane: reference frame axes", icon='ERROR')
         col = layout.column(align=True)
         col.label(text="Translation of the pivot (mm)")
         col.prop(props, "anterior")
@@ -432,12 +435,21 @@ class OMFS_PT_movement(bpy.types.Panel):
         rows = movement.tracked_rows(scene, obj)
         if not rows:
             layout.label(text="Place the pogonion and menton to follow them", icon='INFO')
-        for name, _point, d in rows:
+        on_cut = movement.axes(scene, obj) != movement.frame_axes(scene)
+        facial = movement.tracked_rows(scene, obj, movement.frame_axes(scene)) if on_cut else rows
+        for (name, _point, d), (_n, _p, d_facial) in zip(rows, facial):
             box = layout.box()
             box.label(text=f"{name}: {Vector(d).length:.1f} mm net", icon='EMPTY_SINGLE_ARROW')
             col = box.column(align=True)
+            if on_cut:
+                col.label(text="On the osteotomy plane:")
             for text in movement.describe(*d):
                 col.label(text=text)
+            if on_cut:   # what it means on the face (Frankfort, midsagittal, coronal)
+                col.separator()
+                col.label(text="In the reference frame:")
+                for text in movement.describe(*d_facial):
+                    col.label(text=text)
         layout.prop(props, "show_labels")
 
 
