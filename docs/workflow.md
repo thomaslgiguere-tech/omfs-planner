@@ -318,16 +318,16 @@ Naming used below (matches the object roles in code):
      (reference frame up), so the curve runs through the middle of the bite. Bezier curve with
      automatic handles: passes through every point. Drawn thick in orange, points numbered, on top.
      "Modifier": Edit Mode on the curve with snapping onto the surfaces (G, X, Tab).
-  2. Parametric blank *(done)*: a closed slab along the curve. Width measured on the scans every
+  2. Parametric blank *(done)*: a closed slab along the curve, ending with it (no distal extension:
+     surgeon, 2026-10-31; where the curve stops, the splint stops). Width measured on the scans every
      1 mm of curve (both arches together), only in the crown band the splint covers (no palate, no
      gingiva): the most lingual and most buccal crown points, smoothed over 3 mm, plus the margins
      (surgeon's defaults: 1.5 mm lingual, 1.5 mm buccal, separate so a segmental splint can get more
-     buccal only; 1.5 mm distal past the last tooth, found automatically). Height: depth above and
-     below the middle of the bite (default 3 mm each, the "up to brackets" setting). Top and bottom
-     are fine grids (0.3 mm) in vertex groups Top / Bottom, for the projection. Margins update live;
-     a changed curve or arch shows "mettre à jour". Case1 lower arch: 0.04 s, 6 to 14 mm wide.
-     - A Bezier curve's ends leave the arch by ~2 mm (end handles point at the next click): the
-       search for the last tooth past each end looks 6 mm to each side.
+     buccal only). Height: depth above and below the middle of the bite (splint: 3 mm each, the "up
+     to brackets" setting); a cap sits on the occlusal curve, 3 mm above and 0.8 mm down onto the
+     teeth by default. Top and bottom are fine grids (0.3 mm) in vertex groups Top / Bottom, for the
+     projection. Margins update live; a changed curve or arch shows "mettre à jour". Case1 lower
+     arch: 0.04 s.
   3. Tooth imprints by projection (to come).
   4. Engraved text and print checks (to come).
 - Nuances: (add here)

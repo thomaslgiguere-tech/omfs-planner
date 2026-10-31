@@ -1067,15 +1067,23 @@ def test_splint_blank():
     assert abs(info["width_max"] - expected) < 0.4 and abs(info["width_min"] - expected) < 0.6, info
     top = [v.co.z for v in mesh.vertices if v.index in set(range(len(mesh.vertices) // 2))]
     assert abs(min(top) - 12) < 1e-3 and abs(max(top) - 12) < 1e-3, "top = bite + 3 mm"
-    # The tubes go on 10 degrees past the curve ends (about 7 mm along the end tangent): covered + 1.5 mm.
     curve_length = splint.curve_length(splint.find_curve(scene))
-    assert info["length"] > curve_length + 2 * (6.0 + 1.5), (info["length"], curve_length)
+    assert abs(info["length"] - curve_length) < 0.5, "the blank stops at the ends of the curve"
 
     props.buccal_margin = 4.0                        # segmental: only the buccal side grows, live
     assert abs(splint.blank_info(blank)["width_max"] - (expected + 2.5)) < 0.4
     assert not splint.blank_stale(scene, blank)
     splint.add_point(scene, Vector((45, 500, 8)), depsgraph)
     assert splint.blank_stale(scene, blank), "a changed curve asks for an update"
+    props.kind, props.cap_arch = 'CHAPE', lower      # a cap: points on the lower occlusal surface (z = 8)
+    bpy.ops.omfs.arch_curve_clear()
+    for a in (10, 50, 90, 130, 170):
+        u = radians(a)
+        splint.add_point(scene, Vector((45 * np.cos(u), 500 + 45 * np.sin(u), 8)), depsgraph)
+    assert splint.find_blank(scene) == blank and splint.build_blank(scene, depsgraph) == blank
+    z = [v.co.z for v in blank.data.vertices]
+    assert abs(min(z) - (8 - params.SPLINT_CAP_DEPTH)) < 1e-3 and abs(max(z) - 11) < 1e-3, \
+        "0.8 mm down onto the teeth, 3 mm above"
     for obj in (lower, upper, blank):
         bpy.data.objects.remove(obj)
     bpy.ops.omfs.arch_curve_clear()

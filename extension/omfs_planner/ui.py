@@ -634,12 +634,11 @@ class OMFS_PT_splint(bpy.types.Panel):
         col.label(text="Débord au-delà des couronnes")
         col.prop(props, "buccal_margin")
         col.prop(props, "lingual_margin")
-        col.prop(props, "distal_margin")
         col = box.column(align=True)
         col.label(text="Profondeur sur les dents (depuis le milieu de l'occlusion)")
         if props.kind == 'CHAPE':
             col.prop(props, "depth_up", text="Au-dessus")
-            col.prop(props, "depth_low", text="Sur les dents")
+            col.prop(props, "cap_depth")
         else:
             col.prop(props, "depth_up")
             col.prop(props, "depth_low")

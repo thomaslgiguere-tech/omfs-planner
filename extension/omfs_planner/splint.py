@@ -2,7 +2,7 @@
 
 Built in steps (docs/workflow.md, "Object creator"):
 1. Arch curve: points clicked on the arches, joined by a smooth curve (done).
-2. Parametric blank swept along the curve, as wide as the crowns plus margins (done).
+2. Parametric blank swept along the curve, as wide as the crowns plus margins, ending with the curve (done).
 3. Tooth imprints by projection onto the arches, 0.10 mm clearance (to come).
 4. Engraved text and print checks (to come).
 
@@ -175,7 +175,7 @@ def curve_length(obj):
 #
 # The blank is a closed slab following the arch curve: as wide as the crowns at each station
 # (measured on the scans, both arches together) plus a lingual and a buccal margin, reaching
-# "depth" above and below the curve (the middle of the bite), and past the last tooth at each end.
+# "depth" above and below the curve (the middle of the bite). It stops at the ends of the curve.
 # Its top and bottom faces are fine grids (vertex groups "Top" / "Bottom"): step 3 projects them
 # onto the teeth.
 
@@ -183,10 +183,8 @@ BLANK_NAME = "Splint"
 BLANK_TAG = "splint blank"      # made_by of the blank
 BLANK_COLOUR = (0.95, 0.70, 0.30, 0.55)   # guide orange, see-through
 TOP_GROUP, BOTTOM_GROUP = "Top", "Bottom"
-END_REACH = 20.0                # mm past each end of the curve searched for the last tooth
-END_SIDEWAYS = 6.0              # mm on each side of the end cross-section, in that search (a Bezier end leaves the arch a little)
 
-_measures = {}                  # measurement key -> raw extents (lingual, buccal, end extensions)
+_measures = {}                  # measurement key -> raw extents (lingual, buccal)
 
 
 def stations(obj, depsgraph, step, up):
@@ -237,9 +235,8 @@ def smooth(values, window):
 
 
 def measure(scene, points, tangents, normals, up, depth_up, depth_low, step):
-    """Crown extents at each station: (lingual, buccal) in mm from the curve, and how far the last
-    tooth reaches past each end. Only the crown band the splint will cover is measured (no palate,
-    no gingiva below it)."""
+    """Crown extents at each station: (lingual, buccal) in mm from the curve. Only the crown band the
+    splint will cover is measured (no palate, no gingiva below it)."""
     up = np.array(up)
     verts = np.concatenate([world_vertices(o) for o in arches(scene)])
     heights = verts @ up
@@ -268,17 +265,12 @@ def measure(scene, points, tangents, normals, up, depth_up, depth_low, step):
     lingual, buccal = fill_gaps(lingual), fill_gaps(buccal)
     if lingual is None:
         return None
-    ends = []
-    for i, direction in ((0, -tangents[0]), (-1, tangents[-1])):
-        rel = verts - points[i]
-        past = rel @ direction
-        lat = rel @ normals[i]
-        h = rel @ up
-        # Generous sideways window: past its end the arch bends away from the curve's last tangent.
-        ok = (past > 0) & (past < END_REACH) & (lat > -lingual[i] - END_SIDEWAYS) & \
-             (lat < buccal[i] + END_SIDEWAYS) & (h <= depth_up) & (h >= -depth_low)
-        ends.append(float(past[ok].max()) if ok.any() else 0.0)
-    return lingual, buccal, ends
+    return lingual, buccal
+
+
+def depths(props):
+    """(above, below) the curve: a cap sits on the occlusal curve and reaches only a little down."""
+    return props.depth_up, (props.cap_depth if props.kind == 'CHAPE' else props.depth_low)
 
 
 def curve_key(obj):
@@ -289,7 +281,7 @@ def blank_key(scene):
     props = scene.omfs_splint
     return repr((curve_key(find_curve(scene)), [o.name for o in arches(scene)],
                  [tuple(map(tuple, o.matrix_world)) for o in arches(scene)],
-                 round(props.depth_up, 3), round(props.depth_low, 3)))
+                 [round(d, 3) for d in depths(props)]))
 
 
 def blank_data(scene, depsgraph):
@@ -303,32 +295,28 @@ def blank_data(scene, depsgraph):
     up = up_axis(scene)
     step = params.SPLINT_MEASURE_STEP
     points, tangents, normals, length = stations(curve, depsgraph, step, up)
+    depth_up, depth_low = depths(props)
     key = blank_key(scene)
     if key not in _measures:
         _measures.clear()
-        _measures[key] = measure(scene, points, tangents, normals, up, props.depth_up, props.depth_low, step)
+        _measures[key] = measure(scene, points, tangents, normals, up, depth_up, depth_low, step)
     measured = _measures[key]
     if measured is None:
         return "Aucune dent trouvée le long de la courbe: vérifiez les arcades et la profondeur"
-    lingual, buccal, ends = measured
+    lingual, buccal = measured
     window = int(round(params.SPLINT_SMOOTH / step))
     lingual = smooth(lingual, window) + props.lingual_margin
     buccal = smooth(buccal, window) + props.buccal_margin
-    ext = [e + props.distal_margin if e > 0 else props.distal_margin for e in ends]
 
-    # Rows every `resolution` mm, from past the first end to past the last one.
+    # Rows every `resolution` mm, from one end of the curve to the other.
     res = props.resolution
     station_s = np.linspace(0.0, length, len(points))
-    rows_s = np.arange(-ext[0], length + ext[1] + 1e-6, res)
-    inside = np.clip(rows_s, 0.0, length)
-    c = np.stack([np.interp(inside, station_s, points[:, i]) for i in range(3)], axis=1)
-    t = np.stack([np.interp(inside, station_s, tangents[:, i]) for i in range(3)], axis=1)
-    n = np.stack([np.interp(inside, station_s, normals[:, i]) for i in range(3)], axis=1)
-    t /= np.linalg.norm(t, axis=1)[:, None]
+    rows_s = np.linspace(0.0, length, max(2, int(np.ceil(length / res)) + 1))
+    c = np.stack([np.interp(rows_s, station_s, points[:, i]) for i in range(3)], axis=1)
+    n = np.stack([np.interp(rows_s, station_s, normals[:, i]) for i in range(3)], axis=1)
     n /= np.linalg.norm(n, axis=1)[:, None]
-    c += t * (rows_s - inside)[:, None]                         # straight on past the ends
-    lin = np.interp(inside, station_s, lingual)
-    buc = np.interp(inside, station_s, buccal)
+    lin = np.interp(rows_s, station_s, lingual)
+    buc = np.interp(rows_s, station_s, buccal)
 
     cols = int(np.ceil((lin + buc).max() / res))
     f = np.linspace(0.0, 1.0, cols + 1)
@@ -336,8 +324,8 @@ def blank_data(scene, depsgraph):
     right = c + n * buc[:, None]
     grid = left[:, None, :] + (right - left)[:, None, :] * f[None, :, None]   # rows x cols x 3
     up = np.array(up)
-    top = (grid + up * props.depth_up).reshape(-1, 3)
-    bottom = (grid - up * props.depth_low).reshape(-1, 3)
+    top = (grid + up * depth_up).reshape(-1, 3)
+    bottom = (grid - up * depth_low).reshape(-1, 3)
     verts = np.concatenate([top, bottom])
 
     rows, w = len(rows_s), cols + 1
@@ -413,7 +401,7 @@ def _on_blank_param(props, context):
 # --- Properties and operators ---------------------------------------------------------
 
 class OMFS_SplintProperties(bpy.types.PropertyGroup):
-    kind: bpy.props.EnumProperty(name="Type", items=KINDS, default='FINAL')
+    kind: bpy.props.EnumProperty(name="Type", items=KINDS, default='FINAL', update=_on_blank_param)
     upper: bpy.props.PointerProperty(name="Arcade du haut", type=bpy.types.Object,
                                      poll=lambda _p, o: is_scan(o), description="Scan de l'arcade du haut (par défaut: celle de l'assise de l'occlusion)")
     lower: bpy.props.PointerProperty(name="Arcade du bas", type=bpy.types.Object,
@@ -427,9 +415,6 @@ class OMFS_SplintProperties(bpy.types.PropertyGroup):
     lingual_margin: bpy.props.FloatProperty(
         name="Lingual", subtype='DISTANCE', default=params.SPLINT_LINGUAL_MARGIN, min=0.0, soft_max=10.0,
         step=10, update=_on_blank_param, description="Débord au-delà de la face linguale / palatine des couronnes")
-    distal_margin: bpy.props.FloatProperty(
-        name="Distal", subtype='DISTANCE', default=params.SPLINT_DISTAL_MARGIN, min=0.0, soft_max=10.0,
-        step=10, update=_on_blank_param, description="Débord au-delà de la dernière dent, à chaque bout")
     depth_up: bpy.props.FloatProperty(
         name="Haut", subtype='DISTANCE', default=params.SPLINT_DEPTH, min=0.5, soft_max=8.0, step=10,
         update=_on_blank_param,
@@ -438,6 +423,9 @@ class OMFS_SplintProperties(bpy.types.PropertyGroup):
         name="Bas", subtype='DISTANCE', default=params.SPLINT_DEPTH, min=0.5, soft_max=8.0, step=10,
         update=_on_blank_param,
         description="Jusqu'où la gouttière descend sur les dents du bas, depuis le milieu de l'occlusion")
+    cap_depth: bpy.props.FloatProperty(
+        name="Sur les dents", subtype='DISTANCE', default=params.SPLINT_CAP_DEPTH, min=0.1, soft_max=5.0, step=10,
+        update=_on_blank_param, description="Jusqu'où la chape descend sur les dents, depuis la courbe occlusale")
     resolution: bpy.props.FloatProperty(
         name="Résolution", subtype='DISTANCE', default=params.SPLINT_RESOLUTION, min=0.1, soft_max=1.0,
         step=5, update=_on_blank_param,

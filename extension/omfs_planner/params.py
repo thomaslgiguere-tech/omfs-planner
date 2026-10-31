@@ -61,8 +61,8 @@ OCC_PREPOSITION_GAP = 5.0       # mm between the arches after "flip and place ab
 # Object creator: Splint / Chape
 SPLINT_BUCCAL_MARGIN = 1.5      # mm beyond the most buccal crown surface (more for a segmental splint)
 SPLINT_LINGUAL_MARGIN = 1.5     # mm beyond the most lingual crown surface
-SPLINT_DISTAL_MARGIN = 1.5      # mm beyond the last tooth at each end of the curve
 SPLINT_DEPTH = 3.0              # mm the splint reaches onto the teeth, above and below the middle of the bite
+SPLINT_CAP_DEPTH = 0.8          # mm a cap (chape) reaches down onto the teeth from the occlusal curve
 SPLINT_RESOLUTION = 0.3         # mm between the blank's vertices (the imprint is only as fine as this)
 SPLINT_MEASURE_STEP = 1.0       # mm between the curve stations where the arch width is measured
 SPLINT_SMOOTH = 3.0             # mm: the outline is smoothed over this length along the arch
