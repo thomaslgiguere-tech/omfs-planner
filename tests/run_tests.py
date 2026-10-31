@@ -257,6 +257,7 @@ def test_registration():
 
 def test_guide_workshop_tools_are_documented():
     icons = {i.identifier for i in bpy.types.UILayout.bl_rna.functions["prop"].parameters["icon"].enum_items}
+    assert 'FACE_MAPS' in icons, "icon of the zone summary"
     for t in guide_workshop.TOOLS.values():
         assert t.icon in icons, f"{t.id}: unknown icon {t.icon}"
         assert t.tip and t.meshmixer, f"{t.id}: tooltip incomplete"
@@ -289,6 +290,7 @@ def test_guide_workshop():
     assert guide.omfs.role == 'GUIDE' and guide.name.startswith("Guide")
     assert [m.type for m in guide.modifiers] == ['DISPLACE', 'SOLIDIFY'], [m.type for m in guide.modifiers]
     assert abs(guide.modifiers[1].thickness - params.GUIDE_THICKNESS) < 1e-6
+    assert not guide.modifiers[1].use_even_offset, "even thickness spikes at sharp border folds"
 
     # Cylinders at the 3D cursor, Boolean, apply.
     scene.cursor.location = (-300, 0, 10)
@@ -302,6 +304,21 @@ def test_guide_workshop():
     run('ADD_REMESH')
     run('APPLY_MODIFIERS')
     assert not guide.modifiers and len(guide.data.polygons) > 0
+
+    # Zones: face sets painted in Sculpt Mode are a face attribute; stand in for two strokes.
+    assert guide_workshop.chosen_zone(bpy.context)[0] is None, "no zone painted yet"
+    sets = copy.data.attributes.new(guide_workshop.FACE_SETS, 'INT', 'FACE')
+    sets.data.foreach_set("value", [1, 1, 2, 2, 3, 1])   # base 1, then zones 2 and 3
+    zone, faces = guide_workshop.chosen_zone(bpy.context)
+    assert zone == 3 and list(faces) == [False, False, False, False, True, False], "last painted by default"
+    scene.omfs_guide.zone = 2
+    zone, faces = guide_workshop.chosen_zone(bpy.context)
+    assert zone == 2 and int(faces.sum()) == 2 and "n° 2" in guide_workshop.zone_summary(bpy.context)
+    guide_workshop.set_mask(copy.data, faces)
+    mask = [d.value for d in copy.data.attributes[guide_workshop.MASK].data]
+    in_zone = {copy.data.loops[i].vertex_index for p in copy.data.polygons if faces[p.index] for i in p.loop_indices}
+    assert all((m == 1.0) == (i in in_zone) for i, m in enumerate(mask)), mask
+    assert [tuple(v.co) for v in bone.data.vertices] == vertices_before, "zones live on the copy only"
 
     bpy.context.view_layer.objects.active = bone
     assert guide_workshop.editable_active(bpy.context)[1], "locked anatomy must be refused"

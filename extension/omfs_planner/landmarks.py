@@ -122,6 +122,17 @@ def object_hit(context, region, mouse, obj):
     return obj.matrix_world @ location if hit else None
 
 
+def object_face_hit(context, region, mouse, obj):
+    """Raycast from the mouse against one object only: index of the face hit, or None."""
+    rv3d = region.data
+    origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, mouse)
+    direction = view3d_utils.region_2d_to_vector_3d(region, rv3d, mouse)
+    to_local = obj.matrix_world.inverted()
+    hit, _location, _normal, index = obj.ray_cast(
+        to_local @ origin, to_local.to_3x3() @ direction, depsgraph=context.evaluated_depsgraph_get())
+    return index if hit else None
+
+
 class OMFS_OT_place_landmark(bpy.types.Operator):
     """Click on a surface to place this landmark (Esc or right-click to cancel)"""
     bl_idname = "omfs.place_landmark"

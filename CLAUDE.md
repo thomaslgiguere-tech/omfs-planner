@@ -76,6 +76,9 @@ docs/APP_TEMPLATE.md         what the template hides, and what can't be hidden w
 - GPU index buffers need 4-byte ints: numpy arithmetic silently upcasts int32 to int64.
 - `mathutils.geometry.tessellate_polygon` mis-fills complex CT section loops (bridges separate
   regions): fill sections row by row with the even-odd rule instead (section_contours.fill_rows).
+- Sculpt face sets are the face attribute `.sculpt_face_set` (readable live in Sculpt Mode); the mask is
+  the point attribute `.sculpt_mask`: write it in Object Mode, then go back to Sculpt Mode.
+- Solidify `use_even_offset` spikes (tens of mm) at sharp folds of an open border: keep it off for guides.
 - Reload the extension live without `script.reload` (it would restart the MCP add-on): disable,
   drop `bl_ext.user_default.omfs_planner*` from `sys.modules`, enable.
 

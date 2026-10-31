@@ -614,6 +614,8 @@ def make_guide_section(section_id, title, text):
         draw_text(layout, context, text)
         if section_id == 'BOOLEAN':
             layout.prop(context.scene.omfs_guide, "cutter")
+        if section_id in {'ZONES', 'MASK'} and context.scene.omfs_guide.work_copy is not None:
+            layout.label(text=guide_workshop.zone_summary(context), icon='FACE_MAPS')
         col = layout.column(align=True)
         for t in guide_workshop.tools_in(section_id):
             tool_button(col, t.id)

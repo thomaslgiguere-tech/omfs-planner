@@ -1,7 +1,7 @@
 """Guide design workshop ("Confection de guide"): Blender's native tools, one click away.
 
 A learning bench, not an automatic guide builder: each button runs a native Blender tool
-(sculpt mask, Edit Mode selection, modifiers, Boolean...) and its tooltip explains what it does,
+(sculpt face sets and mask, Edit Mode selection, modifiers, Boolean...) and its tooltip explains what it does,
 its keyboard shortcut and the closest Meshmixer tool. The texts are in French, for the surgeon.
 
 Anatomy is never edited: the work happens on a copy of the chosen bone or teeth.
@@ -11,11 +11,15 @@ from collections import namedtuple
 from math import radians
 
 import bpy
+import numpy as np
 
-from . import locking, osteotomy, params
+from . import landmarks, locking, osteotomy, params
 
 COLLECTION = "Guide design"
 MASK_BRUSH = "brushes/essentials_brushes-mesh_sculpt.blend/Brush/Mask"
+FACE_SET_BRUSH = "brushes/essentials_brushes-mesh_sculpt.blend/Brush/Face Set Paint"
+FACE_SETS = ".sculpt_face_set"   # face attribute: the face set number of each face
+MASK = ".sculpt_mask"            # vertex attribute: the sculpt mask, 0 to 1
 SMOOTH_BRUSH = "brushes/essentials_brushes-mesh_sculpt.blend/Brush/Smooth"
 SHELL_GROUP = "Coque (Solidify)"   # filled by the Solidify modifier, see smooth_outside
 
@@ -26,9 +30,13 @@ TOOLS = {}
 
 # Sections, in panel order: (id, title, short explanation shown above the buttons)
 SECTIONS = (
-    ('MASK', "1. Masque (surface de contact)",
-     "Peindre en mode Sculpture la zone d'os que le guide doit toucher, puis l'extraire en coque. "
-     "Le masque ne déplace aucun sommet: c'est une couleur posée sur la copie de travail."),
+    ('ZONES', "1. Zones (Face Sets)",
+     "Peindre en mode Sculpture les zones utiles (appui du guide, fenêtre de coupe, fourreaux...): "
+     "chaque trait crée une zone d'une nouvelle couleur, au bord net. Choisir une zone, puis "
+     "l'extraire en coque. Les zones ne déplacent aucun sommet et restent sur la copie de travail."),
+    ('MASK', "1b. Masque (bord lissé, optionnel)",
+     "Pour un bord de guide plus régulier: convertir la zone en masque, lisser son bord, puis "
+     "extraire. Le masque ne déplace aucun sommet: c'est une valeur posée sur la copie de travail."),
     ('EDIT', "2. Mode Édition (sélection, extrusion)",
      "Travailler directement les sommets, arêtes et faces de l'objet actif (le guide, pas l'os). "
      "Tab entre et sort du mode Édition."),
@@ -191,7 +199,7 @@ def object_mode(context):
     return None
 
 
-# --- 1. Mask -----------------------------------------------------------------------------
+# --- 1. Zones (face sets) ------------------------------------------------------------------
 
 def need_sculpt(context):
     copy = props(context).work_copy
@@ -202,6 +210,172 @@ def need_sculpt(context):
     if context.mode != 'SCULPT':
         bpy.ops.object.mode_set(mode='SCULPT')
     return None
+
+
+def face_sets(mesh):
+    """Face set number of each face, or None if no zone was ever painted."""
+    attribute = mesh.attributes.get(FACE_SETS)
+    if attribute is None:
+        return None
+    values = np.empty(len(mesh.polygons), np.int32)
+    attribute.data.foreach_get("value", values)
+    return values
+
+
+def chosen_zone(context):
+    """(face set number, faces in it) of the chosen zone (the last painted one by default),
+    or (None, error message)."""
+    copy = props(context).work_copy
+    if copy is None:
+        return None, "Créez d'abord une copie de travail"
+    sets = face_sets(copy.data)
+    if sets is None or len(sets) == 0:
+        return None, "Peignez d'abord une zone"
+    zone = props(context).zone
+    if zone not in sets:
+        zone = int(sets.max())   # each new stroke gets the next number: the last painted
+    return zone, sets == zone
+
+
+def zone_summary(context):
+    """One line for the panel: which zone the buttons below act on."""
+    zone, faces = chosen_zone(context)
+    if zone is None:
+        return faces
+    which = "dernière peinte" if props(context).zone != zone else f"n° {zone}"
+    return f"Zone choisie: {which} ({int(faces.sum())} faces)"
+
+
+def zone_to_mask(context):
+    """Mask exactly the vertices of the chosen zone (everything else unmasked)."""
+    error = need_sculpt(context)
+    if error:
+        return error
+    zone, faces = chosen_zone(context)
+    if zone is None:
+        return faces
+    bpy.ops.object.mode_set(mode='OBJECT')   # write the attribute on the mesh itself
+    set_mask(props(context).work_copy.data, faces)
+    bpy.ops.object.mode_set(mode='SCULPT')
+    return None
+
+
+def set_mask(mesh, faces):
+    """Mask = 1 on every vertex of the faces given (boolean per face), 0 elsewhere."""
+    sizes = np.empty(len(mesh.polygons), np.int32)
+    mesh.polygons.foreach_get("loop_total", sizes)
+    loops = np.empty(len(mesh.loops), np.int32)
+    mesh.loops.foreach_get("vertex_index", loops)
+    mask = np.zeros(len(mesh.vertices), np.float32)
+    mask[loops[np.repeat(faces, sizes)]] = 1.0
+    attribute = mesh.attributes.get(MASK) or mesh.attributes.new(MASK, 'FLOAT', 'POINT')
+    attribute.data.foreach_set("value", mask)
+    mesh.update()
+
+
+@tool('ZONE_PAINT', "Peindre une zone", 'BRUSH_DATA', 'ZONES',
+      "Pinceau Face Set Paint: chaque trait crée une nouvelle zone (nouvelle couleur). Ctrl + glisser "
+      "agrandit la zone sous la souris au début du trait. F puis bouger la souris change la taille. "
+      "Évitez Maj + glisser: il lisse le bord en déplaçant des sommets.",
+      "Select (pinceau) + Create Facegroup", "Ctrl+glisser = continuer la zone, F = taille")
+def zone_paint(context):
+    error = need_sculpt(context)
+    if error:
+        return error
+    props(context).zone = 0   # the zone about to be painted becomes the chosen one
+    try:
+        bpy.ops.brush.asset_activate(asset_library_type='ESSENTIALS', relative_asset_identifier=FACE_SET_BRUSH)
+    except RuntimeError:
+        return "Pinceau Face Set Paint introuvable: choisissez-le dans la barre d'outils de gauche"
+    return None
+
+
+@tool('ZONE_LASSO', "Zone au lasso", 'MOD_MASK', 'ZONES',
+      "Dessinez un contour: les faces à l'intérieur (y compris à l'arrière) forment une nouvelle zone.",
+      "Select > Lasso + Create Facegroup", "")
+def zone_lasso(context):
+    error = need_sculpt(context)
+    if error:
+        return error
+    props(context).zone = 0
+    bpy.ops.wm.tool_set_by_id(name="builtin.lasso_face_set")
+    return None
+
+
+@tool('ZONE_PICK', "Choisir la zone (clic)", 'EYEDROPPER', 'ZONES',
+      "Cliquez une zone dans la vue: les boutons suivants (agrandir, isoler, extraire...) agiront sur "
+      "elle. Par défaut, c'est la dernière zone peinte.",
+      "Select > Select Facegroup (clic)", "", operator="omfs.pick_zone")
+def zone_pick(context):
+    with viewport(context):
+        bpy.ops.omfs.pick_zone('INVOKE_DEFAULT')
+    return None
+
+
+def zone_edit(mode):
+    def run(context):
+        error = need_sculpt(context)
+        if error:
+            return error
+        zone, faces = chosen_zone(context)
+        if zone is None:
+            return faces
+        with viewport(context):
+            bpy.ops.sculpt.face_set_edit(active_face_set=zone, mode=mode, modify_hidden=False)
+        return None
+    return run
+
+
+tool('ZONE_GROW', "Agrandir la zone", 'ADD', 'ZONES', "Ajoute une rangée de faces autour de la zone choisie.",
+     "Modify > Expand Ring", "Ctrl+W (zone sous la souris)")(zone_edit('GROW'))
+tool('ZONE_SHRINK', "Réduire la zone", 'REMOVE', 'ZONES', "Retire une rangée de faces au bord de la zone choisie.",
+     "Modify > Contract Ring", "Ctrl+Alt+W (zone sous la souris)")(zone_edit('SHRINK'))
+
+
+@tool('ZONE_ISOLATE', "Isoler la zone", 'HIDE_OFF', 'ZONES',
+      "Cache tout sauf la zone choisie: plus lisible et plus fluide sur une mandibule CT. Rien n'est "
+      "supprimé (Tout montrer).",
+      "Hide / Show (Facegroups)", "Maj+H (zone sous la souris), H = cacher la zone")
+def zone_isolate(context):
+    error = need_sculpt(context)
+    if error:
+        return error
+    zone, faces = chosen_zone(context)
+    if zone is None:
+        return faces
+    with viewport(context):
+        bpy.ops.paint.hide_show_all(action='SHOW')
+        bpy.ops.sculpt.face_set_change_visibility(mode='TOGGLE', active_face_set=zone)
+    return None
+
+
+@tool('ZONE_SHOW_ALL', "Tout montrer", 'HIDE_ON', 'ZONES', "Réaffiche toutes les faces cachées.",
+      "Show All", "Alt+H")
+def zone_show_all(context):
+    error = need_sculpt(context)
+    if error:
+        return error
+    with viewport(context):
+        bpy.ops.paint.hide_show_all(action='SHOW')
+    return None
+
+
+@tool('ZONE_EXTRACT', "Extraire la zone en coque (guide)", 'MOD_SOLIDIFY', 'ZONES',
+      "Crée un NOUVEL objet à partir de la zone choisie, collé à l'os, avec un dégagement et une "
+      "épaisseur réglables (modificateurs Displace + Solidify, section 3). La copie de travail ne change pas.",
+      "Edit > Extract (Offset + Thickness)", "")
+def zone_extract(context):
+    return zone_to_mask(context) or mask_extract(context)
+
+
+# --- 1b. Mask ------------------------------------------------------------------------------
+
+@tool('ZONE_TO_MASK', "Zone → masque", 'MOD_MASK', 'MASK',
+      "Masque exactement les sommets de la zone choisie (section 1), pour en lisser le bord avant "
+      "d'extraire. Remplace le masque existant.",
+      "Select > Select Facegroup", "")
+def zone_mask(context):
+    return zone_to_mask(context)
 
 
 @tool('MASK_PAINT', "Peindre le masque", 'BRUSH_DATA', 'MASK',
@@ -302,7 +476,10 @@ def finish_extracted_guide(context, guide):
         solidify.name = "Épaisseur"
         solidify.thickness = params.GUIDE_THICKNESS
         solidify.offset = 1.0              # grow outwards, away from the bone
-        solidify.use_even_offset = True
+        # Even Thickness divides by the angle at sharp folds of the border: spikes of tens of mm.
+        # Without it the thickness only thins at those folds; same thickness elsewhere.
+        solidify.use_even_offset = False
+        solidify.use_quality_normals = True
     clearance = guide.modifiers.new("Dégagement", 'DISPLACE')
     clearance.strength = params.GUIDE_CLEARANCE
     clearance.mid_level = 0.0
@@ -692,9 +869,10 @@ def mark_guide(context):
 RECIPE = (
     ("Guide de coupe (sur l'os)", (
         "Départ: la mandibule. Créer une copie de travail.",
-        "[1] Peindre le masque sur la corticale vestibulaire du menton, de part et d'autre du "
-        "trait de coupe. Lisser le bord, Agrandir ou Réduire au besoin.",
-        "[1] Extraire en coque: un objet « Guide » apparaît avec Dégagement (0,10 mm) et Épaisseur (3 mm).",
+        "[1] Peindre une zone sur la corticale vestibulaire du menton, de part et d'autre du "
+        "trait de coupe. Agrandir ou Réduire au besoin; Isoler pour y voir clair.",
+        "[1] Extraire la zone en coque: un objet « Guide » apparaît avec Dégagement (0,10 mm) et "
+        "Épaisseur (3 mm). Pour un bord plus lisse: [1b] Zone → masque, Lisser le bord, Extraire.",
         "[3] Régler les valeurs dans la liste des modificateurs; un Lissage léger si besoin.",
         "[4] Pour chaque vis: Placer le curseur 3D sur l'os, Cylindre tube, Déplacer et Tourner "
         "selon l'axe de la vis, choisir le tube dans « Avec », Unir au guide.",
@@ -705,8 +883,8 @@ RECIPE = (
     )),
     ("Guide de repositionnement (sur les dents)", (
         "Départ: le scan intra-oral recalé. Créer une copie de travail.",
-        "[1] Masquer les faces occlusales et vestibulaires des dents, pas la gencive.",
-        "[1] Extraire en coque, puis [3] régler Dégagement et Épaisseur.",
+        "[1] Peindre une zone sur les faces occlusales et vestibulaires des dents, pas la gencive.",
+        "[1] Extraire la zone en coque, puis [3] régler Dégagement et Épaisseur.",
         "[2] En mode Édition, sélectionner une zone et l'extruder vers le guide de coupe (bras de connexion).",
         "[4] Boolean avec le guide de coupe placé en position finale, pour l'emboîtement.",
         "[3] Remesh étanche, Appliquer; [6] Vérifier, Marquer comme guide.",
@@ -724,6 +902,7 @@ class OMFS_GuideProperties(bpy.types.PropertyGroup):
     source: bpy.props.PointerProperty(name="Départ", type=bpy.types.Object, poll=_is_source,
                                       description="Os, segment ou dents sur lequel le guide s'appuie")
     work_copy: bpy.props.PointerProperty(name="Copie de travail", type=bpy.types.Object)
+    zone: bpy.props.IntProperty(name="Zone", min=0, description="Face set chosen by clic (0 = the last painted)")
     cutter: bpy.props.PointerProperty(name="Avec", type=bpy.types.Object,
                                       poll=lambda _p, o: o.type == 'MESH' and not locking.is_locked(o),
                                       description="Objet outil du Boolean (ex. un cylindre)")
@@ -760,6 +939,55 @@ class OMFS_OT_select_linked_flat(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class OMFS_OT_pick_zone(bpy.types.Operator):
+    """Click a zone (face set) on the working copy to choose it (Esc or right-click to cancel)"""
+    bl_idname = "omfs.pick_zone"
+    bl_label = "Choisir la zone"
+
+    @classmethod
+    def description(cls, context, properties):
+        return tool_description(TOOLS['ZONE_PICK'])
+
+    def invoke(self, context, event):
+        copy = props(context).work_copy
+        if copy is None:
+            self.report({'WARNING'}, "Créez d'abord une copie de travail")
+            return {'CANCELLED'}
+        self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
+            (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
+        if self.area is None:
+            return {'CANCELLED'}
+        self.area.header_text_set("Cliquez une zone de la copie de travail   |   Échap / clic droit: annuler")
+        context.window.cursor_modal_set('EYEDROPPER')
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def finish(self, context):
+        self.area.header_text_set(None)
+        context.window.cursor_modal_restore()
+
+    def modal(self, context, event):
+        if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
+            self.finish(context)
+            return {'CANCELLED'}
+        if event.type != 'LEFTMOUSE' or event.value != 'PRESS':
+            return {'PASS_THROUGH'}   # orbit, pan and zoom keep working
+        under_mouse = landmarks.viewport_region_under_mouse(self.area, event)
+        if under_mouse is None:
+            return {'PASS_THROUGH'}
+        copy = props(context).work_copy
+        face = landmarks.object_face_hit(context, *under_mouse, copy)
+        sets = face_sets(copy.data)
+        if face is None or sets is None:
+            self.report({'WARNING'}, "Cliquez sur une zone peinte de la copie de travail")
+            return {'RUNNING_MODAL'}
+        props(context).zone = int(sets[face])
+        self.finish(context)
+        for area in context.screen.areas:   # the sidebar shows the chosen zone
+            area.tag_redraw()
+        return {'FINISHED'}
+
+
 class OMFS_OT_guide_tool(bpy.types.Operator):
     """Native Blender tool for guide design"""
     bl_idname = "omfs.guide_tool"
@@ -784,7 +1012,7 @@ class OMFS_OT_guide_tool(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_GuideProperties, OMFS_OT_select_linked_flat, OMFS_OT_guide_tool)
+classes = (OMFS_GuideProperties, OMFS_OT_select_linked_flat, OMFS_OT_pick_zone, OMFS_OT_guide_tool)
 
 
 def register():

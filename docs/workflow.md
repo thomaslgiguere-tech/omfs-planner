@@ -163,6 +163,10 @@ Naming used below (matches the object roles in code):
 - User selects (paints) the bone surface to be covered.
 - Add-on creates a closed 3D object from it: offset x mm from the surface (clearance gap), then thickened, with smooth boundaries.
 - Offset and thickness are adjustable. Default clearance offset: 0.10 mm.
+- Painting the zones (Confection de guide, section 1, surgeon's choice 2026-10-31): Face Sets, not the
+  mask. Several zones at once (guide contact, cut window, sleeves, areas to avoid), sharp borders,
+  kept with the working copy; pick a zone by clicking it, grow / shrink / isolate it, then extract it
+  as a shell. The mask stays as an option (1b) to smooth a zone's border before extracting.
 
 ### Cutting guide
 
