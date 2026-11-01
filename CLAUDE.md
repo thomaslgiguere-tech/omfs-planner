@@ -31,6 +31,7 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
   occlusion_seating.py       springs between the arches, seating solver, overlap map
   splint.py                  Object creator: Splint / Chape (arch curve, blank, imprints, solid, text)
+  cylinders.py               adjustable workshop cylinders (diameter, length) + their drag handles
   text_labels.py             engraved / embossed text on a printed part (two clicks, Boolean cutter)
   section.py                 Section & Analysis: section plane, slab (clipping), radiograph view
   section_contours.py        live section contours, caps, overlap on the section
@@ -81,6 +82,8 @@ docs/APP_TEMPLATE.md         what the template hides, and what can't be hidden w
 - Sculpt face sets are the face attribute `.sculpt_face_set` (readable live in Sculpt Mode); the mask is
   the point attribute `.sculpt_mask`: write it in Object Mode, then go back to Sculpt Mode.
 - Solidify `use_even_offset` spikes (tens of mm) at sharp folds of an open border: keep it off for guides.
+- An object deleted in the viewport stays in `bpy.data` while a PointerProperty refers to it, outside
+  every collection: check `obj.name in scene.objects` before using a stored pointer.
 - Reload the extension live without `script.reload` (it would restart the MCP add-on): disable,
   drop `bl_ext.user_default.omfs_planner*` from `sys.modules`, enable.
 

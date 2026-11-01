@@ -36,6 +36,7 @@ SLEEVE_OUTER_DIAMETER = 4.0     # mm, MatrixMANDIBLE sleeve 03.503.045: just und
 SLEEVE_FIT_CLEARANCE = 0.10     # mm added to the sleeve diameter for the tube bore, TO TEST (print)
 SLEEVE_TUBE_LENGTH = 5.0        # mm
 SLEEVE_TUBE_WALL = 3.0          # mm
+CYLINDER_MIN_SIZE = 0.5         # mm: smallest diameter or length a workshop cylinder can be dragged to
 
 # Occlusion seating (virtual, lower arch onto the fixed upper arch)
 OCC_TOLERATED_PENETRATION = 0.2  # mm: the teeth resist only beyond this overlap (0 = stop at contact)

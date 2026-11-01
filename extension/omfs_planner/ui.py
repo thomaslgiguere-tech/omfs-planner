@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, distance_map, guide_workshop, landmarks, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
+from . import analysis, cylinders, distance_map, guide_workshop, landmarks, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -753,12 +753,13 @@ class OMFS_PT_guide(bpy.types.Panel):
         box = layout.box()
         box.label(text="Copie de travail (zones)", icon='DUPLICATE')
         row = box.row(align=True)
-        if props.work_copy is None:
+        copy = guide_workshop.current_copy(context)
+        if copy is None:
             row.prop(props, "source", text="")
             tool_button(row, 'WORK_COPY', text="Copier")
         else:
-            row.label(text=props.work_copy.name)
-            hidden = props.work_copy.hide_get()
+            row.label(text=copy.name)
+            hidden = copy.hide_get()
             row.operator("omfs.guide_tool", text="", icon='HIDE_ON' if hidden else 'HIDE_OFF',
                          depress=not hidden).tool = 'TOGGLE_WORK_COPY'
             tool_button(row, 'REMOVE_WORK_COPY', text="")
@@ -784,7 +785,13 @@ def make_guide_section(section_id, title, text):
         draw_text(layout, context, text)
         if section_id == 'BOOLEAN':
             layout.prop(context.scene.omfs_guide, "cutter")
-        if section_id in {'ZONES', 'MASK'} and context.scene.omfs_guide.work_copy is not None:
+            active = context.active_object
+            if cylinders.is_cylinder(active):
+                col = layout.column(align=True)
+                col.label(text=f"{active.name}: flèches bleues = longueur, orange = diamètre", icon='MESH_CYLINDER')
+                col.prop(active.omfs_cylinder, "diameter")
+                col.prop(active.omfs_cylinder, "length")
+        if section_id in {'ZONES', 'MASK'} and guide_workshop.current_copy(context) is not None:
             layout.label(text=guide_workshop.zone_summary(context), icon='FACE_MAPS')
         col = layout.column(align=True)
         for t in guide_workshop.tools_in(section_id):

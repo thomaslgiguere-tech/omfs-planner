@@ -14,7 +14,7 @@ import bpy
 import numpy as np
 from mathutils.bvhtree import BVHTree
 
-from . import landmarks, locking, osteotomy, params
+from . import cylinders, landmarks, locking, osteotomy, params
 
 COLLECTION = "Guide design"
 MASK_BRUSH = "brushes/essentials_brushes-mesh_sculpt.blend/Brush/Mask"
@@ -99,6 +99,13 @@ def make_active(context, obj):
     obj.select_set(True)
 
 
+def current_copy(context):
+    """The working copy, or None if there is none or it was deleted from the scene (the panel's
+    pointer keeps a deleted object alive in the file, outside every collection)."""
+    copy = props(context).work_copy
+    return copy if copy is not None and copy.name in context.scene.objects else None
+
+
 def is_guide(obj):
     return obj is not None and obj.type == 'MESH' and obj.omfs.role == 'GUIDE'
 
@@ -118,7 +125,7 @@ def editable_active(context):
     locked: with either active, the tools go to the guide instead."""
     obj = context.active_object
     if (obj is not None and obj.type == 'MESH' and not locking.is_locked(obj)
-            and obj != props(context).work_copy):
+            and obj != current_copy(context)):
         return obj, None
     guide = target_guide(context)
     if guide is None:
@@ -152,16 +159,11 @@ def sleeve_bore_diameter():
 
 
 def add_cylinder(context, diameter, name):
+    """An adjustable cylinder at the cursor (cylinders.py), chosen as the Boolean tool."""
     if context.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
-    cursor = context.scene.cursor
-    bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=diameter / 2, depth=params.SLEEVE_TUBE_LENGTH,
-                                        location=cursor.location, rotation=cursor.rotation_euler)
-    obj = context.active_object
-    obj.name = obj.data.name = name
-    for coll in obj.users_collection:
-        coll.objects.unlink(obj)
-    workshop_collection(context.scene).objects.link(obj)
+    obj = cylinders.add(context, diameter, params.SLEEVE_TUBE_LENGTH, name, workshop_collection(context.scene))
+    props(context).cutter = obj
     return None
 
 
@@ -194,7 +196,7 @@ def work_copy(context):
       "est conservé. Annulable avec Ctrl+Z.",
       "Supprimer un objet dans l'Object Browser", "X (en mode Objet)")
 def remove_work_copy(context):
-    copy = props(context).work_copy
+    copy = current_copy(context)
     if copy is None:
         return "Aucune copie de travail"
     if context.mode != 'OBJECT':
@@ -214,7 +216,7 @@ def remove_work_copy(context):
       "guide (elle est cachée automatiquement après une extraction, et réaffichée pour peindre).",
       "Hide (Object Browser, icône œil)", "H / Alt+H (en mode Objet)")
 def toggle_work_copy(context):
-    copy = props(context).work_copy
+    copy = current_copy(context)
     if copy is None:
         return "Aucune copie de travail"
     if context.mode != 'OBJECT' and context.active_object == copy:
@@ -236,7 +238,7 @@ def object_mode(context):
 # --- 1. Zones (face sets) ------------------------------------------------------------------
 
 def need_sculpt(context):
-    copy = props(context).work_copy
+    copy = current_copy(context)
     if copy is None:
         return "Créez d'abord une copie de travail"
     copy.hide_set(False)   # hidden after an extraction, so the guide can be clicked
@@ -260,7 +262,7 @@ def face_sets(mesh):
 def chosen_zone(context):
     """(face set number, faces in it) of the chosen zone (the last painted one by default),
     or (None, error message)."""
-    copy = props(context).work_copy
+    copy = current_copy(context)
     if copy is None:
         return None, "Créez d'abord une copie de travail"
     sets = face_sets(copy.data)
@@ -290,7 +292,7 @@ def zone_to_mask(context):
     if zone is None:
         return faces
     bpy.ops.object.mode_set(mode='OBJECT')   # write the attribute on the mesh itself
-    set_mask(props(context).work_copy.data, faces)
+    set_mask(current_copy(context).data, faces)
     bpy.ops.object.mode_set(mode='SCULPT')
     return None
 
@@ -527,7 +529,7 @@ def finish_extracted_guide(context, guide):
         mod.show_in_editmode = False
     # The guide's footprint lies exactly on the working copy: hide the copy, or every click
     # lands on it. Painting a zone shows it again.
-    copy = props(context).work_copy
+    copy = current_copy(context)
     if copy is not None:
         copy.hide_set(True)
 
@@ -538,7 +540,7 @@ def finish_extracted_guide(context, guide):
       "Montre les sommets, arêtes et faces de l'objet actif pour les sélectionner et les modifier.",
       "Select tool (sélection de triangles)", "Tab")
 def edit_mode(context):
-    copy = props(context).work_copy
+    copy = current_copy(context)
     if copy is not None and context.active_object not in (None, copy):
         copy.hide_set(True)   # editing the guide: its vertices lie on the copy's surface
     return need_mode(context, 'EDIT_MESH')
@@ -757,7 +759,7 @@ def intrados(obj, bone, depsgraph):
 def protect_intrados(context, obj):
     """Mask the intrados of an applied guide (Object Mode). Returns the number of protected vertices,
     or an error message."""
-    bone = props(context).source or props(context).work_copy
+    bone = props(context).source or current_copy(context)
     if bone is None:
         return "Os sous le guide inconnu: recréez une copie de travail de cet os"
     near = intrados(obj, bone, context.evaluated_depsgraph_get())
@@ -779,7 +781,7 @@ def polish_outside(context):
     obj, error = editable_active(context)
     if error:
         return error
-    if obj == props(context).work_copy:
+    if obj == current_copy(context):
         return "Sélectionnez le guide, pas la copie de travail (bouton « Sélectionner le guide »)"
     if context.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -828,7 +830,8 @@ def cursor_tool(context):
 tool('ADD_BORE', "Cylindre: trou du manchon", 'MESH_CYLINDER', 'BOOLEAN',
      f"Ajoute au curseur un cylindre du diamètre du manchon + jeu "
      f"({params.SLEEVE_OUTER_DIAMETER} + {params.SLEEVE_FIT_CLEARANCE} mm), long de "
-     f"{params.SLEEVE_TUBE_LENGTH} mm. À soustraire du guide.",
+     f"{params.SLEEVE_TUBE_LENGTH} mm. À soustraire du guide. Flèches bleues aux bouts: longueur "
+     "(l'autre bout reste en place); flèche orange: diamètre; ou tapez les valeurs.",
      "Meshmix > primitives (cylindre)", "Maj+A > Mesh > Cylinder")(
          lambda c: add_cylinder(c, sleeve_bore_diameter(), "Trou manchon"))
 tool('ADD_TUBE', "Cylindre: tube autour du manchon", 'MESH_CYLINDER', 'BOOLEAN',
@@ -1077,7 +1080,7 @@ class OMFS_OT_pick_zone(bpy.types.Operator):
         return tool_description(TOOLS['ZONE_PICK'])
 
     def invoke(self, context, event):
-        copy = props(context).work_copy
+        copy = current_copy(context)
         if copy is None:
             self.report({'WARNING'}, "Créez d'abord une copie de travail")
             return {'CANCELLED'}
@@ -1103,7 +1106,7 @@ class OMFS_OT_pick_zone(bpy.types.Operator):
         under_mouse = landmarks.viewport_region_under_mouse(self.area, event)
         if under_mouse is None:
             return {'PASS_THROUGH'}
-        copy = props(context).work_copy
+        copy = current_copy(context)
         face = landmarks.object_face_hit(context, *under_mouse, copy)
         sets = face_sets(copy.data)
         if face is None or sets is None:

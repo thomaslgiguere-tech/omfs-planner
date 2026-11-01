@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders  # noqa: E402
 
 omfs_planner.register()
 
@@ -306,6 +306,20 @@ def test_guide_workshop():
     run('ADD_TUBE')
     tube = bpy.context.active_object
     assert abs(tube.dimensions.x - (guide_workshop.sleeve_bore_diameter() + 2 * params.SLEEVE_TUBE_WALL)) < 1e-3
+    assert scene.omfs_guide.cutter == tube, "the new cylinder is the Boolean tool"
+    # Adjustable: pulling the top end keeps the bottom end in place; typed sizes are exact.
+    scene.cursor.rotation_euler = (radians(90), 0, 0)                  # axis along -Y
+    run('ADD_BORE')
+    bore = bpy.context.active_object
+    bottom = bore.location - cylinders.axis(bore) * bore.omfs_cylinder.length / 2
+    cylinders.set_length(bore, 12.0, 'BOTTOM')
+    bpy.context.view_layer.update()
+    assert (bore.location - cylinders.axis(bore) * 6.0 - bottom).length < 1e-5
+    bore.omfs_cylinder.diameter = 4.25
+    bpy.context.view_layer.update()
+    assert abs(bore.dimensions.x - 4.25) < 1e-3 and abs(bore.dimensions.z - 12.0) < 1e-3
+    bpy.data.objects.remove(bore)
+    scene.cursor.rotation_euler = (0, 0, 0)
     guide_workshop.make_active(bpy.context, guide)
     scene.omfs_guide.cutter = tube
     run('BOOL_UNION')
@@ -1229,6 +1243,25 @@ def test_splint_text_and_checks():
     for obj in (lower, upper, blank, solid):
         bpy.data.objects.remove(obj)
     bpy.ops.omfs.arch_curve_clear()
+
+
+def test_deleted_work_copy_is_gone():
+    scene = bpy.context.scene
+    verts, tris = make_test_case.box((0, 0, 0), (10, 10, 10))
+    mesh = bpy.data.meshes.new("Bone box")
+    mesh.from_pydata(verts, [], tris)
+    bone = bpy.data.objects.new("Bone box", mesh)
+    scene.collection.objects.link(bone)
+    scene.omfs_guide.source = bone
+    assert guide_workshop.TOOLS['WORK_COPY'].run(bpy.context) is None
+    copy = guide_workshop.current_copy(bpy.context)
+    for coll in list(copy.users_collection):        # deleted in the viewport: the panel's pointer keeps it
+        coll.objects.unlink(copy)
+    assert guide_workshop.current_copy(bpy.context) is None
+    assert guide_workshop.TOOLS['ZONE_PAINT'].run(bpy.context) == "Créez d'abord une copie de travail"
+    scene.omfs_guide.work_copy = None
+    bpy.data.objects.remove(copy)
+    bpy.data.objects.remove(bone)
 
 
 def test_empty_folder_is_an_error():

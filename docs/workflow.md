@@ -176,6 +176,14 @@ Naming used below (matches the object roles in code):
   masks the intrados (guide vertices closer than 1 mm to the bone: params.GUIDE_PROTECT_DISTANCE) and
   opens Sculpt Mode with the Smooth brush; any brush is then safe for the fit. "Lisser tout
   l'extérieur" smooths the whole unmasked surface one pass per click.
+- Sleeve cylinders are adjustable (surgeon, 2026-11-01: moving and turning worked well, size should
+  be as quick): each cylinder keeps its diameter and length (cylinders.py) and its mesh is rebuilt
+  from them, so a typed 4.10 mm is exact. Drag handles on the active cylinder: blue arrows at both
+  ends change the length while the other end stays put (the end in the bone does not move), an
+  orange side arrow changes the diameter; typing in section 4 changes the length about the centre.
+  A new cylinder becomes the Boolean tool ("Avec") automatically.
+- A working copy deleted from the viewport counts as gone (it used to crash the zone tools: the
+  panel's pointer kept it in the file, outside the scene; surgeon, 2026-11-01).
 
 ### Cutting guide
 
