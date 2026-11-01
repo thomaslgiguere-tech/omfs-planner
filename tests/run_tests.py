@@ -1140,6 +1140,13 @@ def test_splint_imprint():
     assert abs(top.max() - (10 + params.SPLINT_CAP_DEPTH)) < 1e-3 and abs(bottom.min() - 7) < 1e-3
     assert abs(top.min() - (10 - gap)) < 0.02 and abs(bottom.max() - 7) < 1e-3, "only the top is pressed"
     props.imprint = False
+
+    # The clearance is a rolled ball: a vertical tooth wall (cols 0-9 at 1 mm, nothing beyond) is
+    # cleared sideways too, and the step down happens outside the tooth.
+    step = np.where(np.arange(14) < 10, 1.0, -np.inf)[None, :].repeat(5, axis=0)
+    out = splint.dilate(step, 0.1, 0.1, 0.05, np.full(5, 0.05))[2]
+    assert np.allclose(out[:10], 1.1) and abs(out[10] - (1 + 0.1 * np.sqrt(0.75))) < 1e-9
+    assert abs(out[11] - 1.0) < 1e-9 and np.isneginf(out[12])
     for obj in (lower, upper, blank):
         bpy.data.objects.remove(obj)
     bpy.ops.omfs.arch_curve_clear()

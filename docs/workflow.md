@@ -334,8 +334,11 @@ Naming used below (matches the object roles in code):
      the upper arch hangs under it) along the insertion axis (reference frame up). Each vertex goes
      to the first tooth surface met coming from the other arch, so where a crown bulges the splint
      stops at its widest point: undercuts blocked out, the splint goes on and off. Where no tooth is
-     met within the depth (margins), the face stays flat. Clearance 0.10 mm measured normal to the
-     tooth (vertical gap = clearance / cos(slope), capped at 70 degrees). Where the arches leave no
+     met within the depth (margins), the face stays flat. Clearance 0.10 mm in every direction: a
+     ball rolled over the tooth height field (dilation), sideways by max(clearance, resolution) so
+     the step off a vertical wall lands outside the tooth. (A first version lifted vertices on
+     steep walls by clearance / cos(slope): spikes, and faces cutting the incisors' labial corner;
+     surgeon spotted it on case1, 2026-11-01.) Where the arches leave no
      room, top and bottom meet (zero thickness, shown as "Contacts (trous)" in mm2): real holes cut
      at step 4. Panel shows the thinnest point outside the contacts. Live with the other settings;
      case1 lower cap: 0.08 s, thinnest 0.73 mm over the highest cusps.

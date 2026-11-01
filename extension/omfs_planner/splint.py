@@ -13,7 +13,6 @@ through the middle of the bite. The scans are only read, never modified.
 """
 
 import json
-from math import cos, radians
 
 import blf
 import bmesh
@@ -296,6 +295,8 @@ def depths(scene):
 # below. That is a height field: where a crown bulges, the splint stops at its widest point and
 # never goes under it, so the undercuts are blocked out and the splint goes on and off. Where no
 # tooth is met within the blank (margins, embrasures deeper than the depth) the face stays flat.
+# The clearance is a ball rolled over that height field (a dilation): the gap holds on the walls too,
+# and a face stepping off a wall does so outside the tooth, never cutting its corner.
 
 _trees = {}                     # (object, mesh) name -> BVH tree in the object's own coordinates
 
@@ -316,36 +317,56 @@ def tree_of(obj, depsgraph):
 
 
 def first_hits(obj, origins, direction, depsgraph):
-    """Parallel world rays on one object: distance to the first hit (inf where missed) and |cos| of
-    the angle between the ray and the surface there. The arches move rigidly (no scale)."""
+    """Parallel world rays on one object: distance to the first hit (inf where missed).
+    The arches move rigidly (no scale)."""
     tree = tree_of(obj, depsgraph)
     to_local = obj.matrix_world.inverted()
     d = (to_local.to_3x3() @ Vector(direction)).normalized()
     dist = np.full(len(origins), np.inf)
-    slope = np.ones(len(origins))
     for i, o in enumerate(origins):
-        location, normal, _index, t = tree.ray_cast(to_local @ Vector(o), d)
+        location, _normal, _index, t = tree.ray_cast(to_local @ Vector(o), d)
         if location is not None:
-            dist[i], slope[i] = t, abs(normal.normalized().dot(d))
-    return dist, slope
+            dist[i] = t
+    return dist
 
 
-def imprint(scene, base, up, depth_up, depth_low, depsgraph):
-    """Heights of the top and bottom faces above each base point (on the curve's surface), pressed onto
-    the teeth with the clearance, and the mask of the points where the two arches leave no room (holes)."""
-    gap = scene.omfs_splint.clearance
-    steepest = cos(radians(params.SPLINT_STEEPEST))
+def dilate(heights, gap, radius, row_step, col_steps):
+    """Tooth height field (rows x cols, -inf where no tooth) pushed out by a rolled ball: `gap` above
+    the surface, `radius` sideways off the walls (an ellipsoid when radius > gap). Rows are `row_step`
+    apart, columns `col_steps[row]` apart (the blank is wider at the molars, same number of columns)."""
+    rows, cols = heights.shape
+    j_max, k_max = int(radius / row_step), int(radius / col_steps.min())
+    padded = np.pad(heights, ((j_max, j_max), (k_max, k_max)), constant_values=-np.inf)
+    out = np.full_like(heights, -np.inf)
+    for j in range(-j_max, j_max + 1):
+        for k in range(-k_max, k_max + 1):
+            d = np.hypot(j * row_step, k * col_steps) / radius        # per row
+            bump = np.where(d <= 1, gap * np.sqrt(np.clip(1 - d * d, 0, None)), -np.inf)
+            shifted = padded[j_max + j:j_max + j + rows, k_max + k:k_max + k + cols]
+            out = np.maximum(out, shifted + bump[:, None])
+    return out
+
+
+def imprint(scene, base, up, depth_up, depth_low, depsgraph, row_step, col_steps):
+    """Heights of the top and bottom faces above each base point (rows x cols grid on the curve's
+    surface), pressed onto the teeth with the clearance, and the mask of the points where the two
+    arches leave no room (holes)."""
+    props = scene.omfs_splint
+    rows, cols = len(col_steps), len(base) // len(col_steps)
+    radius = max(props.clearance, props.resolution)     # a step off a wall lands at least one column out
     top = np.full(len(base), depth_up)
     bottom = np.full(len(base), -depth_low)
     for arch, face in imprint_faces(scene):
         side = 1.0 if face == 'TOP' else -1.0          # the upper arch is met going up
-        dist, slope = first_hits(arch, base - side * CENTRE_REACH * up, side * up, depsgraph)
-        hit = side * (dist - CENTRE_REACH)            # height of the tooth surface (+-inf: none)
-        offset = gap / np.maximum(slope, steepest)    # vertical gap giving `gap` normal to the tooth
+        dist = first_hits(arch, base - side * CENTRE_REACH * up, side * up, depsgraph)
+        # How far the teeth reach into the blank, from their side (-inf where none): the lower
+        # arch's height, minus the upper arch's height.
+        into = (CENTRE_REACH - dist).reshape(rows, cols)
+        reach = dilate(into, props.clearance, radius, row_step, col_steps).ravel()
         if face == 'TOP':
-            top = np.minimum(top, hit - offset)
+            top = np.minimum(top, -reach)
         else:
-            bottom = np.maximum(bottom, hit + offset)
+            bottom = np.maximum(bottom, reach)
     contact = top < bottom
     middle = (top + bottom) / 2
     return np.where(contact, middle, top), np.where(contact, middle, bottom), contact
@@ -406,7 +427,8 @@ def blank_data(scene, depsgraph):
     bottom_h = np.full(len(base), -depth_low)
     contact = np.zeros(len(base), bool)
     if props.imprint:
-        top_h, bottom_h, contact = imprint(scene, base, up, depth_up, depth_low, depsgraph)
+        top_h, bottom_h, contact = imprint(scene, base, up, depth_up, depth_low, depsgraph,
+                                           length / (len(rows_s) - 1), (lin + buc) / cols)
     verts = np.concatenate([base + up * top_h[:, None], base + up * bottom_h[:, None]])
 
     rows, w = len(rows_s), cols + 1
