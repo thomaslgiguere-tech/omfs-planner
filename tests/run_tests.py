@@ -1284,6 +1284,21 @@ def test_deleted_work_copy_is_gone():
     bpy.data.objects.remove(bone)
 
 
+def test_boolean_order():
+    guide = box_object("Order guide", 'GUIDE', (0, 0, 0), (10, 10, 2))
+    tool_obj = box_object("Order tool", 'OTHER', (0, 0, 0), (2, 2, 6))
+    guide.modifiers.new("Dégagement", 'DISPLACE')
+    for name, operation in (("Trou a", 'DIFFERENCE'), (guide_workshop.CUT_EDGE_MODIFIER, 'DIFFERENCE'),
+                            ("Union b", 'UNION'), ("Trou c", 'DIFFERENCE'), ("Union d", 'UNION')):
+        mod = guide.modifiers.new(name, 'BOOLEAN')
+        mod.operation, mod.object = operation, tool_obj
+    guide_workshop.order_booleans(guide)
+    assert [m.name for m in guide.modifiers] == ["Dégagement", "Union b", "Union d", "Trou a", "Trou c",
+                                                  guide_workshop.CUT_EDGE_MODIFIER], "tubes, holes, cut edge"
+    for obj in (guide, tool_obj):
+        bpy.data.objects.remove(obj)
+
+
 def test_empty_folder_is_an_error():
     with tempfile.TemporaryDirectory() as folder:
         try:

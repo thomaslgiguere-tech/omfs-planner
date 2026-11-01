@@ -729,8 +729,10 @@ tool('ADD_REMESH', "Remesh étanche (0,2 mm)", 'MOD_REMESH', 'SHAPE',
 
 
 @tool('APPLY_MODIFIERS', "Appliquer les modificateurs", 'CHECKMARK', 'SHAPE',
-      "Grave définitivement les modificateurs dans le maillage (dans l'ordre de la liste). "
-      "À faire à la fin, avant l'export. Annulable avec Ctrl+Z.",
+      "Grave définitivement les modificateurs dans le maillage (dans l'ordre de la liste; les Boolean "
+      "sont d'abord remis dans l'ordre: tubes, puis trous, puis trait de coupe). Les cylindres et "
+      "boîtes utilisés sont ensuite cachés, pas supprimés. À faire à la fin, avant l'export. "
+      "Annulable avec Ctrl+Z.",
       "Accept (dans un outil)", "Ctrl+A dans le menu des modificateurs")
 def apply_modifiers(context):
     obj, error = editable_active(context)
@@ -738,8 +740,12 @@ def apply_modifiers(context):
         return error
     if context.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
+    order_booleans(obj)
+    tools = [m.object for m in obj.modifiers if m.type == 'BOOLEAN' and m.object is not None]
     for mod in list(obj.modifiers):
         bpy.ops.object.modifier_apply(modifier=mod.name)
+    for tool_obj in tools:                # their job is done: out of the way, kept (Ctrl+Z, reuse)
+        tool_obj.hide_set(True)
     return None
 
 
@@ -909,8 +915,25 @@ def boolean(operation, name):
         mod = obj.modifiers.new(f"{name} {cutter.name}", 'BOOLEAN')
         mod.operation, mod.object, mod.solver = operation, cutter, 'EXACT'
         cutter.display_type = 'WIRE'      # see through the tool, it no longer counts as a solid
+        order_booleans(obj)
         return None
     return run
+
+
+def boolean_rank(mod):
+    """Order of the Booleans in the stack: tubes added first, then holes dug (through the tubes too),
+    then the cut edge last (nothing sticks out past the osteotomy line)."""
+    if mod.name == CUT_EDGE_MODIFIER:
+        return 3
+    return 1 if mod.operation == 'UNION' else 2
+
+
+def order_booleans(obj):
+    """Sort the Boolean modifiers by boolean_rank in the slots they occupy; the others stay put."""
+    slots = [i for i, m in enumerate(obj.modifiers) if m.type == 'BOOLEAN']
+    wanted = sorted((obj.modifiers[i] for i in slots), key=boolean_rank)
+    for slot, mod in zip(slots, [m.name for m in wanted]):
+        obj.modifiers.move(obj.modifiers.find(mod), slot)
 
 
 tool('BOOL_UNION', "Unir au guide", 'SELECT_EXTEND', 'BOOLEAN',
@@ -953,6 +976,7 @@ def cut_edge(keep_above):
         box.hide_set(True)                # still used by the Boolean while hidden
         mod = obj.modifiers.get(CUT_EDGE_MODIFIER) or obj.modifiers.new(CUT_EDGE_MODIFIER, 'BOOLEAN')
         mod.operation, mod.object, mod.solver = 'DIFFERENCE', box, 'EXACT'
+        order_booleans(obj)
         return None
     return run
 

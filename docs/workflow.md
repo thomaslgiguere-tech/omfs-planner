@@ -188,6 +188,10 @@ Naming used below (matches the object roles in code):
   ends change the length while the other end stays put (the end in the bone does not move), an
   orange side arrow changes the diameter; typing in section 4 changes the length about the centre.
   A new cylinder becomes the Boolean tool ("Avec") automatically.
+- Boolean order (found on case1, 2026-11-01: holes dug before the tubes were unioned, so the tubes
+  filled them): the Booleans are kept sorted, tubes (Union) first, then holes (Difference), then the
+  cut edge last, in the slots they occupy (Displace / Solidify stay first). "Appliquer les
+  modificateurs" sorts once more, applies, then hides (never deletes) the cylinders and boxes used.
 - "Tourner autour de l'axe du curseur" (surgeon, 2026-11-01): rotates the active object about the 3D
   cursor's Z axis (the bone normal where the cursor was placed), through the cursor's point; X / Y
   switch to the cursor's other axes. E.g. turn a sleeve cylinder about its entry point on the bone.
