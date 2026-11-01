@@ -4,7 +4,8 @@ Built in steps (docs/workflow.md, "Object creator"):
 1. Arch curve: points clicked on the arches, joined by a smooth curve (done).
 2. Parametric blank swept along the curve, as wide as the crowns plus margins, ending with the curve (done).
 3. Tooth imprints by projection onto the arches along the insertion axis, 0.10 mm clearance (done).
-4. Engraved text and print checks (to come).
+4. Solidify: the blank frozen into its own object, real holes at the contacts (done).
+5. Engraved text and print checks (to come).
 
 The arch curve is a Bezier curve object (role ARCH) whose points are the clicks, with automatic
 handles so the curve passes through every point. For a splint between two arches, each click is
@@ -504,6 +505,79 @@ def _on_blank_param(props, context):
         build_blank(context.scene, context.evaluated_depsgraph_get())
 
 
+# --- Solid ----------------------------------------------------------------------------------
+#
+# "Solidifier" freezes the blank into its own object: the parameters no longer touch it, so it can
+# be sculpted, polished or exported. Where the arches leave no room (top and bottom meet), real
+# holes are opened. Text already put on the blank comes along (its Boolean modifiers are copied).
+# The blank stays, hidden, to start again from the parameters; each solidify makes a new object.
+
+SOLID_TAG = "splint solid"      # made_by of a solidified splint
+SOLID_COLOUR = (0.95, 0.70, 0.30, 1.0)
+
+
+def contact_holes(mesh):
+    """Open the patches where the blank's top and bottom meet (zero thickness): their faces are removed
+    and the meeting top / bottom vertices welded, so the rim of each hole closes the slab. The mesh
+    must still be the blank's (top grid, then bottom grid). Returns the number of vertices welded."""
+    n = len(mesh.vertices) // 2
+    co = np.empty(len(mesh.vertices) * 3)
+    mesh.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    touch = np.linalg.norm(co[:n] - co[n:], axis=1) < 1e-4
+    if not touch.any():
+        return 0
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.verts.ensure_lookup_table()
+    inside = [f for f in bm.faces if all(touch[v.index % n] for v in f.verts)
+              and len({v.index < n for v in f.verts}) == 1]          # top or bottom grid, not a wall
+    bmesh.ops.delete(bm, geom=inside, context='FACES_ONLY')
+    weld = {bm.verts[i + n]: bm.verts[i] for i in np.nonzero(touch)[0]}
+    bmesh.ops.weld_verts(bm, targetmap=weld)
+    loose = [v for v in bm.verts if not v.link_faces]
+    bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+    return len(weld)
+
+
+def open_edges(mesh):
+    """Edges not shared by exactly two faces (0 for a closed, printable mesh)."""
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    count = sum(1 for e in bm.edges if not e.is_manifold)
+    bm.free()
+    return count
+
+
+def find_solids(scene):
+    return [o for o in scene.objects if o.type == 'MESH' and o.omfs.made_by == SOLID_TAG]
+
+
+def solidify(scene):
+    """A new object from the blank, with holes at the contacts. Returns it, or an error message."""
+    blank = find_blank(scene)
+    if blank is None:
+        return "Construisez d'abord le bloc"
+    if blank_stale(scene, blank):
+        return "La courbe ou les arcades ont changé: mettez le bloc à jour d'abord"
+    label = dict((k, name) for k, name, _d in KINDS)[scene.omfs_splint.kind]
+    obj = blank.copy()                  # copies the modifiers too (text put on the blank)
+    obj.data = blank.data.copy()
+    obj.name = obj.data.name = f"{label} (solide)"
+    splint_collection(scene).objects.link(obj)
+    obj.omfs.made_by = SOLID_TAG
+    obj.color = SOLID_COLOUR
+    del obj["omfs_blank_key"]
+    welded = contact_holes(obj.data)
+    info = dict(blank_info(blank), welded=welded, open_edges=open_edges(obj.data))
+    obj["omfs_blank_info"] = json.dumps(info)
+    blank.hide_set(True)
+    return obj
+
+
 # --- Properties and operators ---------------------------------------------------------
 
 class OMFS_SplintProperties(bpy.types.PropertyGroup):
@@ -625,6 +699,44 @@ class OMFS_OT_build_blank(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class OMFS_OT_solidify_splint(bpy.types.Operator):
+    """Freeze the splint into its own object (the settings no longer change it): holes where the
+    teeth touch, text already placed comes along. The parametric blank is kept, hidden"""
+    bl_idname = "omfs.solidify_splint"
+    bl_label = "Solidifier en un objet"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        result = solidify(context.scene)
+        if isinstance(result, str):
+            self.report({'ERROR'}, result)
+            return {'CANCELLED'}
+        for other in context.selected_objects:
+            other.select_set(False)
+        context.view_layer.objects.active = result
+        result.select_set(True)
+        info = blank_info(result)
+        self.report({'INFO'} if info["open_edges"] == 0 else {'WARNING'},
+                    f"{result.name}: fermé" if info["open_edges"] == 0
+                    else f"{result.name}: {info['open_edges']} arêtes non fermées (voir Vérification)")
+        return {'FINISHED'}
+
+
+class OMFS_OT_show_blank(bpy.types.Operator):
+    """Show the parametric blank again, to change the settings and solidify anew"""
+    bl_idname = "omfs.show_splint_blank"
+    bl_label = "Montrer le bloc paramétrique"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        blank = find_blank(context.scene)
+        if blank is not None:
+            blank.hide_set(False)
+        return {'FINISHED'}
+
+
 class OMFS_OT_arch_curve_undo(bpy.types.Operator):
     """Remove the last point of the arch curve"""
     bl_idname = "omfs.arch_curve_undo"
@@ -725,7 +837,8 @@ def _draw_numbers():
 _draw_handles = []
 
 classes = (OMFS_SplintProperties, OMFS_OT_arch_curve_click, OMFS_OT_arch_curve_undo,
-           OMFS_OT_arch_curve_clear, OMFS_OT_arch_curve_edit, OMFS_OT_build_blank)
+           OMFS_OT_arch_curve_clear, OMFS_OT_arch_curve_edit, OMFS_OT_build_blank, OMFS_OT_solidify_splint,
+           OMFS_OT_show_blank)
 
 
 def register():

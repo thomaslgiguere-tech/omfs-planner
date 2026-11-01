@@ -668,8 +668,22 @@ class OMFS_PT_splint(bpy.types.Panel):
                 box.label(text=f"Contacts (trous): {info['contact_area']:.1f} mm²", icon='INFO')
 
         box = layout.box()
+        box.label(text="4. Objet solide", icon='MESH_DATA')
+        box.enabled = blank is not None
+        draw_text(box, context, "Fige la gouttière en un objet à part: les réglages ne la changent plus, "
+                                "trous aux contacts. Le texte déjà placé suit. Le bloc reste, caché.")
+        box.operator("omfs.solidify_splint", icon='MESH_DATA')
+        for solid in splint.find_solids(scene):
+            info = splint.blank_info(solid)
+            row = box.row()
+            row.label(text=solid.name, icon='CHECKMARK' if info.get("open_edges") == 0 else 'ERROR')
+            row.label(text="fermé" if info.get("open_edges") == 0 else f"{info.get('open_edges')} arêtes ouvertes")
+        if blank is not None and blank.hide_get():
+            box.operator("omfs.show_splint_blank", icon='HIDE_OFF')
+
+        box = layout.box()
         box.enabled = False
-        box.label(text="4. Texte et vérification: à venir", icon='FONT_DATA')
+        box.label(text="5. Texte et vérification: à venir", icon='FONT_DATA')
 
 
 class OMFS_PT_guide(bpy.types.Panel):

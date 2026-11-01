@@ -342,7 +342,14 @@ Naming used below (matches the object roles in code):
      room, top and bottom meet (zero thickness, shown as "Contacts (trous)" in mm2): real holes cut
      at step 4. Panel shows the thinnest point outside the contacts. Live with the other settings;
      case1 lower cap: 0.08 s, thinnest 0.73 mm over the highest cusps.
-  4. Engraved text and print checks (to come).
+  4. Solid object *(done)*: "Solidifier en un objet" freezes the blank into its own object
+     ("Chape (solide)", "Finale (solide)", ...): the settings no longer change it, so it can be
+     sculpted, polished, engraved, exported. Where top and bottom met (contacts) the faces are removed
+     and the top / bottom vertices welded: real holes, the mesh stays closed. Text already put on the
+     blank comes along (its Boolean modifiers are copied). The blank stays, hidden ("Montrer le bloc
+     paramétrique"); each solidify makes a new object, older ones are never deleted. Panel lists the
+     solids, closed or with how many open edges. Case1 cap at 0.05 mm: 0.4 s, closed.
+  5. Engraved text and print checks (to come). Text can go on the blank or on the solid.
 - Nuances: (add here)
 
 ## Cross-cutting tool: Section & Analysis

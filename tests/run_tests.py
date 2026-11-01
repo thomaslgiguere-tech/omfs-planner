@@ -1129,6 +1129,23 @@ def test_splint_imprint():
     top, bottom = faces(blank)
     assert (top >= bottom - 1e-6).all() and splint.blank_info(blank)["contact_area"] > 0
 
+    solid = splint.solidify(scene)                   # frozen into its own object, holes at the contacts
+    assert not isinstance(solid, str), solid
+    assert solid != blank and blank.hide_get() and splint.find_solids(scene) == [solid]
+    info = splint.blank_info(solid)
+    assert info["welded"] > 0 and info["open_edges"] == 0, info
+    assert len(solid.data.vertices) < len(blank.data.vertices), "the contact patches are gone"
+    bm = bmesh.new()
+    bm.from_mesh(solid.data)
+    assert bm.calc_volume() > 0
+    bm.free()
+    count = len(solid.data.vertices)
+    props.buccal_margin = 3.0                        # the settings no longer touch the solid
+    assert len(solid.data.vertices) == count and len(blank.data.vertices) != count
+    props.buccal_margin = params.SPLINT_BUCCAL_MARGIN
+    bpy.data.objects.remove(solid)
+    blank.hide_set(False)
+
     upper.location.z = 0
     props.kind, props.cap_arch = 'CHAPE', upper      # a cap hanging under the upper arch
     bpy.ops.omfs.arch_curve_clear()
