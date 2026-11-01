@@ -5,7 +5,7 @@ Built in steps (docs/workflow.md, "Object creator"):
 2. Parametric blank swept along the curve, as wide as the crowns plus margins, ending with the curve (done).
 3. Tooth imprints by projection onto the arches along the insertion axis, 0.10 mm clearance (done).
 4. Solidify: the blank frozen into its own object, real holes at the contacts (done).
-5. Engraved text and print checks (to come).
+5. Engraved text (text_labels.py) and print checks, STL export (done).
 
 The arch curve is a Bezier curve object (role ARCH) whose points are the clicks, with automatic
 handles so the curve passes through every point. For a splint between two arches, each click is
@@ -21,12 +21,13 @@ import bpy
 import gpu
 import numpy as np
 from bpy_extras import view3d_utils
+from bpy_extras.io_utils import ExportHelper
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 from gpu_extras.batch import batch_for_shader
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
-from . import landmarks, locking, params, reference_frame
+from . import landmarks, locking, params, reference_frame, text_labels
 
 COLLECTION = "Splint"
 CURVE_NAME = "Arch curve"
@@ -489,6 +490,7 @@ def build_blank(scene, depsgraph):
         group.add(indices.tolist(), 1.0, 'REPLACE')
     obj["omfs_blank_key"] = blank_key(scene)
     obj["omfs_blank_info"] = json.dumps(info)
+    text_labels.rebuild_on(obj)                                 # its text follows the new surface
     return obj
 
 
@@ -578,6 +580,51 @@ def solidify(scene):
     return obj
 
 
+# --- Text and print checks -------------------------------------------------------------------
+
+def is_part(obj):
+    return obj is not None and obj.type == 'MESH' and obj.omfs.made_by in (BLANK_TAG, SOLID_TAG)
+
+
+def current_part(context):
+    """What text and checks apply to: the active splint (solid or blank, or the part of the active
+    text), else the latest visible solid, else the blank."""
+    active = context.view_layer.objects.active
+    if text_labels.is_label(active) and is_part(active.omfs_text.part):
+        return active.omfs_text.part
+    if is_part(active) and active.visible_get():
+        return active
+    solids = [o for o in find_solids(context.scene) if o.visible_get()]
+    return solids[-1] if solids else find_blank(context.scene)
+
+
+def check(part, depsgraph):
+    """Print checks on the part as it will be exported (text Booleans applied). Stored on the part."""
+    evaluated = part.evaluated_get(depsgraph)
+    mesh = evaluated.to_mesh()
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    open_count = sum(1 for e in bm.edges if not e.is_manifold)
+    volume = bm.calc_volume(signed=True)
+    bm.free()
+    evaluated.to_mesh_clear()
+    texts = []
+    for label in text_labels.labels_on(part):
+        t = label.omfs_text
+        texts.append({"name": label.name, "height": t.letter_height, "wall": text_labels.wall_under(label)})
+    info = blank_info(part)
+    result = {"open_edges": open_count, "volume": volume, "thinnest": info.get("thinnest"), "texts": texts}
+    result["ok"] = (open_count == 0 and volume > 0
+                    and all(x["wall"] is None or x["wall"] >= params.PRINT_MIN_WALL for x in texts)
+                    and all(x["height"] >= params.TEXT_MIN_HEIGHT for x in texts))
+    part["omfs_check"] = json.dumps(result)
+    return result
+
+
+def last_check(part):
+    return json.loads(part.get("omfs_check", "{}")) if part else {}
+
+
 # --- Properties and operators ---------------------------------------------------------
 
 class OMFS_SplintProperties(bpy.types.PropertyGroup):
@@ -619,6 +666,7 @@ class OMFS_SplintProperties(bpy.types.PropertyGroup):
         name="Jeu", subtype='DISTANCE', default=params.SPLINT_CLEARANCE, min=0.0, soft_max=0.5, step=1,
         precision=2, update=_on_blank_param,
         description="Espace entre l'empreinte et les dents, mesuré perpendiculairement à la dent")
+    label: bpy.props.PointerProperty(type=text_labels.OMFS_TextSettings)     # for the next text
     centre: bpy.props.BoolProperty(
         name="Centrer entre les arcades", default=True,
         description="Chaque point cliqué est placé à mi-hauteur entre les faces occlusales du haut et du bas")
@@ -721,6 +769,64 @@ class OMFS_OT_solidify_splint(bpy.types.Operator):
         self.report({'INFO'} if info["open_edges"] == 0 else {'WARNING'},
                     f"{result.name}: fermé" if info["open_edges"] == 0
                     else f"{result.name}: {info['open_edges']} arêtes non fermées (voir Vérification)")
+        return {'FINISHED'}
+
+
+class OMFS_OT_check_splint(bpy.types.Operator):
+    """Check the splint as it will be printed: closed mesh, text Booleans applied, material left
+    under the engravings, letter size"""
+    bl_idname = "omfs.check_splint"
+    bl_label = "Vérifier"
+
+    part_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        part = bpy.data.objects.get(self.part_name)
+        if part is None:
+            return {'CANCELLED'}
+        result = check(part, context.evaluated_depsgraph_get())
+        self.report({'INFO'} if result["ok"] else {'WARNING'},
+                    "Prêt à imprimer" if result["ok"] else "À corriger: voir le panneau")
+        return {'FINISHED'}
+
+
+class OMFS_OT_export_splint(bpy.types.Operator, ExportHelper):
+    """Export the splint as STL, text applied, in the patient's original coordinates (1 unit = 1 mm)"""
+    bl_idname = "omfs.export_splint"
+    bl_label = "Exporter STL"
+    filename_ext = ".stl"
+    filter_glob: bpy.props.StringProperty(default="*.stl", options={'HIDDEN'})
+
+    part_name: bpy.props.StringProperty(options={'HIDDEN'})
+
+    def invoke(self, context, event):
+        part = bpy.data.objects.get(self.part_name)
+        if part is not None and not self.filepath:
+            self.filepath = bpy.path.clean_name(part.name) + ".stl"
+        return ExportHelper.invoke(self, context, event)
+
+    def execute(self, context):
+        part = bpy.data.objects.get(self.part_name)
+        if part is None:
+            return {'CANCELLED'}
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        selected, active = list(context.selected_objects), context.view_layer.objects.active
+        hidden = part.hide_get()
+        part.hide_set(False)
+        for obj in selected:
+            obj.select_set(False)
+        part.select_set(True)
+        try:
+            bpy.ops.wm.stl_export(filepath=self.filepath, export_selected_objects=True,
+                                  apply_modifiers=True, use_scene_unit=False)
+        finally:
+            part.select_set(False)
+            part.hide_set(hidden)
+            for obj in selected:
+                obj.select_set(True)
+            context.view_layer.objects.active = active
+        self.report({'INFO'}, f"Exporté: {self.filepath}")
         return {'FINISHED'}
 
 
@@ -838,7 +944,7 @@ _draw_handles = []
 
 classes = (OMFS_SplintProperties, OMFS_OT_arch_curve_click, OMFS_OT_arch_curve_undo,
            OMFS_OT_arch_curve_clear, OMFS_OT_arch_curve_edit, OMFS_OT_build_blank, OMFS_OT_solidify_splint,
-           OMFS_OT_show_blank)
+           OMFS_OT_show_blank, OMFS_OT_check_splint, OMFS_OT_export_splint)
 
 
 def register():

@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels  # noqa: E402
 
 omfs_planner.register()
 
@@ -1165,6 +1165,68 @@ def test_splint_imprint():
     assert np.allclose(out[:10], 1.1) and abs(out[10] - (1 + 0.1 * np.sqrt(0.75))) < 1e-9
     assert abs(out[11] - 1.0) < 1e-9 and np.isneginf(out[12])
     for obj in (lower, upper, blank):
+        bpy.data.objects.remove(obj)
+    bpy.ops.omfs.arch_curve_clear()
+
+
+def test_splint_text_and_checks():
+    scene = bpy.context.scene
+    reference_frame.build(scene, FRAME_POINTS)       # up = world Z
+    lower, upper = tube_scan("Lower tube", 0), tube_scan("Upper tube", 18)
+    bpy.context.view_layer.update()
+    props = scene.omfs_splint
+    props.kind, props.upper, props.lower, props.centre, props.imprint = 'FINAL', upper, lower, True, False
+    bpy.ops.omfs.arch_curve_clear()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    for a in (10, 50, 90, 130, 170):
+        u = radians(a)
+        splint.add_point(scene, Vector((45 * np.cos(u), 500 + 45 * np.sin(u), 8)), depsgraph)
+    blank = splint.build_blank(scene, depsgraph)     # flat top at z 12, bottom at 6
+
+    def volume(obj):
+        mesh = obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh()
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        v = bm.calc_volume()
+        bm.free()
+        return v
+
+    before = volume(blank)
+    settings = props.label
+    settings.text, settings.height, settings.depth, settings.mode = "AB 12", 3.0, 0.5, 'ENGRAVE'
+    # Two clicks on the top, at the front of the arch (y 545), reading along +x.
+    label, warning = text_labels.add_label(blank, Vector((-5, 545, 12)), Vector((5, 545, 12)), Vector((0, 0, 1)), settings)
+    assert warning is None, warning
+    bm = bmesh.new()
+    bm.from_mesh(label.data)
+    assert all(e.is_manifold for e in bm.edges) and bm.calc_volume() > 0, "the cutter is closed"
+    bm.free()
+    z = [v.co.z for v in label.data.vertices]
+    assert abs(min(z) - 11.5) < 1e-3 and abs(max(z) - (12 + params.TEXT_OVERLAP)) < 1e-3
+    xs = [v.co.x for v in label.data.vertices]
+    assert max(xs) - min(xs) <= 10 + 1e-3 and label.omfs_text.letter_height <= 3 + 1e-6
+    engraved = volume(blank)
+    assert engraved < before, "letters cut into the top"
+    assert abs(text_labels.wall_under(label) - 5.5) < 1e-3, "12 - 0.5 - 6 mm left under the letters"
+    result = splint.check(blank, bpy.context.evaluated_depsgraph_get())
+    assert result["open_edges"] == 0 and result["ok"], result
+
+    label.omfs_text.mode = 'EMBOSS'                  # live: the same letters now stand out
+    assert volume(blank) > before and blank.modifiers[0].operation == 'UNION'
+    props.buccal_margin = 2.0                        # rebuilt blank: the text follows
+    assert abs(max(v.co.z for v in label.data.vertices) - 12.5) < 1e-3 and volume(blank) > before
+
+    solid = splint.solidify(scene)                   # text placed before solidifying comes along
+    assert text_labels.labels_on(solid) == [label]
+    with tempfile.TemporaryDirectory() as folder:
+        path = str(Path(folder) / "splint.stl")
+        bpy.ops.omfs.export_splint(filepath=path, part_name=solid.name)
+        assert Path(path).stat().st_size > 1000
+
+    text_labels.remove_label(label)
+    assert not blank.modifiers and not solid.modifiers
+    props.buccal_margin = params.SPLINT_BUCCAL_MARGIN
+    for obj in (lower, upper, blank, solid):
         bpy.data.objects.remove(obj)
     bpy.ops.omfs.arch_curve_clear()
 

@@ -79,3 +79,10 @@ SECTION_OVERLAP_MIN_AREA = 0.05 # mm²: smaller overlaps on the section are nois
 ANALYSIS_MAX_OPEN_EDGES = 0.001 # fraction of edges: up to this many open edges, a mesh is "nearly closed"
 DIST_RED = 1.0                  # mm: distance map red below this (and inside the target)
 DIST_YELLOW = 2.0               # mm: yellow below this, green beyond (screw to root: target margin ~2 mm)
+
+# Text labels (splint, later guides) and print checks
+TEXT_HEIGHT = 3.0               # mm: maximum letter height (letters fit between the two clicks)
+TEXT_DEPTH = 0.5                # mm engraved into the part, or embossed above it
+TEXT_OVERLAP = 0.3              # mm the cutter reaches past the surface, for a clean Boolean
+TEXT_MIN_HEIGHT = 2.0           # mm: smaller letters may not read once printed
+PRINT_MIN_WALL = 0.5            # mm of material that must stay under an engraving

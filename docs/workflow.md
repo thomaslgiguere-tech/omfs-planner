@@ -349,7 +349,20 @@ Naming used below (matches the object roles in code):
      blank comes along (its Boolean modifiers are copied). The blank stays, hidden ("Montrer le bloc
      paramétrique"); each solidify makes a new object, older ones are never deleted. Panel lists the
      solids, closed or with how many open edges. Case1 cap at 0.05 mm: 0.4 s, closed.
-  5. Engraved text and print checks (to come). Text can go on the blank or on the solid.
+  5. Text and checks *(done)*, on the blank or on a solid (the active one, else the latest solid).
+     Placement chosen over painting a region or drawing a curve (proposed to the surgeon,
+     2026-11-01): two clicks on the surface, where the text starts and where it ends, give place,
+     reading direction and length in one gesture; the letters fill the space between the clicks up
+     to a maximum height (3 mm) and read from the outside, left to right from the first click.
+     Engraved (default, 0.5 mm) or embossed. The letters are laid on the surface along the line of
+     sight (they follow its curve) and made into a closed cutter shown as a wireframe; a Boolean
+     modifier (Manifold solver) subtracts or adds it, so the splint mesh is untouched until export.
+     Select a text's wireframe to change its words, mode, height or depth live; trash to remove.
+     Text on the blank follows every rebuild and comes along when solidifying. Warnings: text
+     running off the surface, letters under 2 mm. "Vérifier": closed mesh with the text applied,
+     volume, thinnest point, material left under each engraving (>= 0.5 mm). "Exporter STL": the
+     text applied, original patient coordinates, 1 unit = 1 mm. Case1 cap: placing 1.2 s,
+     Boolean 0.6 s.
 - Nuances: (add here)
 
 ## Cross-cutting tool: Section & Analysis

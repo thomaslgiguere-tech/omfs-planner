@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, distance_map, guide_workshop, landmarks, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, view
+from . import analysis, distance_map, guide_workshop, landmarks, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -682,8 +682,59 @@ class OMFS_PT_splint(bpy.types.Panel):
             box.operator("omfs.show_splint_blank", icon='HIDE_OFF')
 
         box = layout.box()
-        box.enabled = False
-        box.label(text="5. Texte et vérification: à venir", icon='FONT_DATA')
+        box.label(text="5. Texte et vérification", icon='FONT_DATA')
+        part = splint.current_part(context)
+        box.enabled = part is not None
+        if part is None:
+            return
+        box.label(text=f"Sur: {part.name}", icon='OBJECT_DATA')
+        active = context.view_layer.objects.active
+        if text_labels.is_label(active) and active.omfs_text.part == part:
+            t = active.omfs_text                     # the selected text: its own settings, live
+            col = box.column(align=True)
+            col.prop(t, "text")
+            col.row(align=True).prop(t, "mode", expand=True)
+            col.prop(t, "height")
+            col.prop(t, "depth")
+            row = box.row()
+            row.label(text=f"Lettres: {t.letter_height:.1f} mm",
+                      icon='CHECKMARK' if t.letter_height >= params.TEXT_MIN_HEIGHT else 'ERROR')
+            row.operator("omfs.remove_text", text="", icon='TRASH').label_name = active.name
+        else:
+            draw_text(box, context, "Cliquez où le texte commence, puis où il finit: les lettres remplissent "
+                                    "l'espace entre les deux clics et se lisent de l'extérieur.")
+            col = box.column(align=True)
+            col.prop(props.label, "text")
+            col.row(align=True).prop(props.label, "mode", expand=True)
+            col.prop(props.label, "height")
+            col.prop(props.label, "depth")
+            op = box.operator("omfs.place_text", icon='RESTRICT_SELECT_OFF')
+            op.part_name, op.settings_path = part.name, "omfs_splint.label"
+        labels = text_labels.labels_on(part)
+        if labels:
+            col = box.column(align=True)
+            for label in labels:
+                col.label(text=label.name, icon='SMALL_CAPS')
+            draw_text(box, context, "Sélectionnez un texte (cadre filaire) pour le modifier.")
+
+        col = box.column(align=True)
+        row = col.row(align=True)
+        row.operator("omfs.check_splint", icon='CHECKMARK').part_name = part.name
+        row.operator("omfs.export_splint", icon='EXPORT').part_name = part.name
+        result = splint.last_check(part)
+        if result:
+            ok = result["open_edges"] == 0 and result["volume"] > 0
+            col.label(text="Maillage fermé" if ok else f"{result['open_edges']} arêtes ouvertes",
+                      icon='CHECKMARK' if ok else 'ERROR')
+            if result.get("thinnest") is not None:
+                col.label(text=f"Épaisseur min. {result['thinnest']:.2f} mm", icon='INFO')
+            for x in result["texts"]:
+                if x["wall"] is not None:
+                    good = x["wall"] >= params.PRINT_MIN_WALL
+                    col.label(text=f"{x['name']}: {x['wall']:.2f} mm sous la gravure",
+                              icon='CHECKMARK' if good else 'ERROR')
+            col.label(text="Prêt à imprimer" if result["ok"] else "À corriger",
+                      icon='CHECKMARK' if result["ok"] else 'ERROR')
 
 
 class OMFS_PT_guide(bpy.types.Panel):

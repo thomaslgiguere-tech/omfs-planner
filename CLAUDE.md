@@ -31,6 +31,7 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
   occlusion_seating.py       springs between the arches, seating solver, overlap map
   splint.py                  Object creator: Splint / Chape (arch curve, blank, imprints, solid, text)
+  text_labels.py             engraved / embossed text on a printed part (two clicks, Boolean cutter)
   section.py                 Section & Analysis: section plane, slab (clipping), radiograph view
   section_contours.py        live section contours, caps, overlap on the section
   analysis.py                exact intersection volume (Boolean overlay, live or snapshot)
