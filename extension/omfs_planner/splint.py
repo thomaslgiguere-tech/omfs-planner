@@ -511,9 +511,10 @@ class OMFS_SplintProperties(bpy.types.PropertyGroup):
         name="Sur les dents", subtype='DISTANCE', default=params.SPLINT_CAP_DEPTH, min=0.1, soft_max=5.0, step=10,
         update=_on_blank_param, description="Jusqu'où la chape descend sur les dents, depuis la courbe occlusale")
     resolution: bpy.props.FloatProperty(
-        name="Résolution", subtype='DISTANCE', default=params.SPLINT_RESOLUTION, min=0.1, soft_max=1.0,
-        step=5, update=_on_blank_param,
-        description="Distance entre les sommets du bloc: l'empreinte des dents ne sera pas plus fine que ça")
+        name="Résolution", subtype='DISTANCE', default=params.SPLINT_RESOLUTION, min=0.05, soft_max=1.0,
+        step=1, precision=2, update=_on_blank_param,
+        description="Distance entre les sommets du bloc: l'empreinte des dents ne sera pas plus fine que ça. "
+                    "Les scans intraoraux ont environ 0,15 mm entre leurs sommets: sous 0,05 mm, rien de plus à copier")
     imprint: bpy.props.BoolProperty(
         name="Empreinte des dents", default=False, update=_on_blank_param,
         description="Presse le dessus et le dessous du bloc sur les dents le long de l'axe d'insertion "

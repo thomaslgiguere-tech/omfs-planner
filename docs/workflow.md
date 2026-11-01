@@ -325,7 +325,8 @@ Naming used below (matches the object roles in code):
      (surgeon's defaults: 1.5 mm lingual, 1.5 mm buccal, separate so a segmental splint can get more
      buccal only). Height: depth above and below the middle of the bite (splint: 3 mm each, the "up
      to brackets" setting); a cap sits on the occlusal curve, 3 mm above and 0.8 mm down onto the
-     teeth by default. Top and bottom are fine grids (0.3 mm) in vertex groups Top / Bottom, for the
+     teeth by default. Top and bottom are fine grids (0.1 mm by default, down to 0.05 mm: the scans have ~0.15 mm
+     between vertices, so finer copies nothing more; case1 cap: 0.3 mm 0.05 s, 0.1 mm 0.2 s, 0.05 mm 0.8 s) in vertex groups Top / Bottom, for the
      projection. Margins update live; a changed curve or arch shows "mettre à jour". Case1 lower
      arch: 0.04 s.
   3. Tooth imprints by projection *(done)*: "Empreinte des dents" presses the top face onto the
