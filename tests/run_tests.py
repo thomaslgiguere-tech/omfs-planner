@@ -920,6 +920,26 @@ def test_segment_movement():
     side_r = seg.matrix_world @ preop.inverted() @ Vector((-20, -25, -58))
     assert side_l.z > side_r.z
 
+    # The cutting guide follows the same movement, with its Boolean tools; it goes back exactly.
+    guide = box_object("Cut guide", 'GUIDE', (0, -30, -55), (30, 4, 10))
+    sleeve = box_object("Sleeve", 'OTHER', (0, -33, -55), (4, 4, 6))
+    hole = guide.modifiers.new("Trou", 'BOOLEAN')
+    hole.object = sleeve
+    guide_preop, sleeve_preop = guide.matrix_world.copy(), sleeve.matrix_world.copy()
+    movement.guide_follows(scene, seg, guide)
+    w = seg.matrix_world @ preop.inverted()
+    assert_same_matrix(guide.matrix_world, w @ guide_preop, "guide moved like the segment")
+    assert_same_matrix(sleeve.matrix_world, w @ sleeve_preop, "its sleeve too")
+    props.anterior = 8.0                             # moved again: re-applying starts from pre-op
+    movement.guide_follows(scene, seg, guide)
+    assert_same_matrix(guide.matrix_world, seg.matrix_world @ preop.inverted() @ guide_preop, "re-applied")
+    movement.guide_back(guide)
+    assert_same_matrix(guide.matrix_world, guide_preop, "guide back")
+    assert_same_matrix(sleeve.matrix_world, sleeve_preop, "sleeve back")
+    assert not movement.guide_moved(guide)
+    for obj in (guide, sleeve):
+        bpy.data.objects.remove(obj)
+
     bpy.ops.omfs.segment_preop()
     assert_same_matrix(seg.matrix_world, preop, "back to pre-op")
     assert all((v.co - c).length == 0 for v, c in zip(seg.data.vertices, vertices)), "mesh untouched"

@@ -129,6 +129,12 @@ Naming used below (matches the object roles in code):
   - Limitation: the numbers use the current axes; rebuilding the frame or changing the cut angles
     after moving the segment changes what the same numbers mean (the segment stays where it is until
     a value changes). Re-applying the cut keeps the six numbers, so the segment follows the new cut.
+  - "Appliquer le même mouvement au guide de coupe" (surgeon, 2026-11-01): the cutting guide stays
+    screwed to the chin segment after the cut (Step 8), so it moves by the segment's exact movement,
+    rigidly, with the tools of its Boolean modifiers (sleeve cylinders, text, cut-edge box) so its
+    holes go with it. Each keeps its pre-op pose; re-clicking after a new movement starts from it,
+    and the back arrow puts the guide exactly back. One click, not a live link: the guide stays where
+    it is until re-clicked.
 - Nuances: (add here)
 
 ## Step 6. Check soft tissue

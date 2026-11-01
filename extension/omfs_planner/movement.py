@@ -23,6 +23,10 @@ Changing the pivot or the axes rewrites the numbers for the same pose, so the se
 
 Dragging (movement_gizmos.py) and typing in the panel write the same six numbers, so they
 are always in sync. The segment's own transform is locked, so G / R can't bypass them.
+
+"Apply the same movement to the cutting guide" moves a guide by the same W, rigidly, with the
+tools of its Boolean modifiers (sleeve cylinders, text, cut-edge box) so its holes go with it.
+Each keeps its own pre-op pose (custom property), so the guide always goes back exactly.
 """
 
 import blf
@@ -32,7 +36,7 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d
 from gpu_extras.batch import batch_for_shader
 from mathutils import Euler, Matrix, Vector
 
-from . import landmarks, reference_frame
+from . import landmarks, locking, reference_frame
 
 # Genioplasty preset: the points whose net movement is shown, and the pivots offered.
 TRACKED = ('POG', 'ME')
@@ -239,6 +243,44 @@ def back_to_preop(scene, obj):
     apply(scene, obj)
 
 
+GUIDE_PREOP = "omfs_preop"      # custom property: an object's pose before following a segment
+
+
+def companions(guide):
+    """The guide and the tools of its Boolean modifiers: they move as one, or the holes stay behind."""
+    objects = [guide]
+    for mod in guide.modifiers:
+        tool = mod.object if mod.type == 'BOOLEAN' else None
+        if tool is not None and tool not in objects and not locking.is_locked(tool) and not is_segment(tool):
+            objects.append(tool)
+    return objects
+
+
+def preop_of(obj):
+    return Matrix([obj[GUIDE_PREOP][i:i + 4] for i in range(0, 16, 4)])
+
+
+def guide_follows(scene, segment, guide):
+    """Move the guide (and its tools) by the segment's movement, from their pre-op poses."""
+    w = world_movement(scene, segment)
+    for obj in companions(guide):
+        if GUIDE_PREOP not in obj:
+            obj[GUIDE_PREOP] = [v for row in obj.matrix_world for v in row]
+        obj.matrix_world = w @ preop_of(obj)
+
+
+def guide_back(guide):
+    """Guide and tools back where they were before following a segment."""
+    for obj in companions(guide):
+        if GUIDE_PREOP in obj:
+            obj.matrix_world = preop_of(obj)
+            del obj[GUIDE_PREOP]
+
+
+def guide_moved(guide):
+    return GUIDE_PREOP in guide
+
+
 def is_moved(obj):
     return any(abs(getattr(obj.omfs_move, name)) > 1e-6 for name in VALUES)
 
@@ -334,6 +376,41 @@ class OMFS_OT_segment_preop(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def cutting_guide(context):
+    from . import guide_workshop      # here: guide_workshop imports osteotomy, which imports this module
+    return guide_workshop.target_guide(context)
+
+
+class OMFS_OT_guide_follow(bpy.types.Operator):
+    """Move the cutting guide by the segment's movement, as one rigid block with its sleeve cylinders,
+    text and cut-edge box. Its pre-op position is kept: "Guide en préop" puts it back"""
+    bl_idname = "omfs.guide_follow_segment"
+    bl_label = "Appliquer le même mouvement au guide de coupe"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        segment, guide = active_segment(context.scene), cutting_guide(context)
+        if segment is None or guide is None:
+            self.report({'ERROR'}, "Il faut un segment et un guide (Confection de guide)")
+            return {'CANCELLED'}
+        guide_follows(context.scene, segment, guide)
+        self.report({'INFO'}, f"{guide.name} déplacé comme {segment.name}")
+        return {'FINISHED'}
+
+
+class OMFS_OT_guide_preop(bpy.types.Operator):
+    """Put the cutting guide (and its tools) back where it was before following the segment"""
+    bl_idname = "omfs.guide_preop"
+    bl_label = "Guide en préop"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        guide = cutting_guide(context)
+        if guide is not None:
+            guide_back(guide)
+        return {'FINISHED'}
+
+
 # --- Drawing: tracked points and their labels ----------------------------------------------
 
 def _shown(context):
@@ -406,7 +483,8 @@ def _draw_labels():
 
 _draw_handles = []
 
-classes = (OMFS_MoveProperties, OMFS_MovementSceneProperties, OMFS_OT_segment_preop)
+classes = (OMFS_MoveProperties, OMFS_MovementSceneProperties, OMFS_OT_segment_preop, OMFS_OT_guide_follow,
+           OMFS_OT_guide_preop)
 
 
 def register():

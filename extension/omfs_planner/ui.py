@@ -452,6 +452,16 @@ class OMFS_PT_movement(bpy.types.Panel):
                     col.label(text=text)
         layout.prop(props, "show_labels")
 
+        guide = guide_workshop.target_guide(context)
+        box = layout.box()
+        box.label(text=f"Guide de coupe: {guide.name}" if guide else "Pas encore de guide", icon='MOD_SHRINKWRAP')
+        box.enabled = guide is not None
+        box.operator("omfs.guide_follow_segment", icon='CON_FOLLOWPATH')
+        if guide is not None and movement.guide_moved(guide):
+            row = box.row()
+            row.label(text="Déplacé (re-cliquez après un nouveau mouvement)", icon='INFO')
+            row.operator("omfs.guide_preop", text="", icon='LOOP_BACK')
+
 
 class OMFS_PT_occlusion(bpy.types.Panel):
     bl_label = "Assise de l'occlusion"
