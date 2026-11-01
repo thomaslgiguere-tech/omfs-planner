@@ -862,6 +862,27 @@ tool('ROTATE', "Tourner", 'DRIVER_ROTATIONAL_DIFFERENCE', 'BOOLEAN',
      "Transform (anneaux)", "R, puis X / Y / Z, puis un nombre")(transform("rotate"))
 
 
+def about_cursor(context):
+    """Rotation through the 3D cursor's point, about its Z axis (the bone normal where it was placed)."""
+    return {"orient_type": 'CURSOR', "orient_axis": 'Z', "constraint_axis": (False, False, True),
+            "center_override": context.scene.cursor.location}
+
+
+@tool('ROTATE_CURSOR', "Tourner autour de l'axe du curseur", 'ORIENTATION_CURSOR', 'BOOLEAN',
+      "Tourne l'objet actif autour de l'axe Z du curseur 3D (la normale à l'os où le curseur a été posé), "
+      "en passant par le point du curseur. Bougez la souris ou tapez des degrés, Entrée. "
+      "X / Y: tourner plutôt autour des autres axes du curseur.",
+      "Aucun (le plus proche: Transform après Drop Pivot)", "R, puis Z deux fois avec le pivot sur le curseur")
+def rotate_about_cursor(context):
+    if context.active_object is None:
+        return "Sélectionnez l'objet à tourner"
+    if locking.is_locked(context.active_object):
+        return "Cet objet est verrouillé (anatomie)"
+    with viewport(context):
+        bpy.ops.transform.rotate('INVOKE_DEFAULT', **about_cursor(context))
+    return None
+
+
 @tool('SNAP', "Aimanter à la surface", 'SNAP_ON', 'BOOLEAN',
       "Active/désactive l'aimantation: en déplaçant, l'objet colle à la surface sous la souris et "
       "s'aligne sur sa normale.",

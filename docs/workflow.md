@@ -188,6 +188,9 @@ Naming used below (matches the object roles in code):
   ends change the length while the other end stays put (the end in the bone does not move), an
   orange side arrow changes the diameter; typing in section 4 changes the length about the centre.
   A new cylinder becomes the Boolean tool ("Avec") automatically.
+- "Tourner autour de l'axe du curseur" (surgeon, 2026-11-01): rotates the active object about the 3D
+  cursor's Z axis (the bone normal where the cursor was placed), through the cursor's point; X / Y
+  switch to the cursor's other axes. E.g. turn a sleeve cylinder about its entry point on the bone.
 - A working copy deleted from the viewport counts as gone (it used to crash the zone tools: the
   panel's pointer kept it in the file, outside the scene; surgeon, 2026-11-01).
 
