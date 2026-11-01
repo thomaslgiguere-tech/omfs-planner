@@ -637,7 +637,7 @@ class OMFS_PT_splint(bpy.types.Panel):
         col = box.column(align=True)
         col.label(text="Profondeur sur les dents (depuis le milieu de l'occlusion)")
         if props.kind == 'CHAPE':
-            col.prop(props, "depth_up", text="Au-dessus")
+            col.prop(props, "depth_up", text="Au-dessous" if splint.cap_on_upper(scene) else "Au-dessus")
             col.prop(props, "cap_depth")
         else:
             col.prop(props, "depth_up")
@@ -650,16 +650,26 @@ class OMFS_PT_splint(bpy.types.Panel):
             stale = splint.blank_stale(scene, blank)
             box.operator("omfs.build_splint_blank", text="Courbe ou arcades modifiées: mettre à jour" if stale
                          else "Reconstruire le bloc", icon='ERROR' if stale else 'FILE_REFRESH')
-            info = splint.blank_info(blank)
-            if info:
-                box.label(text=f"{info['length']:.0f} mm de long, {info['width_min']:.1f} à "
-                               f"{info['width_max']:.1f} mm de large")
+        info = splint.blank_info(blank) if blank else {}
+        if info:
+            box.label(text=f"{info['length']:.0f} mm de long, {info['width_min']:.1f} à "
+                           f"{info['width_max']:.1f} mm de large")
 
-        for title, icon in (("3. Empreinte des dents (projection)", 'MOD_SHRINKWRAP'),
-                            ("4. Texte et vérification", 'FONT_DATA')):
-            box = layout.box()
-            box.enabled = False
-            box.label(text=f"{title}: à venir", icon=icon)
+        box = layout.box()
+        box.label(text="3. Empreinte des dents (projection)", icon='MOD_SHRINKWRAP')
+        box.enabled = blank is not None
+        draw_text(box, context, "Le dessus et le dessous du bloc sont poussés le long de l'axe d'insertion "
+                                "(le haut du référentiel) jusqu'aux dents: les contre-dépouilles sont comblées.")
+        box.prop(props, "imprint", toggle=True, icon='MOD_SHRINKWRAP')
+        box.prop(props, "clearance")
+        if info.get("imprint"):
+            box.label(text=f"Épaisseur min. {info['thinnest']:.2f} mm", icon='CHECKMARK')
+            if info["contact_area"] > 0:
+                box.label(text=f"Contacts (trous): {info['contact_area']:.1f} mm²", icon='INFO')
+
+        box = layout.box()
+        box.enabled = False
+        box.label(text="4. Texte et vérification: à venir", icon='FONT_DATA')
 
 
 class OMFS_PT_guide(bpy.types.Panel):

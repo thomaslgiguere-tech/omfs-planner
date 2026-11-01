@@ -1089,6 +1089,62 @@ def test_splint_blank():
     bpy.ops.omfs.arch_curve_clear()
 
 
+def test_splint_imprint():
+    scene = bpy.context.scene
+    reference_frame.build(scene, FRAME_POINTS)       # up = world Z
+    lower, upper = tube_scan("Lower tube", 0), tube_scan("Upper tube", 18)   # lower top z 8, upper bottom z 10
+    bpy.context.view_layer.update()
+    props = scene.omfs_splint
+    props.kind, props.upper, props.lower, props.centre = 'FINAL', upper, lower, True
+    bpy.ops.omfs.arch_curve_clear()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+
+    def click(z):
+        for a in (10, 50, 90, 130, 170):
+            u = radians(a)
+            splint.add_point(scene, Vector((45 * np.cos(u), 500 + 45 * np.sin(u), z)), depsgraph)
+
+    def faces(blank):
+        n = len(blank.data.vertices) // 2
+        z = np.array([v.co.z for v in blank.data.vertices])
+        return z[:n], z[n:]
+
+    click(9)
+    props.imprint = True
+    blank = splint.build_blank(scene, depsgraph)
+    top, bottom = faces(blank)
+    gap = params.SPLINT_CLEARANCE
+    assert abs(bottom.max() - (8 + gap)) < 0.02 and abs(top.min() - (10 - gap)) < 0.02, (bottom.max(), top.min())
+    assert abs(bottom.min() - 6) < 1e-3 and abs(top.max() - 12) < 1e-3, "flat where no tooth is met"
+    bm = bmesh.new()
+    bm.from_mesh(blank.data)
+    assert all(e.is_manifold for e in bm.edges) and bm.calc_volume() > 0
+    bm.free()
+    info = splint.blank_info(blank)
+    assert info["contact_area"] == 0 and abs(info["thinnest"] - (2 - 2 * gap)) < 0.05, info
+
+    upper.location.z = -2.5                          # arches overlapping by 0.5 mm: holes at the contacts
+    bpy.context.view_layer.update()
+    blank = splint.build_blank(scene, depsgraph)
+    top, bottom = faces(blank)
+    assert (top >= bottom - 1e-6).all() and splint.blank_info(blank)["contact_area"] > 0
+
+    upper.location.z = 0
+    props.kind, props.cap_arch = 'CHAPE', upper      # a cap hanging under the upper arch
+    bpy.ops.omfs.arch_curve_clear()
+    click(10)
+    bpy.context.view_layer.update()
+    assert splint.cap_on_upper(scene)
+    blank = splint.build_blank(scene, depsgraph)
+    top, bottom = faces(blank)
+    assert abs(top.max() - (10 + params.SPLINT_CAP_DEPTH)) < 1e-3 and abs(bottom.min() - 7) < 1e-3
+    assert abs(top.min() - (10 - gap)) < 0.02 and abs(bottom.max() - 7) < 1e-3, "only the top is pressed"
+    props.imprint = False
+    for obj in (lower, upper, blank):
+        bpy.data.objects.remove(obj)
+    bpy.ops.omfs.arch_curve_clear()
+
+
 def test_empty_folder_is_an_error():
     with tempfile.TemporaryDirectory() as folder:
         try:

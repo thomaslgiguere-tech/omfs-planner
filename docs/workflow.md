@@ -328,7 +328,16 @@ Naming used below (matches the object roles in code):
      teeth by default. Top and bottom are fine grids (0.3 mm) in vertex groups Top / Bottom, for the
      projection. Margins update live; a changed curve or arch shows "mettre à jour". Case1 lower
      arch: 0.04 s.
-  3. Tooth imprints by projection (to come).
+  3. Tooth imprints by projection *(done)*: "Empreinte des dents" presses the top face onto the
+     upper arch and the bottom face onto the lower arch (a cap: only the face on its arch; a cap on
+     the upper arch hangs under it) along the insertion axis (reference frame up). Each vertex goes
+     to the first tooth surface met coming from the other arch, so where a crown bulges the splint
+     stops at its widest point: undercuts blocked out, the splint goes on and off. Where no tooth is
+     met within the depth (margins), the face stays flat. Clearance 0.10 mm measured normal to the
+     tooth (vertical gap = clearance / cos(slope), capped at 70 degrees). Where the arches leave no
+     room, top and bottom meet (zero thickness, shown as "Contacts (trous)" in mm2): real holes cut
+     at step 4. Panel shows the thinnest point outside the contacts. Live with the other settings;
+     case1 lower cap: 0.08 s, thinnest 0.73 mm over the highest cusps.
   4. Engraved text and print checks (to come).
 - Nuances: (add here)
 

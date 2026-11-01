@@ -3,7 +3,7 @@
 Built in steps (docs/workflow.md, "Object creator"):
 1. Arch curve: points clicked on the arches, joined by a smooth curve (done).
 2. Parametric blank swept along the curve, as wide as the crowns plus margins, ending with the curve (done).
-3. Tooth imprints by projection onto the arches, 0.10 mm clearance (to come).
+3. Tooth imprints by projection onto the arches along the insertion axis, 0.10 mm clearance (done).
 4. Engraved text and print checks (to come).
 
 The arch curve is a Bezier curve object (role ARCH) whose points are the clicks, with automatic
@@ -13,6 +13,7 @@ through the middle of the bite. The scans are only read, never modified.
 """
 
 import json
+from math import cos, radians
 
 import blf
 import bmesh
@@ -23,6 +24,7 @@ from bpy_extras import view3d_utils
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 from gpu_extras.batch import batch_for_shader
 from mathutils import Vector
+from mathutils.bvhtree import BVHTree
 
 from . import landmarks, locking, params, reference_frame
 
@@ -268,9 +270,85 @@ def measure(scene, points, tangents, normals, up, depth_up, depth_low, step):
     return lingual, buccal
 
 
-def depths(props):
-    """(above, below) the curve: a cap sits on the occlusal curve and reaches only a little down."""
-    return props.depth_up, (props.cap_depth if props.kind == 'CHAPE' else props.depth_low)
+def cap_on_upper(scene):
+    """A cap on the upper arch hangs under it: the arch (crowns, gingiva, palate) is above the curve."""
+    arch, curve = scene.omfs_splint.cap_arch, find_curve(scene)
+    points = curve_points(curve)
+    if not is_scan(arch) or not points:
+        return False
+    up = up_axis(scene)
+    centre = arch.matrix_world @ (sum((Vector(c) for c in arch.bound_box), Vector()) / 8)
+    return centre.dot(up) > sum(p.dot(up) for p in points) / len(points)
+
+
+def depths(scene):
+    """(above, below) the curve: a cap sits on the occlusal curve and reaches only a little onto the teeth."""
+    props = scene.omfs_splint
+    if props.kind != 'CHAPE':
+        return props.depth_up, props.depth_low
+    return (props.cap_depth, props.depth_up) if cap_on_upper(scene) else (props.depth_up, props.cap_depth)
+
+
+# --- Imprint ------------------------------------------------------------------------------
+#
+# Each top and bottom vertex is pushed along the insertion axis (frame up) onto the first tooth
+# surface met coming from the other arch: the lower arch is seen from above, the upper arch from
+# below. That is a height field: where a crown bulges, the splint stops at its widest point and
+# never goes under it, so the undercuts are blocked out and the splint goes on and off. Where no
+# tooth is met within the blank (margins, embrasures deeper than the depth) the face stays flat.
+
+_trees = {}                     # (object, mesh) name -> BVH tree in the object's own coordinates
+
+
+def imprint_faces(scene):
+    """(arch, 'TOP' or 'BOTTOM'): which arch each face of the blank is pressed onto."""
+    props = scene.omfs_splint
+    if props.kind == 'CHAPE':
+        return [(props.cap_arch, 'TOP' if cap_on_upper(scene) else 'BOTTOM')] if is_scan(props.cap_arch) else []
+    return [(a, face) for a, face in ((upper_arch(scene), 'TOP'), (lower_arch(scene), 'BOTTOM')) if a is not None]
+
+
+def tree_of(obj, depsgraph):
+    key = (obj.name, obj.data.name, len(obj.data.vertices))
+    if key not in _trees:
+        _trees[key] = BVHTree.FromObject(obj, depsgraph)
+    return _trees[key]
+
+
+def first_hits(obj, origins, direction, depsgraph):
+    """Parallel world rays on one object: distance to the first hit (inf where missed) and |cos| of
+    the angle between the ray and the surface there. The arches move rigidly (no scale)."""
+    tree = tree_of(obj, depsgraph)
+    to_local = obj.matrix_world.inverted()
+    d = (to_local.to_3x3() @ Vector(direction)).normalized()
+    dist = np.full(len(origins), np.inf)
+    slope = np.ones(len(origins))
+    for i, o in enumerate(origins):
+        location, normal, _index, t = tree.ray_cast(to_local @ Vector(o), d)
+        if location is not None:
+            dist[i], slope[i] = t, abs(normal.normalized().dot(d))
+    return dist, slope
+
+
+def imprint(scene, base, up, depth_up, depth_low, depsgraph):
+    """Heights of the top and bottom faces above each base point (on the curve's surface), pressed onto
+    the teeth with the clearance, and the mask of the points where the two arches leave no room (holes)."""
+    gap = scene.omfs_splint.clearance
+    steepest = cos(radians(params.SPLINT_STEEPEST))
+    top = np.full(len(base), depth_up)
+    bottom = np.full(len(base), -depth_low)
+    for arch, face in imprint_faces(scene):
+        side = 1.0 if face == 'TOP' else -1.0          # the upper arch is met going up
+        dist, slope = first_hits(arch, base - side * CENTRE_REACH * up, side * up, depsgraph)
+        hit = side * (dist - CENTRE_REACH)            # height of the tooth surface (+-inf: none)
+        offset = gap / np.maximum(slope, steepest)    # vertical gap giving `gap` normal to the tooth
+        if face == 'TOP':
+            top = np.minimum(top, hit - offset)
+        else:
+            bottom = np.maximum(bottom, hit + offset)
+    contact = top < bottom
+    middle = (top + bottom) / 2
+    return np.where(contact, middle, top), np.where(contact, middle, bottom), contact
 
 
 def curve_key(obj):
@@ -278,10 +356,9 @@ def curve_key(obj):
 
 
 def blank_key(scene):
-    props = scene.omfs_splint
     return repr((curve_key(find_curve(scene)), [o.name for o in arches(scene)],
                  [tuple(map(tuple, o.matrix_world)) for o in arches(scene)],
-                 [round(d, 3) for d in depths(props)]))
+                 [round(d, 3) for d in depths(scene)]))
 
 
 def blank_data(scene, depsgraph):
@@ -295,7 +372,7 @@ def blank_data(scene, depsgraph):
     up = up_axis(scene)
     step = params.SPLINT_MEASURE_STEP
     points, tangents, normals, length = stations(curve, depsgraph, step, up)
-    depth_up, depth_low = depths(props)
+    depth_up, depth_low = depths(scene)
     key = blank_key(scene)
     if key not in _measures:
         _measures.clear()
@@ -324,9 +401,13 @@ def blank_data(scene, depsgraph):
     right = c + n * buc[:, None]
     grid = left[:, None, :] + (right - left)[:, None, :] * f[None, :, None]   # rows x cols x 3
     up = np.array(up)
-    top = (grid + up * depth_up).reshape(-1, 3)
-    bottom = (grid - up * depth_low).reshape(-1, 3)
-    verts = np.concatenate([top, bottom])
+    base = grid.reshape(-1, 3)
+    top_h = np.full(len(base), depth_up)
+    bottom_h = np.full(len(base), -depth_low)
+    contact = np.zeros(len(base), bool)
+    if props.imprint:
+        top_h, bottom_h, contact = imprint(scene, base, up, depth_up, depth_low, depsgraph)
+    verts = np.concatenate([base + up * top_h[:, None], base + up * bottom_h[:, None]])
 
     rows, w = len(rows_s), cols + 1
     idx = np.arange(rows * w).reshape(rows, w)
@@ -340,8 +421,11 @@ def blank_data(scene, depsgraph):
     for row in (0, -1):                                          # end caps
         faces.append(np.stack([idx[row, :-1], bot[row, :-1], bot[row, 1:], idx[row, 1:]], axis=-1))
     faces = np.concatenate(faces)
+    cell = (length / (rows - 1)) * ((lin + buc) / cols)            # mm2 around a grid point, per row
     info = {"length": float(rows_s[-1] - rows_s[0]), "width_min": float((lin + buc).min()),
-            "width_max": float((lin + buc).max())}
+            "width_max": float((lin + buc).max()), "imprint": bool(props.imprint),
+            "contact_area": float((contact.reshape(rows, w) * cell[:, None]).sum()),
+            "thinnest": float((top_h - bottom_h)[~contact].min()) if (~contact).any() else 0.0}
     return verts, faces, np.arange(rows * w), np.arange(rows * w) + rows * w, info
 
 
@@ -430,6 +514,14 @@ class OMFS_SplintProperties(bpy.types.PropertyGroup):
         name="Résolution", subtype='DISTANCE', default=params.SPLINT_RESOLUTION, min=0.1, soft_max=1.0,
         step=5, update=_on_blank_param,
         description="Distance entre les sommets du bloc: l'empreinte des dents ne sera pas plus fine que ça")
+    imprint: bpy.props.BoolProperty(
+        name="Empreinte des dents", default=False, update=_on_blank_param,
+        description="Presse le dessus et le dessous du bloc sur les dents le long de l'axe d'insertion "
+                    "(le haut du référentiel): pas de contre-dépouille, la gouttière s'insère et s'enlève")
+    clearance: bpy.props.FloatProperty(
+        name="Jeu", subtype='DISTANCE', default=params.SPLINT_CLEARANCE, min=0.0, soft_max=0.5, step=1,
+        precision=2, update=_on_blank_param,
+        description="Espace entre l'empreinte et les dents, mesuré perpendiculairement à la dent")
     centre: bpy.props.BoolProperty(
         name="Centrer entre les arcades", default=True,
         description="Chaque point cliqué est placé à mi-hauteur entre les faces occlusales du haut et du bas")

@@ -66,6 +66,8 @@ SPLINT_CAP_DEPTH = 0.8          # mm a cap (chape) reaches down onto the teeth f
 SPLINT_RESOLUTION = 0.3         # mm between the blank's vertices (the imprint is only as fine as this)
 SPLINT_MEASURE_STEP = 1.0       # mm between the curve stations where the arch width is measured
 SPLINT_SMOOTH = 3.0             # mm: the outline is smoothed over this length along the arch
+SPLINT_CLEARANCE = 0.10         # mm between the imprint and the teeth, measured normal to the tooth surface
+SPLINT_STEEPEST = 70.0          # degrees: on steeper tooth walls the clearance stops growing (vertical gap capped)
 
 # Section & Analysis (cross-cutting viewing tool)
 SECTION_THICKNESS = 2.0         # mm, default slab thickness
