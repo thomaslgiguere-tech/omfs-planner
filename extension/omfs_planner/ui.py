@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, cylinders, distance_map, guide_workshop, landmarks, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
+from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -788,6 +788,26 @@ class OMFS_PT_guide(bpy.types.Panel):
             tool_button(layout, 'OBJECT_MODE')
 
 
+def draw_pins_settings(layout, context):
+    p = context.scene.omfs_pins
+    layout.prop(p, "cap")
+    col = layout.column(align=True)
+    col.label(text="Pin conique (butée = épaulement sur le plan)")
+    for name in ("base_diameter", "tip_diameter", "cone_length", "clearance", "tip_gap", "shoulder_diameter",
+                 "back_length"):
+        col.prop(p, name)
+    col = layout.column(align=True)
+    col.label(text="Bossage femelle et bras")
+    for name in ("wall", "floor", "embed", "arm_diameter"):
+        col.prop(p, name)
+    for site in pins.sites(context.scene):
+        s = site.omfs_pin
+        row = layout.row()
+        state = "bras" if s.has_arm else ("mâle" if s.has_male else "femelle")
+        row.label(text=f"{site.name}: {state}", icon='CHECKMARK' if s.has_arm else 'DOT')
+        row.operator("omfs.remove_pin", text="", icon='TRASH').site_name = site.name
+
+
 def make_guide_section(section_id, title, text):
     """One collapsible sub-panel per workshop section."""
     def draw(self, context):
@@ -803,6 +823,8 @@ def make_guide_section(section_id, title, text):
                 col.prop(active.omfs_cylinder, "length")
         if section_id in {'ZONES', 'MASK'} and guide_workshop.current_copy(context) is not None:
             layout.label(text=guide_workshop.zone_summary(context), icon='FACE_MAPS')
+        if section_id == 'PINS':
+            draw_pins_settings(layout, context)
         col = layout.column(align=True)
         for t in guide_workshop.tools_in(section_id):
             tool_button(col, t.id)

@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins  # noqa: E402
 
 omfs_planner.register()
 
@@ -1297,6 +1297,78 @@ def test_boolean_order():
                                                   guide_workshop.CUT_EDGE_MODIFIER], "tubes, holes, cut edge"
     for obj in (guide, tool_obj):
         bpy.data.objects.remove(obj)
+
+
+def test_pins():
+    # Pure geometry: a closed conical pin of the right volume; an arm leaving at 90 degrees and
+    # arriving along the pin's axis.
+    scene = bpy.context.scene
+    d = pins.dims(scene)
+    verts, faces = pins.revolve(d["male"], (0, 0, 0), (0, 0, 1))
+    mesh = bpy.data.meshes.new("pin test")
+    mesh.from_pydata(verts.tolist(), [], faces)
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    assert all(e.is_manifold for e in bm.edges)
+    (z0, r0), (_z, r1), (_s, rs), (z3, _rs) = d["male"]
+    expected = np.pi * (-z0) / 3 * (r0 * r0 + r0 * r1 + r1 * r1) + np.pi * rs * rs * z3
+    assert abs(bm.calc_volume() - expected) / expected < 0.01, (bm.calc_volume(), expected)
+    bm.free()
+    bpy.data.meshes.remove(mesh)
+    path = pins.arm_path((0, 0, 0), (0, -1, 0), (10, -8, 12), (0, 0, 1))
+    start, end = path[1] - path[0], path[-1] - path[-2]
+    assert np.dot(start / np.linalg.norm(start), (0, -1, 0)) > 0.99, "leaves the cap at 90 degrees"
+    assert np.dot(end / np.linalg.norm(end), (0, 0, -1)) > 0.99, "arrives down the pin's axis"
+
+    # On a guide under an osteotomy plane: the female's top lies in the plane, the pin plugs in.
+    reference_frame.build(scene, FRAME_POINTS)
+    bone = box_object("Pin bone", 'BONE', (0, 0, -50), (60, 40, 30))
+    landmarks.place(scene, 'MF_R', (-20, 0, -40), bone)
+    landmarks.place(scene, 'MF_L', (20, 0, -40), bone)
+    landmarks.place(scene, 'POG', (0, -20, -55), bone)
+    bpy.context.view_layer.update()
+    for old in [o for o in scene.objects if o.omfs.role == 'CUT']:
+        bpy.data.objects.remove(old)
+    cut = osteotomy.add_cut(scene)
+    cut.omfs_cut.source = bone
+    bpy.context.view_layer.update()
+    guide = box_object("Pin guide", 'GUIDE', (0, -22, -60), (30, 4, 10))
+    cap = box_object("Pin cap", 'GUIDE', (0, -15, -30), (30, 10, 4))
+    point, normal = pins.osteotomy_plane(scene, guide)
+    click = Vector((0, -24, -58))                    # on the guide's front face
+    site = pins.add_site(scene, guide, click, Vector((0, -1, 0)))
+    assert not isinstance(site, str), site
+    stop = site.matrix_world.translation
+    assert abs((stop - point).dot(normal)) < 1e-4, "the stop is on the osteotomy plane"
+    axis = site.matrix_world.to_3x3() @ Vector((0, 0, 1))
+    assert axis.dot(normal) > 0.9999, "the pin is perpendicular to the plane"
+    boss = bpy.data.objects[pins.part_name(site, "bossage")]
+    tops = [boss.matrix_world @ v.co for v in boss.data.vertices]
+    assert max((t - point).dot(normal) for t in tops) < 1e-4, "the boss stops at the plane"
+    assert [m.operation for m in guide.modifiers] == ['UNION', 'DIFFERENCE'], "boss, then bore"
+
+    scene.omfs_pins.cap = cap
+    assert guide_workshop.TOOLS['PIN_MALES'].run(bpy.context) is None
+    assert pins.set_arm(scene, site, cap, Vector((0, -20, -30)), Vector((0, 0, -1))) is None
+    assert sorted(m.object.name for m in cap.modifiers) == sorted(
+        [pins.part_name(site, "mâle"), pins.part_name(site, "bras")])
+    male = bpy.data.objects[pins.part_name(site, "mâle")]
+    heights = [(male.matrix_world @ v.co - point).dot(normal) for v in male.data.vertices]
+    p = scene.omfs_pins
+    assert abs(min(heights) - (-p.cone_length + p.tip_gap)) < 1e-4, "the tip stays short of the bottom"
+
+    p.clearance = 0.2                                # settings rebuild every part
+    bore = bpy.data.objects[pins.part_name(site, "logement")]
+    radius = max((bore.matrix_world @ v.co - stop).cross(axis).length for v in bore.data.vertices)
+    assert abs(radius - (p.base_diameter / 2 + 0.2)) < 1e-3
+    p.clearance = params.PIN_CLEARANCE
+    pins.remove_site(site)
+    assert not guide.modifiers and not cap.modifiers and not pins.sites(scene)
+    for obj in (guide, cap, bone, cut):
+        bpy.data.objects.remove(obj)
+    for lm in ('MF_R', 'MF_L', 'POG'):
+        bpy.data.objects.remove(landmarks.find(scene, lm))
 
 
 def test_empty_folder_is_an_error():

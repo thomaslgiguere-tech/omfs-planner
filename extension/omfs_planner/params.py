@@ -38,6 +38,19 @@ SLEEVE_TUBE_LENGTH = 5.0        # mm
 SLEEVE_TUBE_WALL = 3.0          # mm
 CYLINDER_MIN_SIZE = 0.5         # mm: smallest diameter or length a workshop cylinder can be dragged to
 
+# Tubes and pins (cutting guide <-> cap): conical pins, axial stop on the osteotomy plane. TO TEST (print)
+PIN_BASE_DIAMETER = 4.0         # mm: cone diameter at the osteotomy plane
+PIN_TIP_DIAMETER = 3.0          # mm: cone diameter at the tip
+PIN_CONE_LENGTH = 5.0           # mm the cone goes into the female, below the plane
+PIN_CLEARANCE = 0.10            # mm radial between pin and bore
+PIN_TIP_GAP = 0.3               # mm left under the tip: the shoulder on the plane is the only stop
+PIN_WALL = 2.0                  # mm of boss around the bore
+PIN_FLOOR = 1.5                 # mm of boss under the bore
+PIN_EMBED = 1.0                 # mm the boss sinks into the guide surface where clicked
+PIN_SHOULDER_DIAMETER = 6.0     # mm: the pin above the plane, resting on the boss top
+PIN_BACK_LENGTH = 2.0           # mm of pin above the plane, up to the arm
+PIN_ARM_DIAMETER = 4.0          # mm: the tube from the cap to the pin's back
+
 # Occlusion seating (virtual, lower arch onto the fixed upper arch)
 OCC_TOLERATED_PENETRATION = 0.2  # mm: the teeth resist only beyond this overlap (0 = stop at contact)
 OCC_CONTACT = 0.3               # mm: closer than this counts as an occlusal contact (green)

@@ -192,6 +192,25 @@ Naming used below (matches the object roles in code):
   filled them): the Booleans are kept sorted, tubes (Union) first, then holes (Difference), then the
   cut edge last, in the slots they occupy (Displace / Solidify stay first). "Appliquer les
   modificateurs" sorts once more, applies, then hides (never deletes) the cylinders and boxes used.
+- Tubes and pins, workshop section 6 (surgeon, 2026-11-01; replaces a hand-made 544k-vertex pin
+  model with generated parts): the cutting guide and the cap plug into each other, usually 3
+  connections. Surgeon's choices: pin axis perpendicular to the osteotomy plane (warned: if that
+  plane is not perpendicular to the cap's insertion axis, cap-on-teeth and pins-in-females cannot
+  seat in one gesture), conical pins like the surgeon's model, curved arm.
+  - Female: click on the guide; the axis runs `embed` mm inside the boss's edge from the clicked
+    surface, perpendicular to the plane (osteotomy plane moved with the guide if it followed the
+    segment). Boss (Union) and conical bore (Difference) below the plane; the boss's top is exactly
+    in the plane: the male's shoulder rests on it, so the axial stop is the osteotomy plane (and the
+    guide's cut edge, flush with the plane, trims nothing of it). The tip stays 0.3 mm short of the
+    bore's bottom: one stop only.
+  - Male: "Ajouter les pins mâles" puts a pin (bore minus 0.10 mm radial clearance) in every female,
+    shoulder and back above the plane, unioned to the chosen cap (Manifold solver).
+  - Arm: one click on the cap per pin; a tube leaves the cap at 90 degrees to its surface and
+    arrives on the pin's back along its axis, joined by a cubic Bezier (handles a third of the
+    distance), "like plugging in a cable". Warns when the bend is tighter than the tube's radius.
+  - Every part is a generated closed mesh under a Boolean modifier: settings rebuild all parts;
+    nothing is cut until Appliquer. Each connection is an Empty "Pin n" at its stop, trash to remove.
+    Dimensions in params.py (PIN_*), all TO TEST by printing. Case1: build 0.14 s, cap Boolean 0.6 s.
 - "Tourner autour de l'axe du curseur" (surgeon, 2026-11-01): rotates the active object about the 3D
   cursor's Z axis (the bone normal where the cursor was placed), through the cursor's point; X / Y
   switch to the cursor's other axes. E.g. turn a sleeve cylinder about its entry point on the bone.

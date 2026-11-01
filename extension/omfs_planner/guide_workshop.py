@@ -14,7 +14,7 @@ import bpy
 import numpy as np
 from mathutils.bvhtree import BVHTree
 
-from . import cylinders, landmarks, locking, osteotomy, params
+from . import cylinders, landmarks, locking, osteotomy, params, pins
 
 COLLECTION = "Guide design"
 MASK_BRUSH = "brushes/essentials_brushes-mesh_sculpt.blend/Brush/Mask"
@@ -50,7 +50,11 @@ SECTIONS = (
     ('OSTEO', "5. Trait de coupe (bord du guide)",
      "Coupe le guide exactement dans le plan d'ostéotomie et garde un seul côté: la face plane "
      "obtenue guide la lame. Si la coupe change dans Osteotomy, recliquez pour recaler le bord."),
-    ('CHECK', "6. Vérifier et finir",
+    ('PINS', "6. Tubes and pins (guide ↔ chape)",
+     "Le guide de coupe et la chape s'emboîtent: femelles coniques dans le guide (le dessus du bossage "
+     "est exactement dans le plan d'ostéotomie: c'est la butée), pins mâles, puis un bras courbe qui "
+     "part de la chape à 90° et arrive dans l'axe de chaque pin. Tout reste modifiable jusqu'à Appliquer."),
+    ('CHECK', "7. Vérifier et finir",
      "Avant d'imprimer: le guide doit être fermé (étanche), sans arête libre."),
 )
 
@@ -990,7 +994,37 @@ tool('CUT_KEEP_BELOW', "Garder en dessous du trait", 'TRIA_DOWN', 'OSTEO',
      "Edit > Plane Cut (garder le dessous)", "")(cut_edge(keep_above=False))
 
 
-# --- 6. Check ----------------------------------------------------------------------------
+# --- 6. Tubes and pins ----------------------------------------------------------------------
+
+tool('PIN_FEMALES', "Ajouter les femelles (clics sur le guide)", 'MESH_CYLINDER', 'PINS',
+     "Cliquez sur le guide de coupe où mettre chaque femelle (souvent 3), clic droit pour finir. Axe "
+     "perpendiculaire au plan d'ostéotomie, dessus du bossage exactement dans le plan.",
+     "Aucun (le plus proche: Meshmix > pièce à insérer)", "", operator="omfs.add_pin_female")(lambda c: None)
+
+
+@tool('PIN_MALES', "Ajouter les pins mâles", 'SNAP_PEEL_OBJECT', 'PINS',
+      "Une pin conique dans chaque femelle, avec le jeu; son épaulement repose sur le plan "
+      "d'ostéotomie. Elle est unie à la chape choisie ci-dessus.",
+      "Aucun", "")
+def pin_males(context):
+    cap = context.scene.omfs_pins.cap
+    if cap is None:
+        return "Choisissez la chape ci-dessus"
+    if not pins.sites(context.scene):
+        return "Ajoutez d'abord les femelles"
+    if context.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    pins.add_males(context.scene, cap)
+    return None
+
+
+tool('PIN_ARMS', "Bras depuis la chape (un clic par pin)", 'CURVE_PATH', 'PINS',
+     "Pour chaque pin à tour de rôle, cliquez sur la chape où part son bras: il sort à 90° de la "
+     "surface et arrive sur le dos de la pin dans son axe, par une courbe douce (Bézier).",
+     "Aucun (le plus proche: Meshmix > tube)", "", operator="omfs.add_pin_arm")(lambda c: None)
+
+
+# --- 7. Check ----------------------------------------------------------------------------
 
 @tool('NON_MANIFOLD', "Montrer les défauts", 'ERROR', 'CHECK',
       "Passe en mode Édition et sélectionne les arêtes non étanches (bords libres, faces en trop). "
