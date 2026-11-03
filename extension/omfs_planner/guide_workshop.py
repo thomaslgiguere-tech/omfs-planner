@@ -17,11 +17,19 @@ from mathutils.bvhtree import BVHTree
 from . import cylinders, landmarks, locking, osteotomy, params, pins
 
 COLLECTION = "Guide design"
-MASK_BRUSH = "brushes/essentials_brushes-mesh_sculpt.blend/Brush/Mask"
-FACE_SET_BRUSH = "brushes/essentials_brushes-mesh_sculpt.blend/Brush/Face Set Paint"
 FACE_SETS = ".sculpt_face_set"   # face attribute: the face set number of each face
 MASK = ".sculpt_mask"            # vertex attribute: the sculpt mask, 0 to 1
-SMOOTH_BRUSH = "brushes/essentials_brushes-mesh_sculpt.blend/Brush/Smooth"
+BRUSHES = {   # section 7: essentials brush -> (label, icon, what it does, Meshmixer)
+    "Smooth": ("Pinceau Smooth (adoucir)", 'MOD_SMOOTH',
+               "Lisse la surface sous le pinceau: bosses, marches, bords irréguliers.", "Sculpt > Robust Smooth"),
+    "Flatten/Contrast": ("Pinceau Flatten (aplatir)", 'MESH_PLANE',
+                         "Ramène la surface vers un plan moyen (Ctrl: au contraire, accentue).", "Sculpt > Flatten"),
+    "Clay Strips": ("Pinceau Clay Strips (ajouter)", 'ADD',
+                    "Ajoute de la matière par bandes (Ctrl: en retire), pour renforcer ou combler.",
+                    "Sculpt > Draw / Inflate"),
+    "Grab": ("Pinceau Grab (tirer)", 'VIEW_PAN',
+             "Attrape la surface et la déplace avec la souris, sans ajouter de matière.", "Sculpt > Drag"),
+}
 SHELL_GROUP = "Coque (Solidify)"   # filled by the Solidify modifier, see smooth_outside
 
 # operator: a dedicated operator to draw instead of omfs.guide_tool (when the tool needs its own
@@ -54,7 +62,11 @@ SECTIONS = (
      "Le guide de coupe et la chape s'emboîtent: femelles coniques dans le guide (le dessus du bossage "
      "est exactement dans le plan d'ostéotomie: c'est la butée), pins mâles, puis un bras courbe qui "
      "part de la chape à 90° et arrive dans l'axe de chaque pin. Tout reste modifiable jusqu'à Appliquer."),
-    ('CHECK', "7. Vérifier et finir",
+    ('SCULPT', "7. Sculpture (adoucir, intrados protégé)",
+     "Pinceaux de Sculpture sur n'importe quel objet libre (le guide, la chape, un bras...). Les sommets "
+     "masqués (gris foncé) ne bougent jamais: protéger l'intrados par la distance à l'os, ou découper "
+     "l'objet en zones aux arêtes vives (angle réglable) et cliquer les zones à masquer."),
+    ('CHECK', "8. Vérifier et finir",
      "Avant d'imprimer: le guide doit être fermé (étanche), sans arête libre."),
 )
 
@@ -303,15 +315,34 @@ def zone_to_mask(context):
 
 def set_mask(mesh, faces):
     """Mask = 1 on every vertex of the faces given (boolean per face), 0 elsewhere."""
+    write_mask(mesh, np.zeros(len(mesh.vertices), np.float32))
+    mask_faces(mesh, faces, 1.0)
+
+
+def read_mask(mesh):
+    attribute = mesh.attributes.get(MASK)
+    mask = np.zeros(len(mesh.vertices), np.float32)
+    if attribute is not None:
+        attribute.data.foreach_get("value", mask)
+    return mask
+
+
+def write_mask(mesh, mask):
+    """Write the sculpt mask (Object Mode: in Sculpt Mode the attribute is not read back)."""
+    attribute = mesh.attributes.get(MASK) or mesh.attributes.new(MASK, 'FLOAT', 'POINT')
+    attribute.data.foreach_set("value", mask)
+    mesh.update()
+
+
+def mask_faces(mesh, faces, value):
+    """Set the mask to `value` on every vertex of the faces given (boolean per face), keep the rest."""
     sizes = np.empty(len(mesh.polygons), np.int32)
     mesh.polygons.foreach_get("loop_total", sizes)
     loops = np.empty(len(mesh.loops), np.int32)
     mesh.loops.foreach_get("vertex_index", loops)
-    mask = np.zeros(len(mesh.vertices), np.float32)
-    mask[loops[np.repeat(faces, sizes)]] = 1.0
-    attribute = mesh.attributes.get(MASK) or mesh.attributes.new(MASK, 'FLOAT', 'POINT')
-    attribute.data.foreach_set("value", mask)
-    mesh.update()
+    mask = read_mask(mesh)
+    mask[loops[np.repeat(faces, sizes)]] = value
+    write_mask(mesh, mask)
 
 
 @tool('ZONE_PAINT', "Peindre une zone", 'BRUSH_DATA', 'ZONES',
@@ -324,11 +355,7 @@ def zone_paint(context):
     if error:
         return error
     props(context).zone = 0   # the zone about to be painted becomes the chosen one
-    try:
-        bpy.ops.brush.asset_activate(asset_library_type='ESSENTIALS', relative_asset_identifier=FACE_SET_BRUSH)
-    except RuntimeError:
-        return "Pinceau Face Set Paint introuvable: choisissez-le dans la barre d'outils de gauche"
-    return None
+    return activate_brush("Face Set Paint")
 
 
 @tool('ZONE_LASSO', "Zone au lasso", 'MOD_MASK', 'ZONES',
@@ -419,70 +446,53 @@ def zone_mask(context):
     return zone_to_mask(context)
 
 
-@tool('MASK_PAINT', "Peindre le masque", 'BRUSH_DATA', 'MASK',
-      "Pinceau Mask: le glisser peint la zone de contact en gris foncé. Ctrl + glisser efface. "
-      "F puis bouger la souris change la taille du pinceau. Ne déforme rien.",
-      "Select (pinceau de sélection)", "Ctrl+glisser = effacer, F = taille")
-def mask_paint(context):
-    error = need_sculpt(context)
-    if error:
-        return error
+def activate_brush(brush):
     try:
-        bpy.ops.brush.asset_activate(asset_library_type='ESSENTIALS', relative_asset_identifier=MASK_BRUSH)
+        bpy.ops.brush.asset_activate(asset_library_type='ESSENTIALS',
+                                     relative_asset_identifier=f"brushes/essentials_brushes-mesh_sculpt.blend/Brush/{brush}")
     except RuntimeError:
-        return "Pinceau Mask introuvable: choisissez-le dans la barre d'outils de gauche"
+        return f"Pinceau {brush} introuvable: choisissez-le dans la barre d'outils de gauche"
     return None
 
 
-@tool('MASK_LASSO', "Masque au lasso", 'MOD_MASK', 'MASK',
-      "Dessinez un contour: tout ce qui est à l'intérieur est masqué (y compris l'arrière). "
-      "Ctrl + lasso retire du masque.",
-      "Select > Lasso", "")
-def mask_lasso(context):
-    error = need_sculpt(context)
-    if error:
-        return error
-    bpy.ops.wm.tool_set_by_id(name="builtin.lasso_mask")
-    return None
+def mask_tools(prefix, section, need):
+    """The mask tools of a section; `need(context)` brings the right object into Sculpt Mode
+    (the working copy in 1b, the active free mesh in 7) or returns an error."""
+    def run(action):
+        def tool_run(context):
+            return need(context) or action(context)
+        return tool_run
+
+    def mask_filter(kind):
+        def action(context):
+            bpy.ops.sculpt.mask_filter(filter_type=kind, auto_iteration_count=True)
+        return run(action)
+
+    tool(prefix + 'PAINT', "Peindre le masque", 'BRUSH_DATA', section,
+         "Pinceau Mask: le glisser peint en gris foncé. Ctrl + glisser efface. "
+         "F puis bouger la souris change la taille du pinceau. Ne déforme rien.",
+         "Select (pinceau de sélection)", "Ctrl+glisser = effacer, F = taille")(
+        run(lambda context: activate_brush("Mask")))
+    tool(prefix + 'LASSO', "Masque au lasso", 'MOD_MASK', section,
+         "Dessinez un contour: tout ce qui est à l'intérieur est masqué (y compris l'arrière). "
+         "Ctrl + lasso retire du masque.",
+         "Select > Lasso", "")(run(lambda context: bpy.ops.wm.tool_set_by_id(name="builtin.lasso_mask") and None))
+    tool(prefix + 'GROW', "Agrandir", 'ADD', section, "Élargit le bord du masque d'une rangée de sommets.",
+         "Modify > Expand Ring", "")(mask_filter('GROW'))
+    tool(prefix + 'SHRINK', "Réduire", 'REMOVE', section, "Rétrécit le bord du masque d'une rangée de sommets.",
+         "Modify > Contract Ring", "")(mask_filter('SHRINK'))
+    tool(prefix + 'SMOOTH', "Lisser le bord", 'MOD_SMOOTH', section,
+         "Adoucit le contour du masque.", "Modify > Smooth Boundary", "Maj + glisser avec le pinceau")(
+        mask_filter('SMOOTH'))
+    tool(prefix + 'INVERT', "Inverser", 'ARROW_LEFTRIGHT', section, "Le masqué devient libre et inversement.",
+         "Modify > Invert", "Ctrl+I (en Sculpture)")(
+        run(lambda context: bpy.ops.paint.mask_flood_fill(mode='INVERT') and None))
+    tool(prefix + 'CLEAR', "Effacer le masque", 'X', section, "Retire tout le masque pour recommencer.",
+         "Select > Clear selection", "Alt+M (en Sculpture)")(
+        run(lambda context: bpy.ops.paint.mask_flood_fill(mode='VALUE', value=0.0) and None))
 
 
-def mask_filter(kind):
-    def run(context):
-        error = need_sculpt(context)
-        if error:
-            return error
-        bpy.ops.sculpt.mask_filter(filter_type=kind, auto_iteration_count=True)
-        return None
-    return run
-
-
-tool('MASK_GROW', "Agrandir", 'ADD', 'MASK', "Élargit le bord du masque d'une rangée de sommets.",
-     "Modify > Expand Ring", "")(mask_filter('GROW'))
-tool('MASK_SHRINK', "Réduire", 'REMOVE', 'MASK', "Rétrécit le bord du masque d'une rangée de sommets.",
-     "Modify > Contract Ring", "")(mask_filter('SHRINK'))
-tool('MASK_SMOOTH', "Lisser le bord", 'MOD_SMOOTH', 'MASK',
-     "Adoucit le contour du masque: le bord du guide extrait sera plus régulier.",
-     "Modify > Smooth Boundary", "Maj + glisser avec le pinceau")(mask_filter('SMOOTH'))
-
-
-@tool('MASK_INVERT', "Inverser", 'ARROW_LEFTRIGHT', 'MASK', "Le masqué devient libre et inversement.",
-      "Modify > Invert", "Ctrl+I (en Sculpture)")
-def mask_invert(context):
-    error = need_sculpt(context)
-    if error:
-        return error
-    bpy.ops.paint.mask_flood_fill(mode='INVERT')
-    return None
-
-
-@tool('MASK_CLEAR', "Effacer le masque", 'X', 'MASK', "Retire tout le masque pour recommencer.",
-      "Select > Clear selection", "Alt+M (en Sculpture)")
-def mask_clear(context):
-    error = need_sculpt(context)
-    if error:
-        return error
-    bpy.ops.paint.mask_flood_fill(mode='VALUE', value=0.0)
-    return None
+mask_tools('MASK_', 'MASK', need_sculpt)
 
 
 @tool('MASK_EXTRACT', "Extraire en coque (guide)", 'MOD_SOLIDIFY', 'MASK',
@@ -649,11 +659,7 @@ def hide_and_smooth(context):
         return "Sélectionnez d'abord en mode Édition les faces à protéger"
     bpy.ops.mesh.hide(unselected=False)
     bpy.ops.object.mode_set(mode='SCULPT')
-    try:
-        bpy.ops.brush.asset_activate(asset_library_type='ESSENTIALS', relative_asset_identifier=SMOOTH_BRUSH)
-    except RuntimeError:
-        return "Pinceau Smooth introuvable: choisissez-le dans la barre d'outils de gauche"
-    return None
+    return activate_brush("Smooth")
 
 
 @tool('REVEAL', "Tout réafficher", 'HIDE_OFF', 'EDIT',
@@ -781,7 +787,24 @@ def protect_intrados(context, obj):
     return int(near.sum())
 
 
-@tool('POLISH_OUTSIDE', "Polir l'extérieur au pinceau", 'SCULPTMODE_HLT', 'SHAPE',
+# --- 7. Sculpt ---------------------------------------------------------------------------
+
+def sculpt_on(context):
+    """The active free mesh in Sculpt Mode, its modifiers applied first (brushes work on the real
+    mesh; the Boolean tools used are hidden, as in Appliquer)."""
+    obj, error = editable_active(context)
+    if error:
+        return error
+    if obj.modifiers:
+        error = apply_modifiers(context)
+        if error:
+            return error
+    if context.mode != 'SCULPT':
+        bpy.ops.object.mode_set(mode='SCULPT')
+    return None
+
+
+@tool('POLISH_OUTSIDE', "Sculpter le guide, intrados protégé (distance à l'os)", 'SCULPTMODE_HLT', 'SCULPT',
       "Applique les modificateurs (la coque devient un vrai maillage), protège l'intrados par un masque "
       "(tout ce qui est à moins de 1 mm de l'os, en gris foncé), puis passe en Sculpture avec le pinceau "
       "Smooth. Polissez au glisser; les autres pinceaux de la barre de gauche (Clay Strips pour ajouter, "
@@ -791,31 +814,134 @@ def polish_outside(context):
     obj, error = editable_active(context)
     if error:
         return error
-    if obj == current_copy(context):
-        return "Sélectionnez le guide, pas la copie de travail (bouton « Sélectionner le guide »)"
     if context.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
-    for mod in list(obj.modifiers):
-        bpy.ops.object.modifier_apply(modifier=mod.name)
+    error = sculpt_on(context)
+    if error:
+        return error
+    bpy.ops.object.mode_set(mode='OBJECT')
     protected = protect_intrados(context, obj)
     if isinstance(protected, str):
         return protected
     bpy.ops.object.mode_set(mode='SCULPT')
-    try:
-        bpy.ops.brush.asset_activate(asset_library_type='ESSENTIALS', relative_asset_identifier=SMOOTH_BRUSH)
-    except RuntimeError:
-        return "Pinceau Smooth introuvable: choisissez-le dans la barre d'outils de gauche"
+    return activate_brush("Smooth")
+
+
+@tool('SCULPT_OBJECT', "Sculpter l'objet actif (sans masque)", 'SCULPTMODE_HLT', 'SCULPT',
+      "Passe l'objet actif (guide, chape, bras... jamais l'anatomie) en mode Sculpture avec le pinceau "
+      "Smooth, après avoir appliqué ses modificateurs. Le masque existant est gardé: effacez-le ou "
+      "protégez l'intrados avec les boutons ci-dessous.",
+      "Sculpt (menu de gauche)", "Ctrl+Tab > Sculpt Mode")
+def sculpt_object(context):
+    return sculpt_on(context) or activate_brush("Smooth")
+
+
+def zones_by_angle_of(mesh, angle):
+    """Face set per face: faces joined across every edge where they fold less than `angle`
+    (radians), so each sharp crease is a zone border. Written on the mesh (Object Mode)."""
+    count = len(mesh.polygons)
+    normals = np.empty(count * 3, np.float32)
+    mesh.polygons.foreach_get("normal", normals)
+    normals = normals.reshape(-1, 3)
+    sizes = np.empty(count, np.int32)
+    mesh.polygons.foreach_get("loop_total", sizes)
+    edges = np.empty(len(mesh.loops), np.int32)
+    mesh.loops.foreach_get("edge_index", edges)
+    faces = np.repeat(np.arange(count), sizes)
+    order = np.argsort(edges, kind='stable')
+    edges, faces = edges[order], faces[order]
+    pair = np.flatnonzero(edges[:-1] == edges[1:])      # the two faces of each manifold edge
+    a, b = faces[pair], faces[pair + 1]
+    cos = np.einsum('ij,ij->i', normals[a], normals[b])
+    joined = cos > np.cos(angle)
+    a, b = a[joined], b[joined]
+    labels = np.arange(count)
+    while True:   # each face takes the smallest label among its joined neighbours, until stable
+        low = np.minimum(labels[a], labels[b])
+        new = labels.copy()
+        np.minimum.at(new, a, low)
+        np.minimum.at(new, b, low)
+        new = new[new]                                  # jump along the chain of labels
+        if np.array_equal(new, labels):
+            break
+        labels = new
+    sets = (np.unique(labels, return_inverse=True)[1] + 1).astype(np.int32)
+    attribute = mesh.attributes.get(FACE_SETS) or mesh.attributes.new(FACE_SETS, 'INT', 'FACE')
+    attribute.data.foreach_set("value", sets)
+    mesh.update()
+    return int(sets.max())
+
+
+@tool('ZONES_BY_ANGLE', "Découper en zones par angle aigu", 'MOD_EDGESPLIT', 'SCULPT',
+      "Face Sets par arêtes vives: l'objet est découpé en zones (couleurs) partout où deux faces "
+      "voisines font un pli plus grand que l'angle réglé ci-dessus. Avec un guide, l'intrados (bordé "
+      "par le rebord) devient une zone à lui seul: cliquez-le ensuite pour le masquer. Ne déplace aucun "
+      "sommet; remplace les zones existantes de l'objet.",
+      "Select > Crease Angle (sélection arrêtée aux plis)", "Sculpt > Face Sets > Initialize")
+def zones_by_angle(context):
+    error = sculpt_on(context)
+    if error:
+        return error
+    obj = context.active_object
+    bpy.ops.object.mode_set(mode='OBJECT')
+    zones_by_angle_of(obj.data, props(context).sharp_angle)
+    bpy.ops.object.mode_set(mode='SCULPT')
     return None
 
 
-@tool('POLISH_FILTER', "Lisser tout l'extérieur (1 passe)", 'MOD_SMOOTH', 'SHAPE',
-      "Après « Polir l'extérieur »: lisse d'un coup toute la surface non masquée (l'intrados masqué ne "
-      "bouge pas). Une passe par clic; Ctrl+Z annule la dernière.",
+@tool('MASK_ZONE_CLICK', "Masquer les zones cliquées", 'EYEDROPPER', 'SCULPT',
+      "Cliquez les zones à masquer (gris foncé): chaque clic ajoute la zone au masque, Ctrl + clic la "
+      "retire. Clic droit ou Échap pour finir. Les zones viennent du découpage par angle ou du pinceau "
+      "Face Set Paint (section 1).",
+      "Select > Select Facegroup, puis Freeze", "", operator="omfs.mask_zone_click")
+def mask_zone_click(context):
+    with viewport(context):
+        bpy.ops.omfs.mask_zone_click('INVOKE_DEFAULT')
+    return None
+
+
+@tool('MASK_FROM_SELECTION', "Masque = sélection (mode Édition)", 'RESTRICT_SELECT_OFF', 'SCULPT',
+      "Masque exactement les sommets sélectionnés en mode Édition (section 2: par angle, liés, lasso...) "
+      "et rien d'autre, puis passe en Sculpture. Pour l'inverse, Inverser ensuite.",
+      "Select, puis Freeze", "")
+def mask_from_selection(context):
+    obj, error = editable_active(context)
+    if error:
+        return error
+    if context.mode != 'EDIT_MESH' or context.edit_object != obj:
+        return "Sélectionnez d'abord en mode Édition (section 2) les sommets à masquer"
+    bpy.ops.object.mode_set(mode='OBJECT')   # the selection is flushed to the mesh, the mask written on it
+    selected = np.empty(len(obj.data.vertices), bool)
+    obj.data.vertices.foreach_get("select", selected)
+    if not selected.any():
+        bpy.ops.object.mode_set(mode='EDIT')
+        return "Rien n'est sélectionné"
+    write_mask(obj.data, selected.astype(np.float32))
+    return sculpt_on(context)
+
+
+def brush_tool(brush):
+    label, icon, tip, meshmixer = BRUSHES[brush]
+    return tool('BRUSH_' + brush.split('/')[0].replace(' ', '_').upper(), label, icon, 'SCULPT',
+                tip + " Les sommets masqués ne bougent pas. F = taille, Maj+F = force, Maj = lisser.",
+                meshmixer, "Maj = lisser avec n'importe quel pinceau")(
+        lambda context, brush=brush: sculpt_on(context) or activate_brush(brush))
+
+
+for _brush in BRUSHES:
+    brush_tool(_brush)
+
+mask_tools('SCULPT_MASK_', 'SCULPT', sculpt_on)
+
+
+@tool('POLISH_FILTER', "Lisser tout le non-masqué (1 passe)", 'MOD_SMOOTH', 'SCULPT',
+      "Lisse d'un coup toute la surface non masquée (les sommets masqués ne bougent pas: sans masque, "
+      "l'intrados bouge aussi). Une passe par clic; Ctrl+Z annule la dernière.",
       "Deform > Smooth sur tout, intrados en Freeze", "Sculpt > Filtre (Mesh Filter: Smooth)")
 def polish_filter(context):
-    obj = context.active_object
-    if context.mode != 'SCULPT' or obj is None or obj.data.attributes.get(MASK) is None:
-        return "Cliquez d'abord « Polir l'extérieur au pinceau » sur le guide"
+    error = sculpt_on(context)
+    if error:
+        return error
     with viewport(context):
         bpy.ops.sculpt.mesh_filter(type='SMOOTH', strength=0.5)
     return None
@@ -1076,9 +1202,9 @@ RECIPE = (
         "selon l'axe de la vis, choisir le tube dans « Avec », Unir au guide.",
         "[4] Cylindre trou au même endroit, le choisir dans « Avec », Soustraire du guide.",
         "[3] Remesh étanche, puis Appliquer les modificateurs.",
-        "[3] Polir l'extérieur au pinceau (intrados protégé), ou Lisser tout l'extérieur par passes.",
+        "[7] Sculpter le guide, intrados protégé, ou Lisser tout le non-masqué par passes.",
         "[5] Garder au-dessus ou en dessous du trait: le bord du guide suit la coupe.",
-        "[6] Montrer les défauts (rien ne doit être sélectionné), Marquer comme guide.",
+        "[8] Montrer les défauts (rien ne doit être sélectionné), Marquer comme guide.",
     )),
     ("Guide de repositionnement (sur les dents)", (
         "Copier le scan intra-oral recalé: Créer une copie de travail.",
@@ -1086,7 +1212,7 @@ RECIPE = (
         "[1] Extraire la zone en coque, puis [3] régler Dégagement et Épaisseur.",
         "[2] En mode Édition, sélectionner une zone et l'extruder vers le guide de coupe (bras de connexion).",
         "[4] Boolean avec le guide de coupe placé en position finale, pour l'emboîtement.",
-        "[3] Remesh étanche, Appliquer; [6] Vérifier, Marquer comme guide.",
+        "[3] Remesh étanche, Appliquer; [8] Vérifier, Marquer comme guide.",
     )),
 )
 
@@ -1113,6 +1239,11 @@ class OMFS_GuideProperties(bpy.types.PropertyGroup):
                                      description="Guide que les outils modifient (le dernier extrait, par défaut)")
     work_copy: bpy.props.PointerProperty(name="Copie de travail", type=bpy.types.Object)
     zone: bpy.props.IntProperty(name="Zone", min=0, description="Face set chosen by clic (0 = the last painted)")
+    sharp_angle: bpy.props.FloatProperty(
+        name="Angle aigu", subtype='ANGLE', min=radians(1), max=radians(180),
+        default=radians(params.SCULPT_SHARP_ANGLE),
+        description="Découper en zones: deux faces voisines qui font plus que cet angle sont dans des "
+                    "zones différentes (petit angle = plus de zones, bords plus fins)")
     cutter: bpy.props.PointerProperty(name="Avec", type=bpy.types.Object,
                                       poll=lambda _p, o: o.type == 'MESH' and not locking.is_locked(o),
                                       description="Objet outil du Boolean (ex. un cylindre)")
@@ -1198,6 +1329,57 @@ class OMFS_OT_pick_zone(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class OMFS_OT_mask_zone_click(bpy.types.Operator):
+    """Click zones (face sets) of the active object to mask them (Ctrl: unmask; Esc or right-click to finish)"""
+    bl_idname = "omfs.mask_zone_click"
+    bl_label = "Masquer les zones cliquées"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def description(cls, context, properties):
+        return tool_description(TOOLS['MASK_ZONE_CLICK'])
+
+    def invoke(self, context, event):
+        error = sculpt_on(context)
+        if error:
+            self.report({'WARNING'}, error)
+            return {'CANCELLED'}
+        if face_sets(context.active_object.data) is None:
+            self.report({'WARNING'}, "Aucune zone sur cet objet: « Découper en zones par angle aigu » d'abord")
+            return {'CANCELLED'}
+        self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
+            (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
+        if self.area is None:
+            return {'CANCELLED'}
+        self.area.header_text_set("Clic: masquer la zone   |   Ctrl + clic: démasquer   |   Échap / clic droit: finir")
+        context.window.cursor_modal_set('EYEDROPPER')
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def finish(self, context):
+        self.area.header_text_set(None)
+        context.window.cursor_modal_restore()
+
+    def modal(self, context, event):
+        if event.type in {'ESC', 'RIGHTMOUSE'} and event.value == 'PRESS':
+            self.finish(context)
+            return {'FINISHED'}
+        if event.type != 'LEFTMOUSE' or event.value != 'PRESS':
+            return {'PASS_THROUGH'}   # orbit, pan and zoom keep working
+        under_mouse = landmarks.viewport_region_under_mouse(self.area, event)
+        if under_mouse is None:
+            return {'PASS_THROUGH'}
+        obj = context.active_object
+        face = landmarks.object_face_hit(context, *under_mouse, obj)
+        sets = face_sets(obj.data)
+        if face is None or sets is None:
+            return {'RUNNING_MODAL'}
+        bpy.ops.object.mode_set(mode='OBJECT')
+        mask_faces(obj.data, sets == sets[face], 0.0 if event.ctrl else 1.0)
+        bpy.ops.object.mode_set(mode='SCULPT')
+        return {'RUNNING_MODAL'}
+
+
 class OMFS_OT_guide_tool(bpy.types.Operator):
     """Native Blender tool for guide design"""
     bl_idname = "omfs.guide_tool"
@@ -1222,7 +1404,8 @@ class OMFS_OT_guide_tool(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_GuideProperties, OMFS_OT_select_linked_flat, OMFS_OT_pick_zone, OMFS_OT_guide_tool)
+classes = (OMFS_GuideProperties, OMFS_OT_select_linked_flat, OMFS_OT_pick_zone, OMFS_OT_mask_zone_click,
+           OMFS_OT_guide_tool)
 
 
 def register():

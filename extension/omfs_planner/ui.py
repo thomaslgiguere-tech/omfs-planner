@@ -825,6 +825,8 @@ def make_guide_section(section_id, title, text):
             layout.label(text=guide_workshop.zone_summary(context), icon='FACE_MAPS')
         if section_id == 'PINS':
             draw_pins_settings(layout, context)
+        if section_id == 'SCULPT':
+            layout.prop(context.scene.omfs_guide, "sharp_angle")
         col = layout.column(align=True)
         for t in guide_workshop.tools_in(section_id):
             tool_button(col, t.id)

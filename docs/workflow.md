@@ -182,6 +182,17 @@ Naming used below (matches the object roles in code):
   masks the intrados (guide vertices closer than 1 mm to the bone: params.GUIDE_PROTECT_DISTANCE) and
   opens Sculpt Mode with the Smooth brush; any brush is then safe for the fit. "Lisser tout
   l'extérieur" smooths the whole unmasked surface one pass per click.
+- Sculpt section, workshop section 7 (surgeon, 2026-11-02: sculpt almost any object, mainly the
+  guide, to soften it, with the intrados masked; mask from a sharp-angle control and from a precise
+  selection): any free mesh (guide, cap, arm; never anatomy), modifiers applied first. Brushes
+  Smooth / Flatten / Clay Strips / Grab, "smooth all unmasked" filter, the usual mask tools. Three ways
+  to protect the intrados:
+  - distance to the bone (former "Polir l'extérieur", moved here);
+  - "Découper en zones par angle aigu": face sets split wherever neighbouring faces fold more than the
+    angle (default 20 degrees, params.SCULPT_SHARP_ANGLE; on case1's cap 20 splits intrados / outside,
+    30 merges them through a rounded rim), then click zones to mask (Ctrl: unmask). Blender's own
+    "Initialize Face Sets > Sharp Edges" only reads edges marked sharp by hand, so the angle is computed;
+  - "Masque = sélection": the Edit Mode selection becomes the mask exactly.
 - Sleeve cylinders are adjustable (surgeon, 2026-11-01: moving and turning worked well, size should
   be as quick): each cylinder keeps its diameter and length (cylinders.py) and its mesh is rebuilt
   from them, so a typed 4.10 mm is exact. Drag handles on the active cylinder: blue arrows at both

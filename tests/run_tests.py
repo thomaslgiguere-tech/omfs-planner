@@ -1030,6 +1030,29 @@ def test_polish_protects_intrados():
         bpy.data.objects.remove(obj)
 
 
+def test_zones_by_angle_and_mask():
+    box = box_object("Angle box", 'OTHER', (0, 400, 0), (10, 10, 10))
+    bm = bmesh.new()
+    bm.from_mesh(box.data)
+    bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=3, use_grid_fill=True)   # flat faces next to each other
+    bm.to_mesh(box.data)
+    bm.free()
+    mesh = box.data
+    assert guide_workshop.zones_by_angle_of(mesh, radians(20)) == 6, "a cube's 90 degree creases make 6 zones"
+    assert guide_workshop.zones_by_angle_of(mesh, radians(100)) == 1, "no fold sharper than 100 degrees"
+    guide_workshop.zones_by_angle_of(mesh, radians(20))
+    sets = guide_workshop.face_sets(mesh)
+    top = np.array([p.normal.z > 0.9 for p in mesh.polygons])
+    assert len(set(sets[top])) == 1, "one zone per face of the cube"
+    guide_workshop.mask_faces(mesh, sets == sets[top][0], 1.0)
+    z = np.array([v.co.z for v in mesh.vertices])
+    mask = guide_workshop.read_mask(mesh)
+    assert np.all(mask[z > 4.99] == 1) and np.all(mask[z < 4.99] == 0), "clicked zone masked, nothing else"
+    guide_workshop.mask_faces(mesh, sets == sets[top][0], 0.0)
+    assert not guide_workshop.read_mask(mesh).any(), "Ctrl + click unmasks"
+    bpy.data.objects.remove(box)
+
+
 def test_arch_curve():
     scene = bpy.context.scene
     reference_frame.build(scene, FRAME_POINTS)       # up = world Z
