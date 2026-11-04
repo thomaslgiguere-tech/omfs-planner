@@ -11,7 +11,7 @@ subtracts or adds it, so the part's mesh is never modified until the modifiers a
 and the text, size or depth can change at any time. The cutter is drawn as a wireframe.
 
 Anatomy straight from the CBCT or the scanner is never written on (its data is never modified):
-make a working copy, a model or a guide from it first. The print check and the STL export are
+make a model or a guide from it first. The print check and the STL export are
 generic too: closed mesh with the text applied, material left under the engravings, letter size.
 """
 

@@ -13,7 +13,9 @@ For each connection (usually 3):
 Every part is a small closed mesh generated from the settings, used by a Boolean modifier: the
 guide and the cap meshes are untouched until the modifiers are applied, and changing a setting
 rebuilds every part. Each connection is an Empty ("Pin 1"...) at its stop, Z along the pin axis
-(towards the teeth): the female, male and arm are rebuilt from it.
+(towards the teeth): the female, male and arm are rebuilt from it, wherever the Empty is now. When
+the guide follows the segment (movement.py), its Empties move with it and every part is rebuilt:
+the arms then reach the pins where they are, not where they were placed.
 
 The same pins join two printed dental models (model_base.py), so the casts find the planned
 occlusion again by plugging them together (kind 'MODEL'): the female stands on the lower model's
@@ -186,6 +188,8 @@ def make_part(name, verts, faces, collection):
         obj.omfs.made_by = PART_TAG
         obj.display_type = 'WIRE'
         obj.hide_render = True
+    obj.matrix_world = Matrix.Identity(4)         # vertices in world coordinates (older parts were moved
+    obj.pop(movement.GUIDE_PREOP, None)           # with the guide: the Empty moves now, they are rebuilt)
     mesh = obj.data
     mesh.clear_geometry()
     mesh.from_pydata(np.asarray(verts).tolist(), [], faces)
@@ -197,12 +201,29 @@ def boolean_on(target, part, operation, solver):
     mod = next((m for m in target.modifiers if m.type == 'BOOLEAN' and m.object == part), None)
     if mod is None:
         mod = target.modifiers.new(part.name, 'BOOLEAN')
-        mod.object, mod.operation, mod.solver = part, operation, solver
+        mod.object, mod.operation = part, operation
+    mod.solver = solver                           # also on older parts made with another solver
     return mod
 
 
 def part_name(site, kind):
     return f"{site.name}: {kind}"
+
+
+def stem_ends(site):
+    """World ends of the bridge / stem, stored in the Empty's coordinates (they move with it)."""
+    s = site.omfs_pin
+    if not s.stem_local:                          # stored in world coordinates before 2026-11-04
+        to_site = site.matrix_world.inverted()
+        s.stem_start, s.stem_end = to_site @ Vector(s.stem_start), to_site @ Vector(s.stem_end)
+        s.stem_local = True
+    return site.matrix_world @ Vector(s.stem_start), site.matrix_world @ Vector(s.stem_end)
+
+
+def set_stem(site, start, end):
+    s = site.omfs_pin
+    to_site = site.matrix_world.inverted()
+    s.stem_start, s.stem_end, s.stem_local = to_site @ start, to_site @ end, True
 
 
 def build(scene, site):
@@ -213,8 +234,8 @@ def build(scene, site):
     origin = site.matrix_world.translation
     axis = (site.matrix_world.to_3x3() @ Vector((0, 0, 1))).normalized()
     coll = site.users_collection[0]
-    female_solver = 'MANIFOLD' if s.kind == 'MODEL' else 'EXACT'   # models are clean closed solids (case1:
-    warning = None                                                  # Exact left 252 non-manifold edges)
+    female_solver = guide_workshop.SOLVER        # Exact left open edges (case1: 252 on a model, a few on the guide)
+    warning = None
     if s.guide is not None:
         boss = make_part(part_name(site, "bossage"), *revolve(d["boss"], origin, axis), coll)
         bore = make_part(part_name(site, "logement"), *revolve(d["bore"], origin, axis), coll)
@@ -223,10 +244,11 @@ def build(scene, site):
         stem = bpy.data.objects.get(part_name(site, kind))
         if s.has_stem:
             p = scene.omfs_pins
+            start, end = stem_ends(site)
             if s.kind == 'GUIDE':                        # bridge: the boss's guide-side half, out to the guide
-                shape = slab(s.stem_start, s.stem_end, axis, p.base_diameter / 2 + p.wall, p.cone_length + p.floor)
+                shape = slab(start, end, axis, p.base_diameter / 2 + p.wall, p.cone_length + p.floor)
             else:                                        # stem: a rod flat on the model's base plane
-                shape = tube(np.linspace(np.array(s.stem_start), np.array(s.stem_end), 8), p.stem_diameter / 2)
+                shape = tube(np.linspace(np.array(start), np.array(end), 8), p.stem_diameter / 2)
             stem = make_part(part_name(site, kind), *shape, coll)
             boolean_on(s.guide, stem, 'UNION', female_solver)
         elif stem is not None:                           # slid back against the guide: none any more
@@ -301,7 +323,7 @@ def add_site(scene, guide, foot):
     start, end, _gap = guide_stem(scene, guide, stop, axis)
     s.has_stem = start is not None
     if start is not None:
-        s.stem_start, s.stem_end = start, end
+        set_stem(site, start, end)
     build(scene, site)
     return site
 
@@ -402,7 +424,7 @@ def add_model_site(scene, lower, upper, foot):
     end, _distance = stem_end(scene, lower, foot, up)
     s.has_stem = end is not None
     if end is not None:
-        s.stem_start, s.stem_end = foot + up * scene.omfs_pins.stem_diameter / 2, end
+        set_stem(site, foot + up * scene.omfs_pins.stem_diameter / 2, end)
     build(scene, site)
     return site
 
@@ -453,6 +475,7 @@ class OMFS_PinSite(bpy.types.PropertyGroup):
     has_stem: bpy.props.BoolProperty()
     stem_start: bpy.props.FloatVectorProperty(size=3, subtype='XYZ')
     stem_end: bpy.props.FloatVectorProperty(size=3, subtype='XYZ')
+    stem_local: bpy.props.BoolProperty()          # stem ends in the Empty's coordinates (see stem_ends)
 
 
 # --- Clicking ---------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Adjustable cylinders for the guide workshop (drill-sleeve bore and tube, later screw channels).
+"""Adjustable cylinders for the guide workshop (drill-sleeve bore and tube, guide fixation holes).
 
 A cylinder keeps its diameter and length as settings on the object; its mesh is rebuilt from them,
 so typing 4.1 mm gives exactly 4.1 mm (scaling with S would only give a factor, and would stretch
@@ -66,17 +66,23 @@ class OMFS_CylinderProperties(bpy.types.PropertyGroup):
         soft_max=40.0, step=10, precision=2, update=_on_size,
         description="Longueur du cylindre, en mm (tapée ici: grandit des deux côtés; "
                     "avec les flèches des bouts: l'autre bout reste en place)")
+    kind: bpy.props.EnumProperty(items=(('OTHER', "Autre", ""), ('TUBE', "Tube de manchon", "Uni au guide"),
+                                        ('BORE', "Trou de manchon", "Soustrait du guide"),
+                                        ('FIXATION', "Trou de fixation", "Soustrait du guide en dernier")))
+    screw: bpy.props.StringProperty()   # the screw a sleeve cylinder sits on
 
 
-def add(context, diameter, length, name, collection):
-    """New cylinder at the 3D cursor, along the cursor's Z (the surface normal)."""
+def add(context, diameter, length, name, collection, matrix=None, kind='OTHER'):
+    """New cylinder centred at `matrix` (its Z along the axis), at the 3D cursor along its Z (the
+    surface normal) by default."""
     obj = bpy.data.objects.new(name, bpy.data.meshes.new(name))
     collection.objects.link(obj)
     cursor = context.scene.cursor
-    obj.matrix_world = Matrix.LocRotScale(cursor.location, cursor.rotation_euler, None)
+    obj.matrix_world = matrix if matrix is not None else Matrix.LocRotScale(cursor.location, cursor.rotation_euler, None)
     obj.omfs.made_by = TAG
     c = obj.omfs_cylinder
     c["diameter"], c["length"] = diameter, length
+    c.kind = kind
     rebuild(obj)
     for other in context.selected_objects:
         other.select_set(False)

@@ -775,7 +775,7 @@ class OMFS_PT_text(bpy.types.Panel):
         if part is None:
             if active is not None and active.type == 'MESH' and active.omfs.role in text_labels.ANATOMY:
                 draw_text(layout, context, f"{active.name}: anatomie du CBCT ou du scanner, jamais modifiée. "
-                                           "Écrivez sur un modèle, un guide ou une copie de travail.")
+                                           "Écrivez sur un modèle, un guide ou une chape.")
             layout.prop(context.scene, "omfs_text_target")
             return
         if part != active and not text_labels.is_label(active):
@@ -921,19 +921,6 @@ class OMFS_PT_guide(bpy.types.Panel):
         draw_text(layout, context, "Atelier d'outils natifs de Blender. Survolez un bouton pour son "
                                    "explication, son raccourci et l'équivalent Meshmixer.")
         box = layout.box()
-        box.label(text="Copie de travail (zones)", icon='DUPLICATE')
-        row = box.row(align=True)
-        copy = guide_workshop.current_copy(context)
-        if copy is None:
-            row.prop(props, "source", text="")
-            tool_button(row, 'WORK_COPY', text="Copier")
-        else:
-            row.label(text=copy.name)
-            hidden = copy.hide_get()
-            row.operator("omfs.guide_tool", text="", icon='HIDE_ON' if hidden else 'HIDE_OFF',
-                         depress=not hidden).tool = 'TOGGLE_WORK_COPY'
-            tool_button(row, 'REMOVE_WORK_COPY', text="")
-        box = layout.box()
         guide = guide_workshop.target_guide(context)
         box.label(text="Guide à modifier", icon='MOD_BUILD')
         if guide is None:
@@ -1003,6 +990,11 @@ def make_guide_section(section_id, title, text):
                 col.label(text=f"{active.name}: flèches bleues = longueur, orange = diamètre", icon='MESH_CYLINDER')
                 col.prop(active.omfs_cylinder, "diameter")
                 col.prop(active.omfs_cylinder, "length")
+        if section_id == 'ZONES':
+            layout.prop(context.scene.omfs_guide, "source")
+            source = guide_workshop.paint_source(context)
+            if context.scene.omfs_guide.source is None and source is not None:
+                layout.label(text=f"   par défaut: {source.name}", icon='LINKED')
         if section_id in {'ZONES', 'MASK'} and guide_workshop.current_copy(context) is not None:
             layout.label(text=guide_workshop.zone_summary(context), icon='FACE_MAPS')
         if section_id == 'PINS':

@@ -166,12 +166,31 @@ Naming used below (matches the object roles in code):
   guide, teeth, scans in front are passed through). Several in a row. The panel lists "Vis 1:
   14.32 mm" with the objects of entry and exit. Each end can be moved: it slides on the bone surface
   under the mouse (the surface is the absolute reference), a click fixes it, the length follows.
-  Still to come: collision checks (roots, nerve), both cortices engaged, the sleeve channel.
+  Still to come: collision checks (roots, nerve), both cortices engaged. The sleeve cylinders now take
+  their axis from these screws (Step 8, cutting guide).
 
 ## Step 8. Design the guides
 
 - Two separate devices, each its own object in Blender: a cutting guide and a positioning guide.
 - Designs will vary a lot between cases, so version 1 focuses on generic building tools, not fixed templates.
+
+### Order of operations (surgeon, 2026-11-04)
+
+1. Simulate the osteotomy (Step 4).
+2. Create the cutting guide: shape and extent (zones painted on the bone, extracted; cut edge).
+3. Hide the guide and simulate the segment's movement (Step 5).
+4. Place the final bicortical screws (Step 7), segment in its planned position.
+5. Back to the guide: place the pins' females (usually a little away from the screws so the Booleans
+   miss them, but crossing is acceptable).
+6. Move the guide with the genioplasty ("Appliquer le même mouvement au guide de coupe"): the pins
+   follow it (their Empties move, every part is rebuilt there).
+7. Create the arms from the cap to the pins, where the pins are now.
+8. Create and adjust the drill-sleeve cylinders (tube and bore): their axis is the final screw's,
+   their position along it is chosen by the surgeon (click near the screw, slide, click); arrows and
+   diameter stay adjustable until the Booleans are applied.
+9. Mega Boolean, in order: unions (bosses, bridges, tubes), then differences (pin bores, sleeve
+   bores), the cut edge, and last the small holes that fix the guide to the bone. A sleeve tube or
+   hole crossing a male pin or arm of the cap is subtracted from the cap too. Then the cap's own stack.
 
 ### Tool 1: surface-to-shell
 
@@ -251,12 +270,17 @@ Naming used below (matches the object roles in code):
 - The transition between the two thicknesses should be smooth.
 - Drill-sleeve tubes: for each bicortical screw from Step 7, a tube is extruded from the cutting guide along the screw axis. Its inner diameter is the Step 7 cylinder (sleeve outer diameter + clearance), so it holds a drill sleeve. Tube length and wall thickness are adjustable per tube. Defaults: length 5 mm, wall thickness 3 mm.
 - Because the cutting guide moves with the chin segment, the tubes end up aligned with the planned screw paths once the positioning guide sets the segment in place.
+- Done (2026-11-04, sleeves.py): the sleeve cylinders take the axis of a final screw (Step 7); click near
+  the screw, the cylinder slides along its axis with the mouse, a click fixes it; the tube is united to
+  the guide and the bore subtracted at once (live modifiers: arrows and diameter still adjust them).
 
 ### Tool 2: screw holes (to fix the guide itself)
 
 - Separate from the bicortical screws of Step 7. These only hold the guide to the bone.
 - Click a point on the guide to place a fixation screw hole.
 - Holes accommodate the Synthes 1.85 mm screws. Hole diameter adjustable (default sized for 1.85 mm screws, exact clearance after test prints). Hole axis: TO DEFINE (perpendicular to the bone surface by default?).
+- First version (2026-11-04): a click on the guide gives a hole of FIXATION_HOLE_DIAMETER (2.0 mm, TO TEST)
+  through the guide along the surface normal there, subtracted last in the Mega Boolean.
 
 ### Tool 3: text labels
 

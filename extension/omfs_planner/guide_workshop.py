@@ -4,7 +4,11 @@ A learning bench, not an automatic guide builder: each button runs a native Blen
 (sculpt face sets and mask, Edit Mode selection, modifiers, Boolean...) and its tooltip explains what it does,
 its keyboard shortcut and the closest Meshmixer tool. The texts are in French, for the surgeon.
 
-Anatomy is never edited: the work happens on a copy of the chosen bone or teeth.
+Anatomy is never edited. Zones are painted "on the bone": the surgeon picks the bone (or teeth) and
+paints, and the painting really happens on a copy put in its place automatically (the bone hidden
+while painting, shown again after the extraction). Face sets and the mask are values stored on the
+mesh, and a Sculpt stroke can still move vertices (Shift = smooth): on the CBCT mesh itself that
+would break "CBCT mesh data is never modified".
 """
 
 from collections import namedtuple
@@ -12,6 +16,7 @@ from math import radians
 
 import bpy
 import numpy as np
+from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
 from . import cylinders, landmarks, locking, osteotomy, params, pins
@@ -30,7 +35,18 @@ BRUSHES = {   # section 7: essentials brush -> (label, icon, what it does, Meshm
     "Grab": ("Pinceau Grab (tirer)", 'VIEW_PAN',
              "Attrape la surface et la déplace avec la souris, sans ajouter de matière.", "Sculpt > Drag"),
 }
+# Shown under every tool of section 7: the keys worth knowing with a brush in hand (Sculpt Mode).
+SCULPT_KEYS = ("Raccourcis en Sculpture (souris dans la vue):\n"
+               "• Ctrl + glisser: effet inverse (+ ↔ −): Clay Strips retire, Flatten accentue, Mask efface\n"
+               "• F puis bouger la souris: taille du pinceau (clic pour valider)\n"
+               "• Maj+F puis bouger la souris: force du pinceau\n"
+               "• Maj + glisser: lisser, quel que soit le pinceau\n"
+               "• Ctrl+Z: annuler le dernier trait")
 SHELL_GROUP = "Coque (Solidify)"   # filled by the Solidify modifier, see smooth_outside
+# Boolean solver on the guide. Exact, after the pins' unions (boss tops flush with the plane, the
+# bridges' too), left a few open edges; the cut box's Difference on that then kept part of the box
+# (case1: a 400 mm cube over the guide). Manifold gave a clean closed guide on the same stack.
+SOLVER = 'MANIFOLD'
 
 # operator: a dedicated operator to draw instead of omfs.guide_tool (when the tool needs its own
 # adjustable settings in the Adjust Last Operation panel).
@@ -42,19 +58,21 @@ SECTIONS = (
     ('ZONES', "1. Zones (Face Sets)",
      "Peindre en mode Sculpture les zones utiles (appui du guide, fenêtre de coupe, fourreaux...): "
      "chaque trait crée une zone d'une nouvelle couleur, au bord net. Choisir une zone, puis "
-     "l'extraire en coque. Les zones ne déplacent aucun sommet et restent sur la copie de travail."),
+     "l'extraire en coque. On peint « sur l'os »: une copie identique prend sa place le temps de "
+     "peindre (l'os CBCT n'est jamais touché), puis l'os revient après l'extraction."),
     ('MASK', "1b. Masque (bord lissé, optionnel)",
      "Pour un bord de guide plus régulier: convertir la zone en masque, lisser son bord, puis "
-     "extraire. Le masque ne déplace aucun sommet: c'est une valeur posée sur la copie de travail."),
+     "extraire. Le masque ne déplace aucun sommet: c'est une valeur posée sur la surface peinte."),
     ('EDIT', "2. Mode Édition (sélection, extrusion)",
      "Travailler directement les sommets, arêtes et faces de l'objet actif (le guide, pas l'os). "
      "Tab entre et sort du mode Édition."),
     ('SHAPE', "3. Épaisseur et dégagement (modificateurs)",
      "Un modificateur change la forme affichée sans toucher au maillage, tant qu'il n'est pas "
      "appliqué. On peut donc régler les valeurs à volonté, puis appliquer à la fin."),
-    ('BOOLEAN', "4. Cylindres et Boolean (manchons)",
-     "Placer le curseur 3D sur l'os, y ajouter un cylindre aux dimensions du manchon, l'orienter, "
-     "puis l'unir au guide (tube) ou le soustraire (trou)."),
+    ('BOOLEAN', "4. Vis, manchons et Méga Boolean",
+     "Les vis finales (segment en position planifiée) donnent l'axe des manchons: cliquer près d'une vis, "
+     "glisser le cylindre le long de son axe, cliquer. Flèches et diamètre restent réglables jusqu'au "
+     "Méga Boolean, qui applique tout dans l'ordre: unions, différences, trait de coupe, trous de fixation."),
     ('OSTEO', "5. Trait de coupe (bord du guide)",
      "Coupe le guide exactement dans le plan d'ostéotomie et garde un seul côté: la face plane "
      "obtenue guide la lame. Si la coupe change dans Osteotomy, recliquez pour recaler le bord."),
@@ -116,10 +134,55 @@ def make_active(context, obj):
 
 
 def current_copy(context):
-    """The working copy, or None if there is none or it was deleted from the scene (the panel's
+    """The painting copy, or None if there is none or it was deleted from the scene (the panel's
     pointer keeps a deleted object alive in the file, outside every collection)."""
     copy = props(context).work_copy
     return copy if copy is not None and copy.name in context.scene.objects else None
+
+
+def paint_source(context):
+    """The bone or teeth zones are painted on: the one chosen, else the first bone (or segment)."""
+    source = props(context).source
+    if source is not None and source.name in context.scene.objects:
+        return source
+    return next((o for role in ('BONE', 'SEGMENT') for o in context.scene.objects
+                 if o.type == 'MESH' and o.omfs.role == role), None)
+
+
+def paint_copy(context):
+    """The copy zones are painted on, made the first time for the chosen bone (or None): same mesh
+    and colour, in the bone's place. The bone itself is never painted (see the module docstring)."""
+    source = paint_source(context)
+    if source is None:
+        return None
+    copy = current_copy(context)
+    if copy is not None and copy.get("omfs_copy_of") == source.name:
+        return copy
+    copy = next((o for o in context.scene.objects if o.get("omfs_copy_of") == source.name), None)
+    if copy is None:
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        copy = bpy.data.objects.new(f"{source.name} (zones)", source.data.copy())
+        copy.data.name = copy.name
+        workshop_collection(context.scene).objects.link(copy)
+        copy.matrix_world = source.matrix_world
+        copy.color = source.color
+        copy.omfs.role = 'OTHER'
+        copy.omfs.made_by = "workshop"
+        copy["omfs_copy_of"] = source.name
+    props(context).work_copy = copy
+    return copy
+
+
+def show_source(context):
+    """Back to the bone: the painting copy hidden, the bone shown (after an extraction, Object Mode)."""
+    copy = current_copy(context)
+    if copy is None:
+        return
+    copy.hide_set(True)
+    source = context.scene.objects.get(copy.get("omfs_copy_of", ""))
+    if source is not None:
+        source.hide_set(False)
 
 
 def is_guide(obj):
@@ -137,7 +200,7 @@ def target_guide(context):
 
 def editable_active(context):
     """The object the modelling tools act on: the active object if it is a free mesh (the guide,
-    a cylinder...), else the guide. The working copy is only for painting zones, and anatomy is
+    a cylinder...), else the guide. The painting copy is only for painting zones, and anatomy is
     locked: with either active, the tools go to the guide instead."""
     obj = context.active_object
     if (obj is not None and obj.type == 'MESH' and not locking.is_locked(obj)
@@ -174,90 +237,31 @@ def sleeve_bore_diameter():
     return params.SLEEVE_OUTER_DIAMETER + params.SLEEVE_FIT_CLEARANCE
 
 
-def add_cylinder(context, diameter, name):
-    """An adjustable cylinder at the cursor (cylinders.py), chosen as the Boolean tool."""
-    if context.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
-    obj = cylinders.add(context, diameter, params.SLEEVE_TUBE_LENGTH, name, workshop_collection(context.scene))
-    props(context).cutter = obj
-    return None
-
-
 # --- 0. Start ----------------------------------------------------------------------------
-
-@tool('WORK_COPY', "Créer une copie de travail", 'DUPLICATE', 'START',
-      "Copie l'os (ou les dents) choisi dans un nouvel objet modifiable et masque l'original. "
-      "Tout le travail (masque, extraction) se fait sur cette copie: l'anatomie reste intacte.",
-      "Edit > Duplicate", "Maj+D (en mode Objet)")
-def work_copy(context):
-    source = props(context).source
-    if source is None:
-        return "Choisissez d'abord l'objet de départ"
-    if context.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
-    copy = bpy.data.objects.new(f"{source.name} (copie de travail)", source.data.copy())
-    copy.data.name = copy.name
-    workshop_collection(context.scene).objects.link(copy)
-    copy.matrix_world = source.matrix_world
-    copy.omfs.role = 'OTHER'
-    copy.omfs.made_by = "workshop"
-    source.hide_set(True)
-    make_active(context, copy)
-    props(context).work_copy = copy
-    return None
-
-
-@tool('REMOVE_WORK_COPY', "Retirer la copie de travail", 'TRASH', 'START',
-      "Supprime la copie de travail (et son masque) et réaffiche l'original. Le guide extrait, lui, "
-      "est conservé. Annulable avec Ctrl+Z.",
-      "Supprimer un objet dans l'Object Browser", "X (en mode Objet)")
-def remove_work_copy(context):
-    copy = current_copy(context)
-    if copy is None:
-        return "Aucune copie de travail"
-    if context.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
-    source = props(context).source
-    mesh = copy.data
-    bpy.data.objects.remove(copy)
-    if mesh.users == 0:
-        bpy.data.meshes.remove(mesh)
-    if source is not None:
-        source.hide_set(False)
-    return None
-
-
-@tool('TOGGLE_WORK_COPY', "Cacher / montrer la copie", 'HIDE_OFF', 'START',
-      "Le guide extrait est posé exactement sur la copie de travail: cachez la copie pour cliquer le "
-      "guide (elle est cachée automatiquement après une extraction, et réaffichée pour peindre).",
-      "Hide (Object Browser, icône œil)", "H / Alt+H (en mode Objet)")
-def toggle_work_copy(context):
-    copy = current_copy(context)
-    if copy is None:
-        return "Aucune copie de travail"
-    if context.mode != 'OBJECT' and context.active_object == copy:
-        bpy.ops.object.mode_set(mode='OBJECT')
-    copy.hide_set(not copy.hide_get())
-    return None
-
 
 @tool('OBJECT_MODE', "Revenir en mode Objet", 'OBJECT_DATAMODE', 'START',
       "Quitte le mode Sculpture, Édition ou Peinture. En mode Objet on manipule des objets entiers "
       "(et l'outil Navigate fait tourner la vue au glisser).",
       "Quitter un outil (Accept / Cancel)", "Tab (depuis Édition), Ctrl+Tab (menu des modes)")
 def object_mode(context):
+    painting = context.active_object is not None and context.active_object == current_copy(context)
     if context.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
+    if painting:
+        show_source(context)
     return None
 
 
 # --- 1. Zones (face sets) ------------------------------------------------------------------
 
 def need_sculpt(context):
-    copy = current_copy(context)
+    copy = paint_copy(context)
     if copy is None:
-        return "Créez d'abord une copie de travail"
+        return "Choisissez l'os (ou les dents) sur lequel peindre"
     copy.hide_set(False)   # hidden after an extraction, so the guide can be clicked
+    source = context.scene.objects.get(copy["omfs_copy_of"])
+    if source is not None:
+        source.hide_set(True)   # the copy is in its place, painted instead
     if context.active_object != copy:
         make_active(context, copy)
     if context.mode != 'SCULPT':
@@ -280,7 +284,7 @@ def chosen_zone(context):
     or (None, error message)."""
     copy = current_copy(context)
     if copy is None:
-        return None, "Créez d'abord une copie de travail"
+        return None, "Peignez d'abord une zone"
     sets = face_sets(copy.data)
     if sets is None or len(sets) == 0:
         return None, "Peignez d'abord une zone"
@@ -430,7 +434,7 @@ def zone_show_all(context):
 
 @tool('ZONE_EXTRACT', "Extraire la zone en coque (guide)", 'MOD_SOLIDIFY', 'ZONES',
       "Crée un NOUVEL objet à partir de la zone choisie, collé à l'os, avec un dégagement et une "
-      "épaisseur réglables (modificateurs Displace + Solidify, section 3). La copie de travail ne change pas.",
+      "épaisseur réglables (modificateurs Displace + Solidify, section 3). L'os ne change pas.",
       "Edit > Extract (Offset + Thickness)", "")
 def zone_extract(context):
     return zone_to_mask(context) or mask_extract(context)
@@ -457,7 +461,7 @@ def activate_brush(brush):
 
 def mask_tools(prefix, section, need):
     """The mask tools of a section; `need(context)` brings the right object into Sculpt Mode
-    (the working copy in 1b, the active free mesh in 7) or returns an error."""
+    (the painted bone in 1b, the active free mesh in 7) or returns an error."""
     def run(action):
         def tool_run(context):
             return need(context) or action(context)
@@ -497,7 +501,7 @@ mask_tools('MASK_', 'MASK', need_sculpt)
 
 @tool('MASK_EXTRACT', "Extraire en coque (guide)", 'MOD_SOLIDIFY', 'MASK',
       "Crée un NOUVEL objet à partir de la zone masquée, collé à l'os, avec un dégagement et une "
-      "épaisseur réglables (modificateurs Displace + Solidify, section 3). La copie de travail ne change pas.",
+      "épaisseur réglables (modificateurs Displace + Solidify, section 3). L'os ne change pas.",
       "Edit > Extract (Offset + Thickness)", "")
 def mask_extract(context):
     error = need_sculpt(context)
@@ -541,11 +545,9 @@ def finish_extracted_guide(context, guide):
     # built on it: the shell would hide the vertices.
     for mod in guide.modifiers:
         mod.show_in_editmode = False
-    # The guide's footprint lies exactly on the working copy: hide the copy, or every click
-    # lands on it. Painting a zone shows it again.
-    copy = current_copy(context)
-    if copy is not None:
-        copy.hide_set(True)
+    # The guide's footprint lies exactly on the painted surface: back to the bone, the copy hidden
+    # (or every click lands on it). Painting a zone shows it again.
+    show_source(context)
 
 
 # --- 2. Edit Mode ------------------------------------------------------------------------
@@ -556,7 +558,7 @@ def finish_extracted_guide(context, guide):
 def edit_mode(context):
     copy = current_copy(context)
     if copy is not None and context.active_object not in (None, copy):
-        copy.hide_set(True)   # editing the guide: its vertices lie on the copy's surface
+        show_source(context)   # editing the guide: its vertices lie on the painted surface
     return need_mode(context, 'EDIT_MESH')
 
 
@@ -759,28 +761,51 @@ def apply_modifiers(context):
     return None
 
 
-def intrados(obj, bone, depsgraph):
-    """Boolean per vertex of obj: closer to the bone surface than GUIDE_PROTECT_DISTANCE
-    (the side of the guide that fits the bone)."""
-    tree = BVHTree.FromObject(bone, depsgraph, deform=False)   # mesh data only, in the bone's local coordinates
-    to_bone = bone.matrix_world.inverted() @ obj.matrix_world
-    scale = bone.matrix_world.to_scale().x       # 1 for our meshes (raw file coordinates)
+FITS_ON = {'BONE', 'SEGMENT', 'TEETH', 'SCAN'}   # surfaces a printed part fits on: its intrados faces them
+
+
+def intrados(obj, surfaces, depsgraph):
+    """Boolean per vertex of obj: closer than GUIDE_PROTECT_DISTANCE to one of the surfaces (the side
+    of a guide that fits the bone, of a cap that fits the teeth of the intra-oral scan)."""
     near = np.zeros(len(obj.data.vertices), bool)
-    for i, v in enumerate(obj.data.vertices):
-        _location, _normal, _index, distance = tree.find_nearest(to_bone @ v.co)
-        near[i] = distance is not None and distance * scale < params.GUIDE_PROTECT_DISTANCE
+    for surface in surfaces:
+        tree = BVHTree.FromObject(surface, depsgraph, deform=False)   # mesh data only, in its local coordinates
+        to_surface = surface.matrix_world.inverted() @ obj.matrix_world
+        scale = surface.matrix_world.to_scale().x  # 1 for our meshes (raw file coordinates)
+        for i, v in enumerate(obj.data.vertices):
+            if not near[i]:
+                _location, _normal, _index, distance = tree.find_nearest(to_surface @ v.co)
+                near[i] = distance is not None and distance * scale < params.GUIDE_PROTECT_DISTANCE
     return near
 
 
+def fitted_surfaces(context, obj):
+    """The bone, segment, teeth and intra-oral scans near the object (its bounding box grown by the
+    protect distance): the guide's intrados faces the bone, the cap's faces the scan."""
+    def box(o):
+        corners = np.array([tuple(o.matrix_world @ Vector(c)) for c in o.bound_box])
+        return corners.min(0), corners.max(0)
+    low, high = box(obj)
+    low, high = low - params.GUIDE_PROTECT_DISTANCE, high + params.GUIDE_PROTECT_DISTANCE
+    found = []
+    for o in context.scene.objects:
+        if o.type == 'MESH' and o.omfs.role in FITS_ON and o != obj:
+            a, b = box(o)
+            if (a <= high).all() and (b >= low).all():
+                found.append(o)
+    return found
+
+
 def protect_intrados(context, obj):
-    """Mask the intrados of an applied guide (Object Mode). Returns the number of protected vertices,
-    or an error message."""
-    bone = props(context).source or current_copy(context)
-    if bone is None:
-        return "Os sous le guide inconnu: recréez une copie de travail de cet os"
-    near = intrados(obj, bone, context.evaluated_depsgraph_get())
+    """Mask the intrados of an applied guide or cap (Object Mode). Returns the number of protected
+    vertices, or an error message."""
+    surfaces = fitted_surfaces(context, obj)
+    if not surfaces:
+        return f"Ni os ni scan près de {obj.name}"
+    near = intrados(obj, surfaces, context.evaluated_depsgraph_get())
     if not near.any():
-        return f"Aucune face du guide à moins de {params.GUIDE_PROTECT_DISTANCE:g} mm de {bone.name}"
+        return (f"Aucune face de {obj.name} à moins de {params.GUIDE_PROTECT_DISTANCE:g} mm de "
+                + ", ".join(o.name for o in surfaces))
     attribute = obj.data.attributes.get(MASK) or obj.data.attributes.new(MASK, 'FLOAT', 'POINT')
     attribute.data.foreach_set("value", near.astype(np.float32))
     obj.data.update()
@@ -804,9 +829,10 @@ def sculpt_on(context):
     return None
 
 
-@tool('POLISH_OUTSIDE', "Sculpter le guide, intrados protégé (distance à l'os)", 'SCULPTMODE_HLT', 'SCULPT',
+@tool('POLISH_OUTSIDE', "Sculpter guide ou chape, intrados protégé", 'SCULPTMODE_HLT', 'SCULPT',
       "Applique les modificateurs (la coque devient un vrai maillage), protège l'intrados par un masque "
-      "(tout ce qui est à moins de 1 mm de l'os, en gris foncé), puis passe en Sculpture avec le pinceau "
+      "(tout ce qui est à moins de 1 mm de l'os, des dents ou du scan intra-oral: l'intrados du guide comme "
+      "celui de la chape, en gris foncé), puis passe en Sculpture avec le pinceau "
       "Smooth. Polissez au glisser; les autres pinceaux de la barre de gauche (Clay Strips pour ajouter, "
       "Flatten pour aplatir...) sont aussi sans danger pour l'ajustement. F = taille, Maj+F = force.",
       "Sculpt > Robust Smooth avec l'intrados en Freeze", "Maj = lisser avec n'importe quel pinceau")
@@ -949,32 +975,21 @@ def polish_filter(context):
 
 # --- 4. Cylinders and Boolean ------------------------------------------------------------
 
-@tool('CURSOR_TOOL', "Placer le curseur 3D", 'PIVOT_CURSOR', 'BOOLEAN',
-      "Active l'outil Curseur: cliquez sur l'os pour y poser le curseur 3D (cercle rouge et blanc), "
-      "orienté selon la surface. Les cylindres seront créés là, perpendiculaires à l'os.",
-      "Aucun (le plus proche: Drop Pivot)", "Maj + clic droit (sans changer d'outil)")
-def cursor_tool(context):
-    if context.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
-    bpy.ops.wm.tool_set_by_id(name="builtin.cursor")
-    tool_props = context.workspace.tools.from_space_view3d_mode('OBJECT').operator_properties("view3d.cursor3d")
-    tool_props.use_depth = True          # on the surface under the mouse
-    tool_props.orientation = 'GEOM'      # Z axis along the surface normal
-    return None
-
-
-tool('ADD_BORE', "Cylindre: trou du manchon", 'MESH_CYLINDER', 'BOOLEAN',
-     f"Ajoute au curseur un cylindre du diamètre du manchon + jeu "
-     f"({params.SLEEVE_OUTER_DIAMETER} + {params.SLEEVE_FIT_CLEARANCE} mm), long de "
-     f"{params.SLEEVE_TUBE_LENGTH} mm. À soustraire du guide. Flèches bleues aux bouts: longueur "
-     "(l'autre bout reste en place); flèche orange: diamètre; ou tapez les valeurs.",
-     "Meshmix > primitives (cylindre)", "Maj+A > Mesh > Cylinder")(
-         lambda c: add_cylinder(c, sleeve_bore_diameter(), "Trou manchon"))
-tool('ADD_TUBE', "Cylindre: tube autour du manchon", 'MESH_CYLINDER', 'BOOLEAN',
-     f"Ajoute au curseur un cylindre plein (trou + 2 × paroi de {params.SLEEVE_TUBE_WALL} mm). "
-     "À unir au guide, puis soustraire le trou.",
-     "Meshmix > primitives (cylindre)", "Maj+A > Mesh > Cylinder")(
-         lambda c: add_cylinder(c, sleeve_bore_diameter() + 2 * params.SLEEVE_TUBE_WALL, "Tube manchon"))
+tool('ADD_TUBE', "Tube de manchon (sur une vis)", 'MESH_CYLINDER', 'BOOLEAN',
+     f"Cliquez près d'une vis finale: un cylindre plein (trou + 2 × paroi de {params.SLEEVE_TUBE_WALL} mm, "
+     f"long de {params.SLEEVE_TUBE_LENGTH} mm) apparaît sur l'axe de la vis; bougez la souris pour le glisser "
+     "le long de l'axe (il ne le quitte jamais), cliquez pour le fixer. Uni au guide aussitôt. Ensuite: flèches "
+     "bleues aux bouts = longueur, orange = diamètre, ou tapez les valeurs. Échap retire celui qui glisse.",
+     "Meshmix > primitives (cylindre), aligné à la main", "", operator="omfs.add_sleeve_tube")(lambda c: None)
+tool('ADD_BORE', "Trou de manchon (sur une vis)", 'MESH_CYLINDER', 'BOOLEAN',
+     f"Même geste que le tube: un cylindre du diamètre du manchon + jeu ({params.SLEEVE_OUTER_DIAMETER} + "
+     f"{params.SLEEVE_FIT_CLEARANCE} mm), {params.SLEEVE_BORE_OVERSHOOT:g} mm plus long que le tube à chaque "
+     "bout, sur l'axe de la vis, soustrait du guide aussitôt. Flèches et diamètre réglables ensuite.",
+     "Meshmix > primitives (cylindre), aligné à la main", "", operator="omfs.add_sleeve_bore")(lambda c: None)
+tool('FIXATION_HOLE', "Trou de fixation du guide (clic)", 'DOT', 'BOOLEAN',
+     f"Cliquez sur le guide où une vis le tiendra à l'os: un trou de {params.FIXATION_HOLE_DIAMETER} mm (vis "
+     "Synthes 1,85 mm + jeu) le traverse selon la normale à la surface. Soustrait en tout dernier.",
+     "Meshmix > primitives (cylindre) + Boolean Difference", "", operator="omfs.add_fixation_hole")(lambda c: None)
 
 
 def transform(op_name):
@@ -996,27 +1011,6 @@ tool('MOVE', "Déplacer", 'ORIENTATION_VIEW', 'BOOLEAN',
 tool('ROTATE', "Tourner", 'DRIVER_ROTATIONAL_DIFFERENCE', 'BOOLEAN',
      "Comme Déplacer: X / Y / Z pour l'axe, une valeur en degrés, Entrée.",
      "Transform (anneaux)", "R, puis X / Y / Z, puis un nombre")(transform("rotate"))
-
-
-def about_cursor(context):
-    """Rotation through the 3D cursor's point, about its Z axis (the bone normal where it was placed)."""
-    return {"orient_type": 'CURSOR', "orient_axis": 'Z', "constraint_axis": (False, False, True),
-            "center_override": context.scene.cursor.location}
-
-
-@tool('ROTATE_CURSOR', "Tourner autour de l'axe du curseur", 'ORIENTATION_CURSOR', 'BOOLEAN',
-      "Tourne l'objet actif autour de l'axe Z du curseur 3D (la normale à l'os où le curseur a été posé), "
-      "en passant par le point du curseur. Bougez la souris ou tapez des degrés, Entrée. "
-      "X / Y: tourner plutôt autour des autres axes du curseur.",
-      "Aucun (le plus proche: Transform après Drop Pivot)", "R, puis Z deux fois avec le pivot sur le curseur")
-def rotate_about_cursor(context):
-    if context.active_object is None:
-        return "Sélectionnez l'objet à tourner"
-    if locking.is_locked(context.active_object):
-        return "Cet objet est verrouillé (anatomie)"
-    with viewport(context):
-        bpy.ops.transform.rotate('INVOKE_DEFAULT', **about_cursor(context))
-    return None
 
 
 @tool('SNAP', "Aimanter à la surface", 'SNAP_ON', 'BOOLEAN',
@@ -1043,7 +1037,7 @@ def boolean(operation, name):
         if context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
         mod = obj.modifiers.new(f"{name} {cutter.name}", 'BOOLEAN')
-        mod.operation, mod.object, mod.solver = operation, cutter, 'EXACT'
+        mod.operation, mod.object, mod.solver = operation, cutter, SOLVER
         cutter.display_type = 'WIRE'      # see through the tool, it no longer counts as a solid
         order_booleans(obj)
         return None
@@ -1052,9 +1046,11 @@ def boolean(operation, name):
 
 def boolean_rank(mod):
     """Order of the Booleans in the stack: tubes added first, then holes dug (through the tubes too),
-    then the cut edge last (nothing sticks out past the osteotomy line)."""
+    then the cut edge (nothing sticks out past the osteotomy line), the guide's fixation holes last."""
     if mod.name == CUT_EDGE_MODIFIER:
         return 3
+    if cylinders.is_cylinder(mod.object) and mod.object.omfs_cylinder.kind == 'FIXATION':
+        return 4
     return 1 if mod.operation == 'UNION' else 2
 
 
@@ -1072,6 +1068,12 @@ tool('BOOL_UNION', "Unir au guide", 'SELECT_EXTEND', 'BOOLEAN',
 tool('BOOL_DIFFERENCE', "Soustraire du guide", 'SELECT_SUBTRACT', 'BOOLEAN',
      "Modificateur Boolean Difference: le cylindre « Avec » est creusé dans le guide actif.",
      "Edit > Boolean Difference", "")(boolean('DIFFERENCE', "Trou"))
+tool('MEGA_BOOLEAN', "Méga Boolean (guide puis chape)", 'MOD_BOOLEAN', 'BOOLEAN',
+     "Applique dans l'ordre tous les Boolean du guide: unions (bossages, ponts, tubes), différences "
+     "(logements, trous de manchon), trait de coupe, puis les trous de fixation. Un tube ou un trou qui "
+     "croise une pin de la chape (mâle ou bras) est aussi soustrait de la chape, puis la chape est appliquée "
+     "(unions, puis différences). Les outils sont cachés, pas supprimés. Annulable avec Ctrl+Z.",
+     "Edit > Boolean, un par un dans le bon ordre", "", operator="omfs.mega_boolean")(lambda c: None)
 
 
 # --- 5. Osteotomy line ---------------------------------------------------------------------
@@ -1105,7 +1107,7 @@ def cut_edge(keep_above):
         box.matrix_world = cut.matrix_world
         box.hide_set(True)                # still used by the Boolean while hidden
         mod = obj.modifiers.get(CUT_EDGE_MODIFIER) or obj.modifiers.new(CUT_EDGE_MODIFIER, 'BOOLEAN')
-        mod.operation, mod.object, mod.solver = 'DIFFERENCE', box, 'EXACT'
+        mod.operation, mod.object, mod.solver = 'DIFFERENCE', box, SOLVER
         order_booleans(obj)
         return None
     return run
@@ -1192,28 +1194,22 @@ def mark_guide(context):
 # --- Recipe ------------------------------------------------------------------------------
 
 RECIPE = (
-    ("Guide de coupe (sur l'os)", (
-        "Copier la mandibule: Créer une copie de travail.",
-        "[1] Peindre une zone sur la corticale vestibulaire du menton, de part et d'autre du "
-        "trait de coupe. Agrandir ou Réduire au besoin; Isoler pour y voir clair.",
-        "[1] Extraire la zone en coque: un objet « Guide » apparaît avec Dégagement (0,10 mm) et "
-        "Épaisseur (3 mm). Pour un bord plus lisse: [1b] Zone → masque, Lisser le bord, Extraire.",
-        "[3] Régler les valeurs dans la liste des modificateurs; un Lissage léger si besoin.",
-        "[4] Pour chaque vis: Placer le curseur 3D sur l'os, Cylindre tube, Déplacer et Tourner "
-        "selon l'axe de la vis, choisir le tube dans « Avec », Unir au guide.",
-        "[4] Cylindre trou au même endroit, le choisir dans « Avec », Soustraire du guide.",
-        "[3] Remesh étanche, puis Appliquer les modificateurs.",
-        "[7] Sculpter le guide, intrados protégé, ou Lisser tout le non-masqué par passes.",
-        "[5] Garder au-dessus ou en dessous du trait: le bord du guide suit la coupe.",
-        "[8] Montrer les défauts (rien ne doit être sélectionné), Marquer comme guide.",
-    )),
-    ("Guide de repositionnement (sur les dents)", (
-        "Copier le scan intra-oral recalé: Créer une copie de travail.",
-        "[1] Peindre une zone sur les faces occlusales et vestibulaires des dents, pas la gencive.",
-        "[1] Extraire la zone en coque, puis [3] régler Dégagement et Épaisseur.",
-        "[2] En mode Édition, sélectionner une zone et l'extruder vers le guide de coupe (bras de connexion).",
-        "[4] Boolean avec le guide de coupe placé en position finale, pour l'emboîtement.",
-        "[3] Remesh étanche, Appliquer; [8] Vérifier, Marquer comme guide.",
+    ("Guide de coupe et chape (génioplastie)", (
+        "Osteotomy: simuler le trait de coupe (plan d'ostéotomie).",
+        "[1] Choisir l'os dans « Peindre sur », peindre la zone du guide sur la corticale vestibulaire, de "
+        "part et d'autre du trait (l'os CBCT n'est jamais modifié), puis Extraire la zone en coque.",
+        "[3] Régler Dégagement et Épaisseur; [5] Garder au-dessus ou en dessous du trait (forme et étendue).",
+        "Cacher le guide; Mouvement du segment: simuler la génioplastie.",
+        "[4] Positionnement de vis bicorticale: poser les vis finales (segment en position planifiée).",
+        "[6] Retour au guide: ajouter les femelles des pins (un peu à l'écart des vis de préférence).",
+        "Mouvement du segment: Appliquer le même mouvement au guide de coupe (pins comprises).",
+        "[6] Bras depuis la chape: ils rejoignent les pins là où elles sont maintenant.",
+        "[4] Tubes et trous de manchon sur les vis: clic près de la vis, glisser le long de l'axe, clic; "
+        "ajuster longueur et diamètre avec les flèches.",
+        "[4] Trous de fixation du guide (clic sur le guide).",
+        "[4] Méga Boolean: unions, différences (aussi sur les pins de la chape s'ils se croisent), trait de "
+        "coupe, trous de fixation.",
+        "[7] Sculpter guide ou chape, intrados protégé; [8] Montrer les défauts, Marquer comme guide.",
     )),
 )
 
@@ -1232,19 +1228,19 @@ def _is_source(_props, obj):
 
 
 class OMFS_GuideProperties(bpy.types.PropertyGroup):
-    source: bpy.props.PointerProperty(name="Copier", type=bpy.types.Object, poll=_is_source,
-                                      description="Os, segment ou dents sur lequel le guide s'appuie: "
-                                                  "on en fait une copie de travail pour y peindre les zones")
+    source: bpy.props.PointerProperty(name="Peindre sur", type=bpy.types.Object, poll=_is_source,
+                                      description="Os, segment ou dents sur lequel le guide s'appuie (par "
+                                                  "défaut l'os): on y peint les zones, l'os CBCT n'est jamais modifié")
     guide: bpy.props.PointerProperty(name="Guide", type=bpy.types.Object, poll=lambda _p, o: is_guide(o),
                                      update=lambda self, context: _on_guide(context),
                                      description="Guide que les outils modifient (le dernier extrait, par défaut)")
-    work_copy: bpy.props.PointerProperty(name="Copie de travail", type=bpy.types.Object)
+    work_copy: bpy.props.PointerProperty(name="Surface peinte", type=bpy.types.Object)
     zone: bpy.props.IntProperty(name="Zone", min=0, description="Face set chosen by clic (0 = the last painted)")
     sharp_angle: bpy.props.FloatProperty(
         name="Angle aigu", subtype='ANGLE', min=radians(1), max=radians(180),
         default=radians(params.SCULPT_SHARP_ANGLE),
         description="Découper en zones: deux faces voisines qui font plus que cet angle sont dans des "
-                    "zones différentes (petit angle = plus de zones, bords plus fins)")
+                    "zones différentes (petit angle = plus de zones, bords plus fins).\n" + SCULPT_KEYS)
     cutter: bpy.props.PointerProperty(name="Avec", type=bpy.types.Object,
                                       poll=lambda _p, o: o.type == 'MESH' and not locking.is_locked(o),
                                       description="Objet outil du Boolean (ex. un cylindre)")
@@ -1255,6 +1251,8 @@ def tool_description(t):
     if t.shortcut:
         lines.append(f"Raccourci Blender: {t.shortcut}")
     lines.append(f"Meshmixer: {t.meshmixer}")
+    if t.section == 'SCULPT':
+        lines.append(SCULPT_KEYS)
     return "\n".join(lines)
 
 
@@ -1282,7 +1280,7 @@ class OMFS_OT_select_linked_flat(bpy.types.Operator):
 
 
 class OMFS_OT_pick_zone(bpy.types.Operator):
-    """Click a zone (face set) on the working copy to choose it (Esc or right-click to cancel)"""
+    """Click a painted zone (face set) to choose it (Esc or right-click to cancel)"""
     bl_idname = "omfs.pick_zone"
     bl_label = "Choisir la zone"
 
@@ -1293,13 +1291,13 @@ class OMFS_OT_pick_zone(bpy.types.Operator):
     def invoke(self, context, event):
         copy = current_copy(context)
         if copy is None:
-            self.report({'WARNING'}, "Créez d'abord une copie de travail")
+            self.report({'WARNING'}, "Peignez d'abord une zone")
             return {'CANCELLED'}
         self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
             (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
         if self.area is None:
             return {'CANCELLED'}
-        self.area.header_text_set("Cliquez une zone de la copie de travail   |   Échap / clic droit: annuler")
+        self.area.header_text_set("Cliquez une zone peinte   |   Échap / clic droit: annuler")
         context.window.cursor_modal_set('EYEDROPPER')
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
@@ -1321,7 +1319,7 @@ class OMFS_OT_pick_zone(bpy.types.Operator):
         face = landmarks.object_face_hit(context, *under_mouse, copy)
         sets = face_sets(copy.data)
         if face is None or sets is None:
-            self.report({'WARNING'}, "Cliquez sur une zone peinte de la copie de travail")
+            self.report({'WARNING'}, "Cliquez sur une zone peinte")
             return {'RUNNING_MODAL'}
         props(context).zone = int(sets[face])
         self.finish(context)

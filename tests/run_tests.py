@@ -278,9 +278,10 @@ def test_guide_workshop():
         error = guide_workshop.TOOLS[tool_id].run(bpy.context)
         assert error is None, f"{tool_id}: {error}"
 
-    run('WORK_COPY')
-    copy = scene.omfs_guide.work_copy
-    assert copy is not None and copy.data != bone.data and bone.hide_get() and not locking.is_locked(copy)
+    copy = guide_workshop.paint_copy(bpy.context)   # made by the first stroke (Sculpt needs a window)
+    assert copy is not None and copy.data != bone.data and not locking.is_locked(copy)
+    assert copy["omfs_copy_of"] == bone.name and guide_workshop.paint_copy(bpy.context) == copy, "made once"
+    bone.hide_set(True)                              # painting: the copy stands in for the bone
 
     # Sculpt operators crash without a window: stand in for Mask Extract's output (a shell with a
     # Solidify modifier) and test our post-processing of it.
@@ -292,25 +293,22 @@ def test_guide_workshop():
     assert abs(guide.modifiers[1].thickness - params.GUIDE_THICKNESS) < 1e-6
     assert not guide.modifiers[1].use_even_offset, "even thickness spikes at sharp border folds"
     assert copy.hide_get(), "the copy is hidden after an extraction: clicks must reach the guide"
+    assert not bone.hide_get(), "and the bone is back"
     assert not any(m.show_in_editmode for m in guide.modifiers), "Edit Mode shows the footprint, not the shell"
-    run('TOGGLE_WORK_COPY')
-    assert not copy.hide_get()
+    copy.hide_set(False)
     assert scene.omfs_guide.guide == guide, "the extracted guide is the one the tools modify"
     guide_workshop.make_active(bpy.context, copy)
     run('ADD_CLEARANCE')                             # copy active: the modifier goes to the guide
     assert not copy.modifiers and bpy.context.active_object == guide
     assert [m.type for m in guide.modifiers] == ['DISPLACE', 'SOLIDIFY'], "updated, not duplicated"
 
-    # Cylinders at the 3D cursor, Boolean, apply.
-    scene.cursor.location = (-300, 0, 10)
-    run('ADD_TUBE')
-    tube = bpy.context.active_object
-    assert abs(tube.dimensions.x - (guide_workshop.sleeve_bore_diameter() + 2 * params.SLEEVE_TUBE_WALL)) < 1e-3
-    assert scene.omfs_guide.cutter == tube, "the new cylinder is the Boolean tool"
+    # Adjustable cylinders, Boolean, apply.
+    coll = guide_workshop.workshop_collection(scene)
+    tube = cylinders.add(bpy.context, 10.0, params.SLEEVE_TUBE_LENGTH, "Tube", coll, Matrix.Translation((-300, 0, 10)))
+    assert abs(tube.dimensions.x - 10.0) < 1e-3
     # Adjustable: pulling the top end keeps the bottom end in place; typed sizes are exact.
-    scene.cursor.rotation_euler = (radians(90), 0, 0)                  # axis along -Y
-    run('ADD_BORE')
-    bore = bpy.context.active_object
+    bore = cylinders.add(bpy.context, 4.1, params.SLEEVE_TUBE_LENGTH, "Bore", coll,
+                         Matrix.LocRotScale(Vector((-300, 0, 10)), Euler((radians(90), 0, 0)).to_quaternion(), None))
     bottom = bore.location - cylinders.axis(bore) * bore.omfs_cylinder.length / 2
     cylinders.set_length(bore, 12.0, 'BOTTOM')
     bpy.context.view_layer.update()
@@ -319,7 +317,6 @@ def test_guide_workshop():
     bpy.context.view_layer.update()
     assert abs(bore.dimensions.x - 4.25) < 1e-3 and abs(bore.dimensions.z - 12.0) < 1e-3
     bpy.data.objects.remove(bore)
-    scene.cursor.rotation_euler = (0, 0, 0)
     guide_workshop.make_active(bpy.context, guide)
     scene.omfs_guide.cutter = tube
     run('BOOL_UNION')
@@ -345,9 +342,8 @@ def test_guide_workshop():
 
     bpy.context.view_layer.objects.active = bone
     assert guide_workshop.editable_active(bpy.context)[0] == guide, "locked anatomy: the tools act on the guide"
-    run('REMOVE_WORK_COPY')
-    assert scene.omfs_guide.work_copy is None and not bone.hide_get()
     assert [tuple(v.co) for v in bone.data.vertices] == vertices_before, "the bone must never change"
+    bpy.data.objects.remove(copy)
 
 
 def test_guide_cut_edge():
@@ -1029,6 +1025,53 @@ def test_polish_protects_intrados():
     for obj in (guide, bone):
         bpy.data.objects.remove(obj)
 
+    # A cap on an intra-oral scan: its intrados (facing the scan) is protected the same way.
+    scan = box_object("Polish scan", 'SCAN', (0, 300, 0), (40, 40, 20))
+    cap = box_object("Polish cap", 'GUIDE', (0, 300, 10 + params.GUIDE_CLEARANCE + 1.5), (20, 20, 3))
+    protected = guide_workshop.protect_intrados(bpy.context, cap)
+    z = np.array([v.co.z for v in cap.data.vertices]) + cap.matrix_world.translation.z
+    mask = np.array([d.value for d in cap.data.attributes[guide_workshop.MASK].data])
+    assert protected > 0 and np.all(z[mask == 1] < 11) and np.all(z[mask == 0] > 12), "the scan side is protected"
+    for obj in (cap, scan):
+        bpy.data.objects.remove(obj)
+
+
+def test_sleeves_on_screws_and_mega_boolean():
+    from omfs_planner import sleeves
+    scene = bpy.context.scene
+    guide = box_object("Sleeve guide", 'GUIDE', (0, 600, 0), (30, 10, 10))
+    scene.omfs_guide.guide = guide
+    screw = screws.add_screw(scene, Vector((0, 590, 0)), "a", Vector((0, 615, 0)), "b")   # along +Y, through the guide
+    found, t = sleeves.nearest_screw(scene, Vector((1, 593, 50)), Vector((0, 0, -1)))
+    assert found == screw and abs(t - 3) < 1e-4, "the click picks the screw, at its point under the mouse"
+    assert sleeves.nearest_screw(scene, Vector((40, 593, 50)), Vector((0, 0, -1)))[0] is None, "too far: none"
+    tube = sleeves.add_sleeve(bpy.context, guide, 'TUBE', screw, -2.0)
+    assert (cylinders.axis(tube) - Vector((0, 1, 0))).length < 1e-6, "along the screw"
+    assert (tube.matrix_world.translation - Vector((0, 588, 0))).length < 1e-4, "where it was slid to"
+    sleeves.add_boolean(guide, tube, 'UNION')
+    bore = sleeves.add_sleeve(bpy.context, guide, 'BORE', screw, -2.0)
+    sleeves.add_boolean(guide, bore, 'DIFFERENCE')
+    hole = sleeves.add_fixation_hole(bpy.context, guide, Vector((10, 600, 5)), Vector((0, 0, 1)))
+    cut = box_object("Sleeve cut", 'OTHER', (0, 600, -20), (50, 50, 20))
+    mod = guide.modifiers.new(guide_workshop.CUT_EDGE_MODIFIER, 'BOOLEAN')
+    mod.operation, mod.object = 'DIFFERENCE', cut
+    guide_workshop.order_booleans(guide)
+    assert [m.object for m in guide.modifiers] == [tube, bore, cut, hole], "unions, holes, cut edge, fixation last"
+    # A male of the cap crosses the tube: the tube is subtracted from the cap too.
+    cap = box_object("Sleeve cap", 'GUIDE', (0, 580, 20), (20, 10, 4))
+    male = box_object("Sleeve male", 'OTHER', (0, 588, 3), (2, 2, 30))
+    male.omfs.made_by = pins.PART_TAG
+    mod = cap.modifiers.new("male", 'BOOLEAN')
+    mod.operation, mod.object = 'UNION', male
+    scene.omfs_pins.cap = cap
+    report, error = sleeves.mega_boolean(bpy.context)
+    assert error is None and not guide.modifiers and not cap.modifiers, (report, error)
+    assert tube.name in report and bore.name in report and hole.name not in report, report
+    assert all(o.hide_get() for o in (tube, bore, hole, cut, male)), "the tools are put away"
+    scene.omfs_pins.cap = scene.omfs_guide.guide = None
+    for obj in (guide, cap, male, cut, tube, bore, hole, screw):
+        bpy.data.objects.remove(obj)
+
 
 def test_zones_by_angle_and_mask():
     box = box_object("Angle box", 'OTHER', (0, 400, 0), (10, 10, 10))
@@ -1642,15 +1685,15 @@ def test_deleted_work_copy_is_gone():
     bone = bpy.data.objects.new("Bone box", mesh)
     scene.collection.objects.link(bone)
     scene.omfs_guide.source = bone
-    assert guide_workshop.TOOLS['WORK_COPY'].run(bpy.context) is None
-    copy = guide_workshop.current_copy(bpy.context)
+    copy = guide_workshop.paint_copy(bpy.context)
     for coll in list(copy.users_collection):        # deleted in the viewport: the panel's pointer keeps it
         coll.objects.unlink(copy)
     assert guide_workshop.current_copy(bpy.context) is None
-    assert guide_workshop.TOOLS['ZONE_PAINT'].run(bpy.context) == "Créez d'abord une copie de travail"
+    again = guide_workshop.paint_copy(bpy.context)
+    assert again is not None and again != copy, "a new copy, not the deleted one"
     scene.omfs_guide.work_copy = None
-    bpy.data.objects.remove(copy)
-    bpy.data.objects.remove(bone)
+    for obj in (copy, again, bone):
+        bpy.data.objects.remove(obj)
 
 
 def test_boolean_order():
@@ -1753,6 +1796,27 @@ def test_pins():
     bm.from_mesh(guide.evaluated_get(dg).to_mesh())
     assert len(model_base.bmesh_pieces(bm)) == 1, "guide, bridge and boss: one solid"
     bm.free()
+
+    # The guide follows the segment after the pins were placed: the Empty moves with it, the parts
+    # are rebuilt there (not moved twice) and the arm reaches the pin where it is now.
+    scene.omfs_pins.cap = cap
+    pins.set_arm(scene, away, cap, Vector((0, -20, -30)), Vector((0, 0, -1)))
+    assert away in movement.companions(guide) and bridge not in movement.companions(guide)
+    shift = Matrix.Translation((2, -3, 4))
+    before = [bridge.matrix_world @ v.co for v in bridge.data.vertices]
+    for obj in movement.companions(guide):
+        obj[movement.GUIDE_PREOP] = [v for row in obj.matrix_world for v in row]
+        obj.matrix_world = shift @ obj.matrix_world
+    movement.rebuild_pins(scene)
+    after = [bridge.matrix_world @ v.co for v in bridge.data.vertices]
+    assert all((a - shift @ b).length < 1e-4 for a, b in zip(after, before)), "the bridge went with the guide"
+    arm = bpy.data.objects[pins.part_name(away, "bras")]
+    back = away.matrix_world.translation + axis * p.back_length
+    assert min((arm.matrix_world @ v.co - back).length for v in arm.data.vertices) < p.arm_diameter, \
+        "the arm reaches the pin where it is now"
+    movement.guide_back(guide)
+    again = [bridge.matrix_world @ v.co for v in bridge.data.vertices]
+    assert all((a - b).length < 1e-4 for a, b in zip(again, before)), "back with the guide"
     pins.remove_site(away)
     assert not guide.modifiers
     for obj in (guide, cap, bone, cut):

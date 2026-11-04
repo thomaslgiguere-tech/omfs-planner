@@ -21,6 +21,7 @@ import bpy
 COLLECTION = "Outils utilisés"
 USED = "omfs_tool"              # custom property: this object has been a Boolean operand
 HOME = "omfs_tool_home"         # the collection it came from
+HIDDEN = "omfs_tool_hidden"     # whether it was hidden when put away (a relinked object shows again)
 NEVER = {'BONE', 'TEETH', 'NERVE', 'SKIN', 'SCAN', 'SEGMENT', 'GUIDE', 'LANDMARK', 'REFERENCE', 'CUT',
          'BLOCK', 'ARCH', 'ANALYSIS'}
 NEVER_MADE_BY = {"dental model", "splint blank", "splint solid", "workshop"}
@@ -50,6 +51,7 @@ def operands(scene):
 
 def put_away(obj, coll):
     obj[HOME] = obj.users_collection[0].name if obj.users_collection else ""
+    obj[HIDDEN] = obj.hide_get()
     for other in list(obj.users_collection):
         other.objects.unlink(obj)
     coll.objects.link(obj)
@@ -59,6 +61,7 @@ def bring_back(obj, coll, scene):
     home = bpy.data.collections.get(obj.get(HOME, ""))
     (home if home is not None and home in scene.collection.children_recursive else scene.collection).objects.link(obj)
     coll.objects.unlink(obj)
+    obj.hide_set(obj.get(HIDDEN, False))   # case1: the cut box (400 mm) came back visible over the guide
 
 
 def unneeded_aids(scene):

@@ -247,11 +247,17 @@ GUIDE_PREOP = "omfs_preop"      # custom property: an object's pose before follo
 
 
 def companions(guide):
-    """The guide and the tools of its Boolean modifiers: they move as one, or the holes stay behind."""
+    """The guide, the tools of its Boolean modifiers and its pins' Empties: they move as one, or the
+    holes stay behind. The pins' parts are not moved but rebuilt from their Empties (pins.build_all),
+    so the arms from the cap reach the pins where they are now."""
     objects = [guide]
+    for obj in bpy.data.objects:
+        if obj.omfs.made_by == "pin site" and obj.omfs_pin.guide == guide and obj.name in bpy.context.scene.objects:
+            objects.append(obj)
     for mod in guide.modifiers:
         tool = mod.object if mod.type == 'BOOLEAN' else None
-        if tool is not None and tool not in objects and not locking.is_locked(tool) and not is_segment(tool):
+        if (tool is not None and tool not in objects and not locking.is_locked(tool) and not is_segment(tool)
+                and tool.omfs.made_by != "pin part"):
             objects.append(tool)
     return objects
 
@@ -267,6 +273,7 @@ def guide_follows(scene, segment, guide):
         if GUIDE_PREOP not in obj:
             obj[GUIDE_PREOP] = [v for row in obj.matrix_world for v in row]
         obj.matrix_world = w @ preop_of(obj)
+    rebuild_pins(scene)
 
 
 def guide_back(guide):
@@ -275,6 +282,13 @@ def guide_back(guide):
         if GUIDE_PREOP in obj:
             obj.matrix_world = preop_of(obj)
             del obj[GUIDE_PREOP]
+    rebuild_pins(bpy.context.scene)
+
+
+def rebuild_pins(scene):
+    from . import pins                # here: pins imports this module
+    bpy.context.view_layer.update()   # the Empties' new matrices
+    pins.build_all(scene)
 
 
 def guide_moved(guide):
