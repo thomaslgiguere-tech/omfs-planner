@@ -1563,6 +1563,45 @@ def test_used_tools_are_put_away():
         bpy.data.objects.remove(obj)
 
 
+def test_planning_aids_are_put_away():
+    scene = bpy.context.scene
+
+    def away(obj):
+        return tidy.COLLECTION in [c.name for c in obj.users_collection]
+
+    frame = reference_frame.find_frame(scene) or reference_frame.build(scene, FRAME_POINTS)
+    plane = frame.children[0]
+    plane.hide_set(False)
+    tidy.tidy(scene)
+    assert not away(plane), "a shown plane stays"
+    plane.hide_set(True)
+    tidy.tidy(scene)
+    assert away(plane) and not away(frame), "a hidden plane goes away, never the frame"
+    plane.hide_set(False)
+    tidy.tidy(scene)
+    assert not away(plane) and plane.parent == frame, "shown again: back"
+
+    curve = bpy.data.objects.new("Aids curve", bpy.data.curves.new("Aids curve", 'CURVE'))
+    curve.omfs.role = 'ARCH'
+    blank = bpy.data.objects.new("Aids blank", bpy.data.meshes.new("Aids blank"))
+    blank.omfs.made_by = splint.BLANK_TAG
+    solid = bpy.data.objects.new("Aids solid", bpy.data.meshes.new("Aids solid"))
+    solid.omfs.made_by = splint.SOLID_TAG
+    for obj in (curve, blank):
+        scene.collection.objects.link(obj)
+    blank.hide_set(True)
+    tidy.tidy(scene)
+    assert not away(curve), "no solid splint yet: the curve is needed"
+    scene.collection.objects.link(solid)
+    tidy.tidy(scene)
+    assert away(curve), "solidified, blank hidden: the curve goes away"
+    blank.hide_set(False)
+    tidy.tidy(scene)
+    assert not away(curve), "the blank shown again (to change it): the curve comes back"
+    for obj in (curve, blank, solid):
+        bpy.data.objects.remove(obj)
+
+
 def test_deleted_work_copy_is_gone():
     scene = bpy.context.scene
     verts, tris = make_test_case.box((0, 0, 0), (10, 10, 10))

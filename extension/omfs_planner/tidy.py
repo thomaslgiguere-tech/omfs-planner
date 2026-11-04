@@ -8,6 +8,10 @@ modifier uses it again (Ctrl+Z, a new Boolean), it goes back to the collection i
 models, guides, splints and planning objects are never moved, even when used by a Boolean (the
 intersection volume of Section & Analysis uses the bone, for instance).
 
+Planning aids go there too when they are not needed: the reference planes while they are hidden
+(they come back when shown), the arch curve once a splint is solidified and its blank hidden (it
+comes back with the blank). The reference frame itself never moves: movements are expressed in it.
+
 A timer checks once a second, in Object Mode only: applying with Ctrl+A in Blender's own menu tidies
 up too, not only the OMFS buttons.
 """
@@ -44,31 +48,53 @@ def operands(scene):
     return {m.object for o in scene.objects for m in o.modifiers if m.type == 'BOOLEAN' and m.object is not None}
 
 
+def put_away(obj, coll):
+    obj[HOME] = obj.users_collection[0].name if obj.users_collection else ""
+    for other in list(obj.users_collection):
+        other.objects.unlink(obj)
+    coll.objects.link(obj)
+
+
+def bring_back(obj, coll, scene):
+    home = bpy.data.collections.get(obj.get(HOME, ""))
+    (home if home is not None and home in scene.collection.children_recursive else scene.collection).objects.link(obj)
+    coll.objects.unlink(obj)
+
+
+def unneeded_aids(scene):
+    """{planning aid: True if it can go away now} for the reference planes and the arch curve."""
+    from . import reference_frame, splint
+    aids = {}
+    frame = reference_frame.find_frame(scene)
+    if frame is not None:
+        for plane in frame.children:
+            aids[plane] = plane.hide_get()
+    curve = splint.find_curve(scene)
+    if curve is not None:
+        blank = splint.find_blank(scene)
+        aids[curve] = bool(splint.find_solids(scene)) and (blank is None or blank.hide_get())
+    return aids
+
+
 def tidy(scene):
-    """Mark the tools in use, put away the used ones no longer needed, bring back the ones needed
-    again. Returns the number of objects moved."""
+    """Mark the tools in use, put away the used ones no longer needed and the planning aids not
+    needed now, bring back those needed again. Returns the number of objects moved."""
     in_use = operands(scene)
-    moved = 0
     for obj in in_use:
         if can_be_tool(obj):
             obj[USED] = True
+    away = {obj: obj not in in_use for obj in scene.objects if obj.get(USED) and can_be_tool(obj)}
+    away.update(unneeded_aids(scene))
     coll = bpy.data.collections.get(COLLECTION)
-    for obj in list(scene.objects):
-        if not obj.get(USED) or not can_be_tool(obj):
-            continue
-        put_away = coll is not None and coll in obj.users_collection
-        if obj not in in_use and not put_away:
+    moved = 0
+    for obj, should_go in away.items():
+        is_away = coll is not None and coll in obj.users_collection
+        if should_go and not is_away:
             coll = used_collection(scene)
-            obj[HOME] = obj.users_collection[0].name if obj.users_collection else ""
-            for other in list(obj.users_collection):
-                other.objects.unlink(obj)
-            coll.objects.link(obj)
+            put_away(obj, coll)
             moved += 1
-        elif obj in in_use and put_away:
-            home = bpy.data.collections.get(obj.get(HOME, ""))
-            (home if home is not None and home.name in scene.collection.children_recursive
-             else scene.collection).objects.link(obj)
-            coll.objects.unlink(obj)
+        elif is_away and not should_go:
+            bring_back(obj, coll, scene)
             moved += 1
     return moved
 

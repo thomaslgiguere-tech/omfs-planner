@@ -534,6 +534,9 @@ the OMFS buttons or Blender's own Ctrl+A, or removed), it moves to a hidden "Out
 collection. Never deleted: if a modifier uses it again (Ctrl+Z, a new Boolean) it goes back to the
 collection it came from. Anatomy, models, guides, splints and planning objects never move, nor an
 object that has not been used yet. A timer checks once a second, in Object Mode only.
+Planning aids too (surgeon, same day): the reference planes while hidden (back when shown; the
+frame itself never moves), the arch curve once a splint is solidified and its blank hidden (back when
+the blank is shown again to change it).
 
 ## Cross-cutting tool: Section & Analysis
 
