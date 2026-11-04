@@ -229,6 +229,41 @@ def clean_border(bm, keep):
     return removed
 
 
+def remove_pinched(bm, origin):
+    """Remove the small parts hanging on the rest by one vertex only (a bow-tie): printed, such a
+    sliver of gingiva is a loose scrap, and Boolean solvers cut it off or fail on it. Parts bigger
+    than MODEL_PINCH_MAX vertices stay. Returns the scan indices (`origin` layer) of the vertices removed."""
+    removed = []
+    for vert in [v for v in bm.verts if v.is_valid and sum(e.is_boundary for e in v.link_edges) > 2]:
+        if not vert.is_valid:
+            continue
+        sides = []
+        seen = set()
+        for start in vert.link_faces:                    # the faces reached from each fan, never through vert
+            if start in seen:
+                continue
+            side, stack = set(), [start]
+            seen.add(start)
+            while stack and len(side) <= params.MODEL_PINCH_MAX:
+                face = stack.pop()
+                side.add(face)
+                for edge in face.edges:
+                    if vert in edge.verts:
+                        continue
+                    for other in edge.link_faces:
+                        if other not in seen:
+                            seen.add(other)
+                            stack.append(other)
+            sides.append((len(side) > params.MODEL_PINCH_MAX, side))
+        small = [side for big, side in sides if not big]
+        if len(sides) < 2 or len(small) == len(sides):
+            continue
+        for side in small:                               # the whole part goes, its edges too
+            removed += [v[origin] for v in {v for f in side for v in f.verts} - {vert}]
+            bmesh.ops.delete(bm, geom=list(side), context='FACES')
+    return removed
+
+
 def spike_tip(face):
     """The vertex between a face's two open edges, or None."""
     edges = [e for e in face.edges if e.is_boundary]
@@ -310,7 +345,14 @@ def build(scan, settings):
     bmesh.ops.delete(bm, geom=[bm.faces[i] for i in np.flatnonzero(remove)], context='FACES')
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
     keep_index(bm, keep)
-    cleaned = clean_border(bm, keep)
+    cleaned, pinched_origins = 0, []
+    for _ in range(10):                                  # removing a sliver can leave a new spike or bow-tie
+        cleaned += clean_border(bm, keep)
+        removed = remove_pinched(bm, origin)
+        keep_index(bm, keep)
+        if not removed:
+            break
+        pinched_origins += removed
 
     # Scraps cut off by the removal (keep the biggest piece only).
     bm.verts.ensure_lookup_table()
@@ -324,6 +366,7 @@ def build(scan, settings):
     on_edge = np.zeros(len(co), bool)                   # the scan's open border, or a scrap already loose in it
     on_edge[border] = True
     on_edge |= sizes_of[labels] < sizes_of.max()
+    on_edge[pinched_origins] = True                      # slivers hanging by one vertex
     for _ in range(2):                                  # and the next two rings in (slivers at the border)
         on_edge[edges[on_edge[edges[:, 0]], 1]] = True
         on_edge[edges[on_edge[edges[:, 1]], 0]] = True
@@ -345,6 +388,10 @@ def build(scan, settings):
     u, v = plane_basis(up)
     flat = np.stack((bottom @ u, bottom @ v), 1)
     flat = smooth_outline(flat, settings.outline_smooth)
+    extra = 0
+    while crossings(flat) and extra < params.MODEL_OUTLINE_SMOOTH_MAX:
+        flat = smooth_outline(flat, 10)                  # a wall crossing itself is not a solid
+        extra += 10
     bottom = np.outer(flat[:, 0], u) + np.outer(flat[:, 1], v) + base * up
     new = [bm.verts.new(p) for p in bottom]
     count = len(outer)
@@ -364,6 +411,7 @@ def build(scan, settings):
     report = {
         "kept": kept_vertices, "removed": len(co) - kept_vertices, "patched": patched, "palate": palate,
         "bar": bar, "up_vector": [float(x) for x in up],
+        "pinched": len(pinched_origins), "outline_extra_smooth": extra,
         "protected": protected, "protected_edge": int((lost & on_edge).sum()),
         "protected_removed": int((lost & ~on_edge).sum()), "cleaned": cleaned, "height": float(height),
         "outline_crossings": crossings(flat),
@@ -467,7 +515,7 @@ def crossings(flat):
 
 def set_bar(scene, obj, ends, diameter):
     """The horseshoe's bar: a cylinder between `ends` (local coordinates of the model), unioned by a
-    Boolean modifier (Exact solver). No ends: the bar and its modifier are removed."""
+    Boolean modifier (Manifold solver). No ends: the bar and its modifier are removed."""
     name = f"Barre — {obj.name}"
     bar = bpy.data.objects.get(name)
     mod = obj.modifiers.get("Barre de renfort")
@@ -493,8 +541,7 @@ def set_bar(scene, obj, ends, diameter):
     bar.hide_set(True)
     if mod is None:
         mod = obj.modifiers.new("Barre de renfort", 'BOOLEAN')
-        mod.operation = 'UNION'
-    mod.solver = 'EXACT'      # Manifold cuts off a part pinched at one vertex (case1: 46 vertices)
+        mod.operation, mod.solver = 'UNION', 'MANIFOLD'   # the model is a clean solid: no part pinched at a vertex
     mod.object = bar
 
 
@@ -758,6 +805,20 @@ def bite_stale(scene, result):
                for o, where in zip(objects, result["where"]))
 
 
+def pin_models(scene):
+    """(lower, upper) models joined by the repositioning pins: chosen in the panel, else the models
+    whose name says lower / upper."""
+    settings = scene.omfs_model
+    models = [o for o in scene.objects if is_model(o)]
+
+    def by_name(words):
+        return next((o for o in models if any(w in o.name.lower() for w in words)
+                     and not any(w in o.name.lower() for w in BITE_WORDS)), None)
+    lower = settings.pin_lower if is_model(settings.pin_lower) else by_name(LOWER_WORDS)
+    upper = settings.pin_upper if is_model(settings.pin_upper) else by_name(UPPER_WORDS)
+    return lower, upper
+
+
 def last_bite(scene):
     import ast
     return ast.literal_eval(scene.get("omfs_bite_check", "None"))
@@ -810,6 +871,10 @@ class OMFS_ModelSettings(bpy.types.PropertyGroup):
                                      description="Arcade du haut (par défaut: le scan dont le nom dit upper / haut)")
     lower: bpy.props.PointerProperty(name="Bas", type=bpy.types.Object, poll=lambda _s, o: is_scan(o),
                                      description="Arcade du bas (par défaut: le scan dont le nom dit lower / bas)")
+    pin_lower: bpy.props.PointerProperty(name="Modèle du bas", type=bpy.types.Object, poll=lambda _s, o: is_model(o),
+                                         description="Porte les femelles, debout sur sa base (par défaut: son nom dit lower / bas)")
+    pin_upper: bpy.props.PointerProperty(name="Modèle du haut", type=bpy.types.Object, poll=lambda _s, o: is_model(o),
+                                         description="Porte les bras et les pins mâles (par défaut: son nom dit upper / haut)")
     flip: bpy.props.BoolProperty(name="Inverser l'axe", default=False, update=_rebuild,
                                  description="Si la base apparaît du côté des dents")
 

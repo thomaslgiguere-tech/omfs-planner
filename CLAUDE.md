@@ -33,7 +33,7 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   splint.py                  Object creator: Splint / Chape (arch curve, blank, imprints, solid, text)
   cylinders.py               adjustable workshop cylinders (diameter, length) + their drag handles
   pins.py                    tubes and pins: conical females in the guide (stop on the osteotomy
-                             plane), males and curved arms on the cap
+                             plane), males and curved arms on the cap; same pins between the models
   text_labels.py             engraved / embossed text on a printed part (two clicks, Boolean cutter)
   model_base.py              Création de modèle: open arch scan closed into a printable model (wall,
                              flat base, bar on a horseshoe; teeth zone never trimmed)

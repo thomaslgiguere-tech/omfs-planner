@@ -804,6 +804,37 @@ class OMFS_PT_model(bpy.types.Panel):
             col.label(text="Fermé (étanche)" if report["open_edges"] == 0 else f"{report['open_edges']} arêtes ouvertes",
                       icon='CHECKMARK' if report["open_edges"] == 0 else 'ERROR')
         draw_bite_check(layout, context)
+        draw_model_pins(layout, context)
+
+
+def draw_model_pins(layout, context):
+    box = layout.box()
+    box.label(text="Pins de repositionnement (modèles)", icon='SNAP_ON')
+    draw_text(box, context, "Les mêmes pins que le guide: femelles debout sur la base du modèle du bas "
+                            "(clic, glisser, clic), une tige les relie au modèle; puis un bras depuis le "
+                            "modèle du haut pour chaque pin. Imprimés, les deux modèles s'emboîtent dans "
+                            "l'occlusion planifiée.")
+    settings = context.scene.omfs_model
+    lower, upper = model_base.pin_models(context.scene)
+    col = box.column(align=True)
+    for prop, found in (("pin_lower", lower), ("pin_upper", upper)):
+        col.prop(settings, prop)
+        if getattr(settings, prop) is None and found is not None:
+            col.label(text=f"   par défaut: {found.name}", icon='LINKED')
+    col = box.column(align=True)
+    col.operator("omfs.add_model_pin", icon='ADD')
+    col.operator("omfs.add_pin_arm", text="Bras depuis le modèle du haut (un clic par pin)",
+                 icon='CURVE_BEZCURVE').kind = 'MODEL'
+    p = context.scene.omfs_pins
+    col = box.column(align=True)
+    for name in ("base_diameter", "tip_diameter", "cone_length", "clearance", "shoulder_diameter", "back_length",
+                 "wall", "floor", "stem_diameter", "arm_diameter"):
+        col.prop(p, name)
+    for site in pins.sites(context.scene, 'MODEL'):
+        s = site.omfs_pin
+        row = box.row()
+        row.label(text=f"{site.name}: {'bras' if s.has_arm else 'femelle'}", icon='CHECKMARK' if s.has_arm else 'DOT')
+        row.operator("omfs.remove_pin", text="", icon='TRASH').site_name = site.name
 
 
 def draw_bite_check(layout, context):
@@ -893,7 +924,7 @@ def draw_pins_settings(layout, context):
     col.label(text="Bossage femelle et bras")
     for name in ("wall", "floor", "embed", "arm_diameter"):
         col.prop(p, name)
-    for site in pins.sites(context.scene):
+    for site in pins.sites(context.scene, 'GUIDE'):
         s = site.omfs_pin
         row = layout.row()
         state = "bras" if s.has_arm else ("mâle" if s.has_male else "femelle")

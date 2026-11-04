@@ -451,6 +451,25 @@ closed into printable dental models. Most important: the teeth (the dental segme
   already loose in the scan, holes patched, base outline crossings, closed (watertight).
 - Case1: lower 0.5 s (66,415 vertices kept, 0 removed in the teeth zone, 13 in a scrap already loose
   in the scan), upper 0.9 s (117,398 kept, palate kept whole, base at 28.2 mm), both closed.
+- Clean solids for Booleans (found adding pins, 2026-11-03): case1's upper model vanished under an
+  Exact Boolean (only the pin parts were left) because its base outline crossed itself once, and a
+  sliver of gingiva hanging by one vertex (bow-tie) was cut off by Manifold. Now the base outline is
+  smoothed further until it no longer crosses itself (case1: +10 and +140 passes), and parts hanging
+  by one vertex smaller than 300 vertices are removed (case1: 45 and 20 vertices, reported with the
+  border slivers, never counted as teeth). Both models are then fully manifold, and the Manifold solver
+  is used for the bar and the model pins (Exact left 252 non-manifold edges on the lower model).
+- Repositioning pins between the models (surgeon, 2026-11-03): the same pins as the cutting guide
+  (pins.py, kind 'MODEL'), so the two printed casts find the planned occlusion by plugging together.
+  - Female: click on the lower model, then move the mouse: the pin slides on the lower model's base
+    plane (the header shows its distance to the model), click to confirm. Its boss stands flat on
+    the base plane (prints on the build plate), its axis along the occlusal axis, opening up.
+  - Stem: a cylinder (Ø 5 mm, PIN_STEM_DIAMETER) flat on the base plane, from the boss to the closest
+    point of the model, 1.5 mm into it.
+  - Arm: one click on the upper model per pin, exactly as from the cap: leaves at 90 degrees, arrives
+    along the pin axis; the male is unioned to the upper model.
+  - Case1 (separate Blender, copy of the case, 3 pins): 0.4 s; both models one piece, manifold; arms
+    never touch the lower model; the only contact is the male's shoulder on the boss top (the stop):
+    lifted 0.02 mm, nothing touches.
 - Bite check (surgeon, 2026-11-03): the third STL ("bite" in its name) is a picture of the side of
   the intercuspation: a strip of upper teeth and a strip of lower teeth captured together. Its
   shape, not where the object sits, says whether the arches are in the right occlusion. The arches

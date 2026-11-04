@@ -14,12 +14,18 @@ Every part is a small closed mesh generated from the settings, used by a Boolean
 guide and the cap meshes are untouched until the modifiers are applied, and changing a setting
 rebuilds every part. Each connection is an Empty ("Pin 1"...) at its stop, Z along the pin axis
 (towards the teeth): the female, male and arm are rebuilt from it.
+
+The same pins join two printed dental models (model_base.py), so the casts find the planned
+occlusion again by plugging them together (kind 'MODEL'): the female stands on the lower model's
+base plane (its boss flat on the build plate), slid with the mouse in that plane, and a stem joins it
+to the model; the arm leaves the upper model.
 """
 
 import bpy
 import numpy as np
 from bpy_extras import view3d_utils
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 
 from . import landmarks, movement, osteotomy, params, reference_frame
 
@@ -126,8 +132,10 @@ def is_site(obj):
     return isinstance(obj, bpy.types.Object) and obj.omfs.made_by == SITE_TAG
 
 
-def sites(scene):
-    return sorted((o for o in scene.objects if is_site(o)), key=lambda o: o.omfs_pin.number)
+def sites(scene, kind='GUIDE'):
+    """The connections of the cutting guide ('GUIDE') or of the dental models ('MODEL'), in order."""
+    return sorted((o for o in scene.objects if is_site(o) and o.omfs_pin.kind == kind),
+                  key=lambda o: o.omfs_pin.number)
 
 
 def osteotomy_plane(scene, guide):
@@ -191,12 +199,19 @@ def build(scene, site):
     origin = site.matrix_world.translation
     axis = (site.matrix_world.to_3x3() @ Vector((0, 0, 1))).normalized()
     coll = site.users_collection[0]
-    warning = None
+    female_solver = 'MANIFOLD' if s.kind == 'MODEL' else 'EXACT'   # models are clean closed solids (case1:
+    warning = None                                                  # Exact left 252 non-manifold edges)
     if s.guide is not None:
         boss = make_part(part_name(site, "bossage"), *revolve(d["boss"], origin, axis), coll)
         bore = make_part(part_name(site, "logement"), *revolve(d["bore"], origin, axis), coll)
-        boolean_on(s.guide, boss, 'UNION', 'EXACT')
-        boolean_on(s.guide, bore, 'DIFFERENCE', 'EXACT')
+        boolean_on(s.guide, boss, 'UNION', female_solver)
+        if s.has_stem:
+            radius = scene.omfs_pins.stem_diameter / 2
+            bottom = origin - axis * (scene.omfs_pins.cone_length + scene.omfs_pins.floor)
+            path = np.linspace(np.array(bottom + axis * radius), np.array(s.stem_end), 8)
+            stem = make_part(part_name(site, "tige"), *tube(path, radius), coll)
+            boolean_on(s.guide, stem, 'UNION', female_solver)
+        boolean_on(s.guide, bore, 'DIFFERENCE', female_solver)
         guide_workshop.order_booleans(s.guide)
     if s.cap is not None and s.has_male:
         male = make_part(part_name(site, "mâle"), *revolve(d["male"], origin, axis), coll)
@@ -213,7 +228,7 @@ def build(scene, site):
 
 
 def build_all(scene):
-    warnings = [w for w in (build(scene, site) for site in sites(scene)) if w]
+    warnings = [w for kind in ('GUIDE', 'MODEL') for w in (build(scene, site) for site in sites(scene, kind)) if w]
     return "; ".join(warnings) or None
 
 
@@ -256,7 +271,7 @@ def set_arm(scene, site, cap, start, normal):
 
 
 def remove_site(site):
-    for kind in ("bossage", "logement", "mâle", "bras"):
+    for kind in ("bossage", "logement", "tige", "mâle", "bras"):
         part = bpy.data.objects.get(part_name(site, kind))
         if part is None:
             continue
@@ -268,6 +283,67 @@ def remove_site(site):
         if mesh.users == 0:
             bpy.data.meshes.remove(mesh)
     bpy.data.objects.remove(site)
+
+
+# --- Pins between two dental models -------------------------------------------------------------
+
+def model_base_plane(model):
+    """(point, unit up) of a model's flat base, in world coordinates: up points at the teeth."""
+    from . import model_base
+    report = model_base.last_report(model)
+    up_local = Vector(report["up_vector"]).normalized()
+    co = np.empty(len(model.data.vertices) * 3)
+    model.data.vertices.foreach_get("co", co)
+    lowest = float((co.reshape(-1, 3) @ np.array(up_local)).min())   # the base is the lowest along up
+    point = model.matrix_world @ (up_local * lowest)
+    return point, (model.matrix_world.to_3x3() @ up_local).normalized()
+
+
+def model_stop(scene, lower, foot):
+    """Pin stop above a point of the lower model's base plane: the boss stands on the plane."""
+    _point, up = model_base_plane(lower)
+    p = scene.omfs_pins
+    return foot + up * (p.cone_length + p.floor), up
+
+
+def stem_end(scene, lower, foot, up):
+    """Where the stem from the pin (at its foot, on the base plane) enters the lower model: the
+    closest point of the model at the stem's height, sunk STEM_SINK further in."""
+    radius = scene.omfs_pins.stem_diameter / 2
+    start = foot + up * radius
+    to_local = lower.matrix_world.inverted()
+    tree = BVHTree.FromPolygons([tuple(v.co) for v in lower.data.vertices],
+                                [tuple(f.vertices) for f in lower.data.polygons])
+    location = tree.find_nearest(to_local @ start)[0]
+    if location is None:
+        return None, None
+    near = lower.matrix_world @ location
+    flat = near - start
+    flat -= up * flat.dot(up)                            # stays on the base plane
+    distance = flat.length
+    if distance < 1e-6:
+        return start, 0.0
+    return start + flat.normalized() * (distance + params.PIN_STEM_SINK), distance
+
+
+def add_model_site(scene, lower, upper, foot):
+    """New connection standing on the lower model's base plane at `foot`. Returns the Empty."""
+    stop, up = model_stop(scene, lower, foot)
+    number = max((o.omfs_pin.number for o in sites(scene, 'MODEL')), default=0) + 1
+    site = bpy.data.objects.new(f"Pin modèle {number}", None)
+    site.empty_display_type = 'SINGLE_ARROW'
+    site.empty_display_size = 6.0
+    lower.users_collection[0].objects.link(site)
+    site.omfs.made_by = SITE_TAG
+    site.matrix_world = Matrix.LocRotScale(stop, up.to_track_quat('Z', 'Y'), None)
+    s = site.omfs_pin
+    s.kind, s.number, s.guide, s.cap = 'MODEL', number, lower, upper
+    end, _distance = stem_end(scene, lower, foot, up)
+    s.has_stem = end is not None
+    if end is not None:
+        s.stem_end = end
+    build(scene, site)
+    return site
 
 
 # --- Properties -------------------------------------------------------------------------------
@@ -296,6 +372,8 @@ class OMFS_PinSettings(bpy.types.PropertyGroup):
                             "Diamètre de la pin au-dessus du plan: il appuie sur le dessus du bossage", 0.5)
     back_length: _dim("Dos de la pin", params.PIN_BACK_LENGTH, "Longueur au-dessus du plan, jusqu'au bras", 0.3)
     arm_diameter: _dim("Ø du bras", params.PIN_ARM_DIAMETER, "Diamètre du tube qui part de la chape", 0.5)
+    stem_diameter: _dim("Ø de la tige", params.PIN_STEM_DIAMETER,
+                        "Modèles: diamètre de la tige qui relie la femelle au modèle du bas, au ras de la base", 0.5)
     cap: bpy.props.PointerProperty(name="Chape", type=bpy.types.Object,
                                    description="La chape (ou gouttière) qui porte les pins mâles et leurs bras")
 
@@ -303,12 +381,16 @@ class OMFS_PinSettings(bpy.types.PropertyGroup):
 class OMFS_PinSite(bpy.types.PropertyGroup):
     """One connection (on its Empty)."""
     number: bpy.props.IntProperty()
-    guide: bpy.props.PointerProperty(type=bpy.types.Object)
+    kind: bpy.props.EnumProperty(items=(('GUIDE', "Guide", "Guide de coupe et chape"),
+                                        ('MODEL', "Modèles", "Modèle du bas (femelle) et du haut (bras)")))
+    guide: bpy.props.PointerProperty(type=bpy.types.Object)   # the female's object (guide, lower model)
     cap: bpy.props.PointerProperty(type=bpy.types.Object)
     has_male: bpy.props.BoolProperty()
     has_arm: bpy.props.BoolProperty()
     arm_start: bpy.props.FloatVectorProperty(size=3, subtype='XYZ')
     arm_normal: bpy.props.FloatVectorProperty(size=3, subtype='XYZ', default=(0, 0, 1))
+    has_stem: bpy.props.BoolProperty()
+    stem_end: bpy.props.FloatVectorProperty(size=3, subtype='XYZ')
 
 
 # --- Clicking ---------------------------------------------------------------------------------
@@ -384,7 +466,7 @@ class OMFS_OT_add_pin_female(ClickOperator, bpy.types.Operator):
         return self.start(context, guide)
 
     def header(self, context):
-        return (f"Cliquez sur {self.target.name} où mettre une femelle ({len(sites(context.scene))} placées)"
+        return (f"Cliquez sur {self.target.name} où mettre une femelle ({len(sites(context.scene, 'GUIDE'))} placées)"
                 "   |   Clic droit / Entrée: terminer")
 
     def clicked(self, context, point, normal):
@@ -393,20 +475,25 @@ class OMFS_OT_add_pin_female(ClickOperator, bpy.types.Operator):
 
 
 class OMFS_OT_add_pin_arm(ClickOperator, bpy.types.Operator):
-    """For each pin in turn, click on the cap where its arm starts: the tube leaves the cap at 90
-    degrees and arrives on the pin's back along its axis, joined by a smooth curve"""
+    """For each pin in turn, click on the cap (or the upper model) where its arm starts: the tube
+    leaves at 90 degrees and arrives on the pin's back along its axis, joined by a smooth curve"""
     bl_idname = "omfs.add_pin_arm"
     bl_label = "Bras depuis la chape (un clic par pin)"
     bl_options = {'REGISTER', 'UNDO'}
 
+    kind: bpy.props.EnumProperty(items=(('GUIDE', "Guide", ""), ('MODEL', "Modèles", "")))
+
     def invoke(self, context, event):
-        self.queue = [s for s in sites(context.scene) if not s.omfs_pin.has_arm]
-        cap = context.scene.omfs_pins.cap
-        if cap is None:
-            self.report({'ERROR'}, "Choisissez la chape")
-            return {'CANCELLED'}
+        self.queue = [s for s in sites(context.scene, self.kind) if not s.omfs_pin.has_arm]
+        if self.kind == 'MODEL':
+            cap = self.queue[0].omfs_pin.cap if self.queue else None
+        else:
+            cap = context.scene.omfs_pins.cap
         if not self.queue:
             self.report({'ERROR'}, "Toutes les pins ont déjà un bras (ou ajoutez d'abord les femelles)")
+            return {'CANCELLED'}
+        if cap is None:
+            self.report({'ERROR'}, "Choisissez la chape" if self.kind == 'GUIDE' else "Choisissez le modèle du haut")
             return {'CANCELLED'}
         cap.hide_set(False)
         return self.start(context, cap)
@@ -420,6 +507,115 @@ class OMFS_OT_add_pin_arm(ClickOperator, bpy.types.Operator):
         if warning:
             self.report({'WARNING'}, warning)
         return not self.queue
+
+
+class OMFS_OT_add_model_pin(bpy.types.Operator):
+    """Place the females on the lower model's base: click the lower model, slide the pin with the
+    mouse (it stays on the base plane, the distance to the model shows in the header), click to
+    confirm; a stem joins it to the model. Right-click or Enter: done"""
+    bl_idname = "omfs.add_model_pin"
+    bl_label = "Ajouter les femelles (base du modèle du bas)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    PREVIEW = "Pin modèle: aperçu"
+
+    def invoke(self, context, event):
+        from . import model_base
+        self.lower, self.upper = model_base.pin_models(context.scene)
+        if self.lower is None or self.upper is None:
+            self.report({'ERROR'}, "Il faut le modèle du bas et le modèle du haut (Créer le modèle)")
+            return {'CANCELLED'}
+        self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
+            (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
+        if self.area is None:
+            return {'CANCELLED'}
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        self.plane = model_base_plane(self.lower)
+        self.sliding = False
+        self.added = 0
+        self.preview = None
+        self.area.header_text_set(self.header(None))
+        context.window.cursor_modal_set('CROSSHAIR')
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def header(self, distance):
+        if not self.sliding:
+            return (f"Cliquez sur la base du modèle du bas où mettre une femelle ({self.added} placées)"
+                    "   |   Clic droit / Entrée: terminer")
+        where = "dans le modèle" if distance is None else f"{distance:.1f} mm du modèle"
+        return f"Bougez la souris pour placer la femelle ({where}), clic: confirmer   |   Échap: annuler celle-ci"
+
+    def foot_under_mouse(self, region, mouse):
+        """Where the mouse ray meets the base plane, or None."""
+        origin = view3d_utils.region_2d_to_origin_3d(region, region.data, mouse)
+        direction = view3d_utils.region_2d_to_vector_3d(region, region.data, mouse)
+        point, up = self.plane
+        along = direction.dot(up)
+        if abs(along) < 1e-6:
+            return None
+        return origin + direction * ((point - origin).dot(up) / along)
+
+    def show_preview(self, context, foot):
+        scene = context.scene
+        stop, up = model_stop(scene, self.lower, foot)
+        d = dims(scene)
+        self.preview = make_part(self.PREVIEW, *revolve(d["boss"], stop, up), self.lower.users_collection[0])
+        _end, distance = stem_end(scene, self.lower, foot, up)
+        self.area.header_text_set(self.header(distance))
+
+    def drop_preview(self):
+        if self.preview is not None:
+            mesh = self.preview.data
+            bpy.data.objects.remove(self.preview)
+            bpy.data.meshes.remove(mesh)
+            self.preview = None
+
+    def finish(self, context):
+        self.drop_preview()
+        self.area.header_text_set(None)
+        context.window.cursor_modal_restore()
+        return {'FINISHED'}
+
+    def modal(self, context, event):
+        if event.value == 'PRESS' and event.type in {'RIGHTMOUSE', 'RET', 'NUMPAD_ENTER'}:
+            return self.finish(context)
+        if event.value == 'PRESS' and event.type == 'ESC':
+            if not self.sliding:
+                return self.finish(context)
+            self.sliding = False
+            self.drop_preview()
+            self.area.header_text_set(self.header(None))
+            return {'RUNNING_MODAL'}
+        under_mouse = landmarks.viewport_region_under_mouse(self.area, event)
+        if under_mouse is None:
+            return {'PASS_THROUGH'}
+        if event.type == 'MOUSEMOVE' and self.sliding:
+            foot = self.foot_under_mouse(*under_mouse)
+            if foot is not None:
+                self.show_preview(context, foot)
+            return {'RUNNING_MODAL'}
+        if event.type != 'LEFTMOUSE' or event.value != 'PRESS':
+            return {'PASS_THROUGH'}   # orbit, pan and zoom keep working
+        if not self.sliding:
+            if surface_hit(context, *under_mouse, self.lower) is None:
+                self.report({'WARNING'}, f"Cliquez sur {self.lower.name}")
+                return {'RUNNING_MODAL'}
+            self.sliding = True
+            foot = self.foot_under_mouse(*under_mouse)
+            if foot is not None:
+                self.show_preview(context, foot)
+            return {'RUNNING_MODAL'}
+        foot = self.foot_under_mouse(*under_mouse)
+        if foot is None:
+            return {'RUNNING_MODAL'}
+        self.drop_preview()
+        add_model_site(context.scene, self.lower, self.upper, foot)
+        self.added += 1
+        self.sliding = False
+        self.area.header_text_set(self.header(None))
+        return {'RUNNING_MODAL'}
 
 
 class OMFS_OT_remove_pin(bpy.types.Operator):
@@ -437,7 +633,8 @@ class OMFS_OT_remove_pin(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_PinSite, OMFS_PinSettings, OMFS_OT_add_pin_female, OMFS_OT_add_pin_arm, OMFS_OT_remove_pin)
+classes = (OMFS_PinSite, OMFS_PinSettings, OMFS_OT_add_pin_female, OMFS_OT_add_pin_arm, OMFS_OT_add_model_pin,
+           OMFS_OT_remove_pin)
 
 
 def register():

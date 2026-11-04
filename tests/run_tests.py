@@ -1107,6 +1107,62 @@ def test_model_base_horseshoe():
         bpy.data.objects.remove(obj)
 
 
+def horseshoe_scan(name, z, flip):
+    """An open U-shaped arch scan: a half tube cut open on its base side (below, or above if flipped)."""
+    verts, tris = make_test_case.arch_tube(arch_radius=25, tube_radius=4, z=z)
+    bm = bmesh.new()
+    for co in verts:
+        bm.verts.new(co)
+    bm.verts.ensure_lookup_table()
+    for tri in tris:
+        bm.faces.new([bm.verts[i] for i in tri])
+    side = 1 if flip else -1
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if (f.calc_center_median().z - z) * side > 2], context='FACES')
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    return open_scan(name, bm)
+
+
+def test_model_pins():
+    scene = bpy.context.scene
+    settings = scene.omfs_model
+    settings.teeth_band = 3.0
+    lower_scan = horseshoe_scan("Pins LowerJaw", 0, False)
+    upper_scan = horseshoe_scan("Pins UpperJaw", 9, True)
+    models = []
+    for scan in (lower_scan, upper_scan):
+        settings.scan = scan
+        assert bpy.ops.omfs.make_model() == {'FINISHED'}
+        models.append(model_base.model_of(scene, scan))
+    lower, upper = models
+    assert model_base.pin_models(scene) == (lower, upper), "found by name"
+    point, up = pins.model_base_plane(lower)
+    top = max(v.co.z for v in lower_scan.data.vertices)
+    assert up.z > 0.99 and abs(point.z - (top - settings.height)) < 1e-3, (point, up)
+    foot = point + Vector((0, -12, 0))                 # in the horseshoe's opening, near its middle
+    site = pins.add_model_site(scene, lower, upper, foot)
+    s = site.omfs_pin
+    p = scene.omfs_pins
+    assert s.kind == 'MODEL' and s.has_stem and pins.sites(scene, 'GUIDE') == []
+    stop = site.matrix_world.translation
+    assert abs((stop - point).dot(up) - (p.cone_length + p.floor)) < 1e-4, "the boss stands on the base plane"
+    arm_start = Vector((0, 25, 9 + 4))                 # top of the upper model's front, facing up... any point
+    assert pins.set_arm(scene, site, upper, arm_start, Vector((0, -1, 0))) is None
+    dg = bpy.context.evaluated_depsgraph_get()
+    for model in (lower, upper):
+        bm = bmesh.new()
+        bm.from_mesh(model.evaluated_get(dg).to_mesh())
+        assert len(model_base.bmesh_pieces(bm)) == 1, f"{model.name}: the pin parts join it into one solid"
+        assert all(e.is_manifold for e in bm.edges), model.name
+        bm.free()
+    for kind in ("bossage", "logement", "tige", "mâle", "bras"):
+        assert bpy.data.objects.get(pins.part_name(site, kind)) is not None, kind
+    pins.remove_site(site)
+    assert not any(m.type == 'BOOLEAN' and m.name.startswith("Pin modèle") for m in lower.modifiers)
+    settings.teeth_band = params.MODEL_TEETH_BAND
+    for obj in [o for o in bpy.data.objects if o.name.startswith("Barre —")] + [lower, upper, lower_scan, upper_scan]:
+        bpy.data.objects.remove(obj)
+
+
 def test_model_base_keeps_the_palate():
     scene = bpy.context.scene
     bm = bmesh.new()
