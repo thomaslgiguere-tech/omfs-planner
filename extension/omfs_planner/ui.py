@@ -784,6 +784,11 @@ class OMFS_PT_model(bpy.types.Panel):
                 col.label(text=f"Fer à cheval: base à {report['height']:.1f} mm"
                                + (", barre de renfort" if report["bar"] else ", sans barre"),
                           icon='CHECKMARK' if report["bar"] else 'ERROR')
+                if report["bar"]:
+                    joined = report["bar_anchored"] and report["pieces"] == 1
+                    col.label(text="Barre ancrée des deux côtés, modèle d'un seul morceau" if joined else
+                              f"Barre mal reliée ({report['pieces']} morceaux): changer le diamètre ou la hauteur",
+                              icon='CHECKMARK' if joined else 'ERROR')
             col.label(text=f"Scan gardé intact: {report['kept']} sommets (aucun déplacé)", icon='CHECKMARK')
             lost = report["protected_removed"]
             col.label(text=f"Zone des dents: {report['protected']} sommets, {lost} retiré(s)",
@@ -825,11 +830,14 @@ def draw_bite_check(layout, context):
     else:
         col.alert = True
         col.label(text="L'occlusion ne correspond pas au STL Bite", icon='CANCEL')
-    for key, label in (("upper", "Haut"), ("lower", "Bas")):
-        part = result["parts"][key]
-        median = "—" if part["median"] is None else f"{part['median']:.2f} mm"
-        col.label(text=f"{label}: écart médian {median}, {part['share'] * 100:.0f} % du bite",
-                  icon='CHECKMARK' if part["ok"] else 'X')
+    col.label(text=f"Bite posé sur les deux arcades: {result['together'] * 100:.0f} % de ses points",
+              icon='CHECKMARK' if result["together"] >= params.BITE_MIN_FIT else 'X')
+    col.label(text=f"Parties: haut {result['upper_share'] * 100:.0f} %, bas {result['lower_share'] * 100:.0f} %",
+              icon='CHECKMARK' if min(result["upper_share"], result["lower_share"]) >= params.BITE_MIN_SHARE else 'X')
+    if result["gap"] is not None:
+        good = result["gap"] <= params.BITE_TOLERANCE and result["angle"] <= params.BITE_MAX_ANGLE
+        col.label(text=f"Écart haut / bas: {result['gap']:.2f} mm, {result['angle']:.1f}°",
+                  icon='CHECKMARK' if good else 'X')
 
 
 class OMFS_PT_guide(bpy.types.Panel):

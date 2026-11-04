@@ -23,7 +23,7 @@ from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.kdtree import KDTree
 
-from . import params, reference_frame
+from . import params, reference_frame, registration
 
 COLLECTION = "Modèles"
 TAG = "dental model"          # made_by of a generated model
@@ -358,8 +358,9 @@ def build(scan, settings):
     bm.to_mesh(result)
     bm.free()
     radius = settings.bar_diameter / 2
-    bar = None if palate or not settings.use_bar else [
-        [float(x) for x in end[0] * u + end[1] * v + (base + radius) * up] for end in bar_ends(flat, radius)]
+    ends = None if palate or not settings.use_bar else bar_ends(flat, radius)
+    bar = None if ends is None else [[float(x) for x in end[0] * u + end[1] * v + (base + radius) * up]
+                                     for end in ends]
     report = {
         "kept": kept_vertices, "removed": len(co) - kept_vertices, "patched": patched, "palate": palate,
         "bar": bar, "up_vector": [float(x) for x in up],
@@ -412,16 +413,37 @@ def hull(points):
     return np.array(half(pts) + half(reversed(pts)))
 
 
+def line_spans(outline, start, along):
+    """Where the line start + t * along is inside a closed 2D outline: sorted (t_in, t_out) pairs."""
+    a, b = outline, np.roll(outline, -1, 0)
+    edge = b - a
+    denom = along[0] * edge[:, 1] - along[1] * edge[:, 0]
+    with np.errstate(divide='ignore', invalid='ignore'):
+        t = ((a[:, 0] - start[0]) * edge[:, 1] - (a[:, 1] - start[1]) * edge[:, 0]) / denom
+        s = ((a[:, 0] - start[0]) * along[1] - (a[:, 1] - start[1]) * along[0]) / denom
+    t = np.sort(t[(s >= 0) & (s < 1) & np.isfinite(t)])
+    return list(zip(t[0::2], t[1::2]))
+
+
 def bar_ends(outline, radius):
-    """2D ends of the bar across a horseshoe's opening: the longest edge of the outline's convex hull
-    (it spans the gap), moved one radius towards the arch and shortened by one radius at each end."""
+    """2D ends of the bar across a horseshoe's opening, each in the middle of one branch so it is
+    sunk into the solid on both sides. The bar runs parallel to the opening (the longest edge of the
+    outline's convex hull), moved towards the arch until its line crosses both branches."""
     ring = hull(outline)
     nxt = np.roll(ring, -1, 0)
     k = int(np.argmax(np.linalg.norm(nxt - ring, axis=1)))
     p, q = ring[k], nxt[k]
     along = (q - p) / np.linalg.norm(q - p)
     towards = np.array((-along[1], along[0]))            # the hull is counter-clockwise: left is inside
-    return p + towards * radius + along * radius, q + towards * radius - along * radius
+    offset = radius + params.MODEL_BAR_INSET
+    while offset < params.MODEL_BAR_MAX_INSET:
+        start = p + towards * offset
+        spans = line_spans(outline, start, along)
+        if len(spans) >= 2:                              # first and last branch crossed
+            (a0, a1), (b0, b1) = spans[0], spans[-1]
+            return start + along * (a0 + a1) / 2, start + along * (b0 + b1) / 2
+        offset += 0.5
+    return None
 
 
 def crossings(flat):
@@ -445,7 +467,7 @@ def crossings(flat):
 
 def set_bar(scene, obj, ends, diameter):
     """The horseshoe's bar: a cylinder between `ends` (local coordinates of the model), unioned by a
-    Boolean modifier (Manifold solver). No ends: the bar and its modifier are removed."""
+    Boolean modifier (Exact solver). No ends: the bar and its modifier are removed."""
     name = f"Barre — {obj.name}"
     bar = bpy.data.objects.get(name)
     mod = obj.modifiers.get("Barre de renfort")
@@ -471,8 +493,44 @@ def set_bar(scene, obj, ends, diameter):
     bar.hide_set(True)
     if mod is None:
         mod = obj.modifiers.new("Barre de renfort", 'BOOLEAN')
-        mod.operation, mod.solver = 'UNION', 'MANIFOLD'
+        mod.operation = 'UNION'
+    mod.solver = 'EXACT'      # Manifold cuts off a part pinched at one vertex (case1: 46 vertices)
     mod.object = bar
+
+
+def inside(tree, point):
+    """Is a point inside a closed surface (odd number of crossings along a ray)?"""
+    origin, direction, hits = Vector(point), Vector((0.0123, 0.0417, 0.999)).normalized(), 0
+    while True:
+        location = tree.ray_cast(origin, direction)[0]
+        if location is None:
+            return hits % 2 == 1
+        hits += 1
+        origin = location + direction * 1e-4
+
+
+def bar_anchored(obj, ends):
+    """Are both ends of the bar inside the model itself (without the bar)?"""
+    mesh = obj.data
+    mesh.calc_loop_triangles()
+    tris = np.empty(len(mesh.loop_triangles) * 3, np.int64)
+    mesh.loop_triangles.foreach_get("vertices", tris)
+    co = np.empty(len(mesh.vertices) * 3)
+    mesh.vertices.foreach_get("co", co)
+    tree = BVHTree.FromPolygons(co.reshape(-1, 3).tolist(), tris.reshape(-1, 3).tolist())
+    return all(inside(tree, end) for end in ends)
+
+
+def pieces_with_bar(obj):
+    """Connected pieces of the model with its bar unioned (1 = the bar joins it into one solid)."""
+    evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    mesh = evaluated.to_mesh()
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    count = len(bmesh_pieces(bm))
+    bm.free()
+    evaluated.to_mesh_clear()
+    return count
 
 
 def check(obj):
@@ -503,6 +561,9 @@ def make_model(scene, scan):
     obj.matrix_world = scan.matrix_world
     set_bar(scene, obj, report["bar"], settings.bar_diameter)
     report["open_edges"] = check(obj)
+    if report["bar"]:
+        report["bar_anchored"] = bar_anchored(obj, report["bar"])
+        report["pieces"] = pieces_with_bar(obj)
     obj["omfs_model_report"] = str(report)
     return None
 
@@ -537,41 +598,155 @@ def bite_scans(scene):
     return bite, upper, lower
 
 
-def world_tree(obj):
-    co = np.array([tuple(obj.matrix_world @ v.co) for v in obj.data.vertices])
-    obj.data.calc_loop_triangles()
-    tris = np.empty(len(obj.data.loop_triangles) * 3, np.int64)
-    obj.data.loop_triangles.foreach_get("vertices", tris)
-    return BVHTree.FromPolygons(co.tolist(), tris.reshape(-1, 3).tolist())
+def world_points(obj):
+    co = np.empty(len(obj.data.vertices) * 3)
+    obj.data.vertices.foreach_get("co", co)
+    m = np.array(obj.matrix_world)
+    return co.reshape(-1, 3) @ m[:3, :3].T + m[:3, 3]
+
+
+def world_tree(objects):
+    """One BVH over several objects' surfaces, in world coordinates."""
+    points, tris, offset = [], [], 0
+    for obj in objects:
+        obj.data.calc_loop_triangles()
+        t = np.empty(len(obj.data.loop_triangles) * 3, np.int64)
+        obj.data.loop_triangles.foreach_get("vertices", t)
+        points.append(world_points(obj))
+        tris.append(t.reshape(-1, 3) + offset)
+        offset += len(points[-1])
+    return BVHTree.FromPolygons(np.vstack(points).tolist(), np.vstack(tris).tolist())
+
+
+def distances(bvh, points, reach):
+    """Distance to the surface and closest points / normals (NaN beyond `reach`)."""
+    closest, normals = registration.nearest(bvh, points, reach)
+    found = ~np.isnan(closest[:, 0])
+    dist = np.full(len(points), np.inf)
+    dist[found] = np.linalg.norm(points[found] - closest[found], axis=1)
+    return dist, closest, normals
+
+
+def moved(matrix, local):
+    m = np.array(matrix)
+    return local @ m[:3, :3].T + m[:3, 3]
+
+
+def fit(bvh, local, matrix, iterations, reach, trim=None):
+    """Point-to-plane ICP of bite points (local coordinates) onto a surface, from `matrix`. With
+    `trim`, only that share of the closest pairs pulls (the part of the bite this surface holds);
+    else pairs farther than 3 x the median are dropped. Only the matrix changes, never a mesh."""
+    for _ in range(iterations):
+        points = moved(matrix, local)
+        dist, closest, normals = distances(bvh, points, reach)
+        found = np.isfinite(dist)
+        if found.sum() < 12:
+            break
+        d = dist[found]
+        keep = d <= (np.quantile(d, trim) if trim else max(3 * np.median(d), 0.05))
+        step = registration.point_to_plane_step(points[found][keep], closest[found][keep], normals[found][keep])
+        matrix = step @ matrix
+        if step.translation.length < 1e-5 and step.to_quaternion().angle < 1e-6:
+            break
+    return matrix
+
+
+def search_starts(points, local, count):
+    """Start poses for the bite on the arches: at points spread over the arches (farthest point
+    sampling), the bite's long axis along the arch there and its height or thickness along the
+    occlusal axis, both ways: 8 orientations per point."""
+    rng = np.random.default_rng(0)
+    sample = points[rng.choice(len(points), min(4000, len(points)), replace=False)]
+    _u, _s, axes = np.linalg.svd(sample - sample.mean(0), full_matrices=False)
+    up = axes[2]                                        # the arches are thinnest across the occlusal plane
+    centre = local.mean(0)
+    _u, _s, bite_axes = np.linalg.svd(local - centre, full_matrices=False)
+    spots = [sample[0]]
+    nearest_spot = np.linalg.norm(sample - sample[0], axis=1)
+    for _ in range(count - 1):
+        spots.append(sample[int(nearest_spot.argmax())])
+        nearest_spot = np.minimum(nearest_spot, np.linalg.norm(sample - spots[-1], axis=1))
+    for spot in spots:
+        around = sample[np.linalg.norm(sample - spot, axis=1) < params.BITE_NEIGHBOURHOOD]
+        if len(around) < 10:
+            continue
+        flat = around - around.mean(0)
+        flat -= np.outer(flat @ up, up)
+        tangent = np.linalg.svd(flat, full_matrices=False)[2][0]
+        for height in (1, 2):
+            source = np.stack((bite_axes[0], bite_axes[height], np.cross(bite_axes[0], bite_axes[height])), 1)
+            for s1 in (1, -1):
+                for s2 in (1, -1):
+                    e1, e2 = s1 * tangent, s2 * up
+                    rotation = np.stack((e1, e2, np.cross(e1, e2)), 1) @ source.T
+                    yield (Matrix.Translation(Vector(spot)) @ Matrix(rotation).to_4x4()
+                           @ Matrix.Translation(-Vector(centre)))
 
 
 def check_bite(bite, upper, lower):
-    """Where they are now, does the bite scan sit on both arches? Each bite vertex belongs to the arch
-    it is closest to; for each part, the median distance must be under the tolerance and the part
-    must be big enough (a bite touching one arch only proves nothing about the occlusion)."""
-    m = np.array(bite.matrix_world)
+    """Does the bite's shape say the arches are in the right occlusion? The bite is a picture of the
+    side of the intercuspation: a strip of upper teeth and a strip of lower teeth, captured together.
+    Where the bite object sits does not matter, and nothing moves (the arches never; the bite's own
+    position is only computed):
+    1. global search: the one pose where the bite fits both arches at once (share of its points
+       within 0.3 mm);
+    2. its upper part is fitted alone on the upper arch, its lower part alone on the lower arch;
+    3. in the right occlusion both give the same pose: their gap (mm at the bite, degrees) is the
+       occlusion error."""
+    rng = np.random.default_rng(0)
     co = np.empty(len(bite.data.vertices) * 3)
     bite.data.vertices.foreach_get("co", co)
-    points = co.reshape(-1, 3) @ m[:3, :3].T + m[:3, 3]
-    points = points[::max(1, len(points) // params.BITE_SAMPLES)]
-    distances = []
-    for arch in (upper, lower):
-        tree = world_tree(arch)
-        far = params.BITE_SEARCH
-        distances.append(np.array([d if d is not None else far for d in
-                                   (tree.find_nearest(Vector(p), far)[3] for p in points)]))
-    to_upper, to_lower = distances
-    on_upper = to_upper < to_lower
-    parts = {}
-    for name, mask, dist in (("upper", on_upper, to_upper), ("lower", ~on_upper, to_lower)):
-        share = float(mask.mean())
-        median = float(np.median(dist[mask])) if mask.any() else None
-        parts[name] = {"share": share, "median": median,
-                       "ok": median is not None and share >= params.BITE_MIN_SHARE
-                       and median <= params.BITE_TOLERANCE}
-    return {"ok": parts["upper"]["ok"] and parts["lower"]["ok"], "parts": parts,
-            "objects": [o.name for o in (bite, upper, lower)],
-            "where": [[float(x) for x in np.array(o.matrix_world).ravel()] for o in (bite, upper, lower)]}
+    local = co.reshape(-1, 3)
+    coarse = local[rng.choice(len(local), min(300, len(local)), replace=False)]
+    fine = local[rng.choice(len(local), min(3000, len(local)), replace=False)]
+    both = world_tree((upper, lower))
+    arch_points = np.vstack((world_points(upper), world_points(lower)))
+
+    def share(matrix, points):
+        dist = distances(both, moved(matrix, points), 2.0)[0]
+        return float((dist < params.BITE_INLIER).mean())
+
+    tries = []
+    for start in search_starts(arch_points, local, params.BITE_SEARCH_SPOTS):
+        matrix = fit(both, coarse, start, 12, 4.0, trim=0.8)
+        tries.append((share(matrix, coarse), matrix))
+    tries.sort(key=lambda t: -t[0])
+    best = max((fit(both, fine, m, 25, 2.0, trim=0.8) for _s, m in tries[:6]), key=lambda m: share(m, fine))
+    together = share(best, fine)
+
+    points = moved(best, fine)
+    to_upper = distances(world_tree((upper,)), points, 1.0)[0]
+    to_lower = distances(world_tree((lower,)), points, 1.0)[0]
+    part_upper = fine[(to_upper < params.BITE_INLIER) & (to_upper < to_lower)]
+    part_lower = fine[(to_lower < params.BITE_INLIER) & (to_lower <= to_upper)]
+    result = {"together": together, "upper_share": len(part_upper) / len(fine),
+              "lower_share": len(part_lower) / len(fine), "gap": None, "angle": None,
+              "pose": [float(x) for x in np.array(best).ravel()],
+              "objects": [o.name for o in (bite, upper, lower)],
+              "where": [[float(x) for x in np.array(o.matrix_world).ravel()] for o in (bite, upper, lower)]}
+    enough = min(result["upper_share"], result["lower_share"]) >= params.BITE_MIN_SHARE
+    if enough:
+        on_upper = fit(world_tree((upper,)), part_upper, best, 40, 1.0)
+        on_lower = fit(world_tree((lower,)), part_lower, best, 40, 1.0)
+        centre = Vector(np.vstack((part_upper, part_lower)).mean(0))
+        result["gap"] = (on_upper @ centre - on_lower @ centre).length
+        result["angle"] = float(np.degrees((on_upper @ on_lower.inverted()).to_quaternion().angle))
+    result["ok"] = bool(enough and together >= params.BITE_MIN_FIT and result["gap"] <= params.BITE_TOLERANCE
+                        and result["angle"] <= params.BITE_MAX_ANGLE)
+    return result
+
+
+def show_fitted_bite(scene, bite, result):
+    """A ghost of the bite where its shape says it belongs (same mesh data, nothing copied or moved)."""
+    name = f"{bite.name} (recalé, contrôle)"
+    ghost = bpy.data.objects.get(name)
+    if ghost is None:
+        ghost = bpy.data.objects.new(name, bite.data)
+        model_collection(scene).objects.link(ghost)
+        ghost.omfs.role = 'ANALYSIS'
+        ghost.display_type = 'WIRE'
+    ghost.matrix_world = Matrix(np.array(result["pose"]).reshape(4, 4).tolist())
+    return ghost
 
 
 def bite_stale(scene, result):
@@ -661,7 +836,8 @@ class OMFS_OT_make_model(bpy.types.Operator):
 
 
 class OMFS_OT_check_bite(bpy.types.Operator):
-    """Check that the arches, where they are now, match the bite scan (each part of the bite on its arch)"""
+    """Does the bite's shape say the arches are in the right occlusion? Fits the bite (never the arches)
+    on both, then each part on its arch, and compares the two poses (about 10 s)"""
     bl_idname = "omfs.check_bite"
     bl_label = "Vérifier l'occlusion (STL Bite)"
 
@@ -671,7 +847,9 @@ class OMFS_OT_check_bite(bpy.types.Operator):
         if missing:
             self.report({'WARNING'}, "Introuvable: " + ", ".join(missing) + " (choisissez-le dans le panneau)")
             return {'CANCELLED'}
-        context.scene["omfs_bite_check"] = str(check_bite(bite, upper, lower))
+        result = check_bite(bite, upper, lower)
+        context.scene["omfs_bite_check"] = str(result)
+        show_fitted_bite(context.scene, bite, result)
         return {'FINISHED'}
 
 

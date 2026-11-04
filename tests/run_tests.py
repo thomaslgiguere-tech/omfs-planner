@@ -1096,6 +1096,8 @@ def test_model_base_horseshoe():
     top = max(v.co.z for v in scan.data.vertices)
     assert abs(z.min() - (top - settings.height)) < 1e-4, "flat base at the height asked"
     assert model.modifiers["Barre de renfort"].object is not None
+    assert report["bar_anchored"], "both ends of the bar are inside the model"
+    assert report["pieces"] == 1, "the bar joins both sides into one solid"
     settings.use_bar = False                      # settings rebuild the model
     assert model_base.last_report(model)["bar"] is None and "Barre de renfort" not in model.modifiers
     bar = bpy.data.objects.get(f"Barre — {model.name}")
@@ -1132,41 +1134,47 @@ def test_model_base_keeps_the_palate():
 def test_bite_check():
     scene = bpy.context.scene
 
-    def surface(name, z, size=(30, 20)):
+    def surface(name, z):
         bm = bmesh.new()
-        bmesh.ops.create_grid(bm, x_segments=30, y_segments=20, size=1.0)
+        bmesh.ops.create_grid(bm, x_segments=60, y_segments=30, size=1.0)
         for v in bm.verts:
-            v.co = (v.co.x * size[0] / 2, v.co.y * size[1] / 2, z + 0.8 * np.sin(v.co.x * 9))   # cusps
+            x, y = v.co.x * 20, v.co.y * 10                # 40 x 20 mm
+            v.co = (x, y, z + np.sin(x * 0.7) * np.cos(y * 0.9) + 0.3 * np.sin(x * 0.23 + y))   # cusps
         return open_scan(name, bm)
 
     upper = surface("Test UpperJaw", 1.0)
     lower = surface("Test LowerJaw", -1.0)
-    bm = bmesh.new()                        # the bite: a strip of each arch's surface, one object
+    bm = bmesh.new()                        # the bite: a strip of each arch, captured together
     for arch in (upper, lower):
         part = bmesh.new()
         part.from_mesh(arch.data)
-        bmesh.ops.delete(part, geom=[f for f in part.faces if f.calc_center_median().x > 0], context='FACES')
+        bmesh.ops.delete(part, geom=[f for f in part.faces if not -15 < f.calc_center_median().x < 0],
+                         context='FACES')
         mesh = bpy.data.meshes.new("part")
         part.to_mesh(mesh)
         part.free()
         bm.from_mesh(mesh)
         bpy.data.meshes.remove(mesh)
     bite = open_scan("Test BiteScan", bm)
+    bite.matrix_world = Matrix.Translation((40, -30, 25)) @ Matrix.Rotation(radians(70), 4, Vector((1, 2, 3)))
+    bite_data = [tuple(v.co) for v in bite.data.vertices]
     settings = scene.omfs_model
     settings.bite, settings.upper, settings.lower = bite, upper, lower
     assert bpy.ops.omfs.check_bite() == {'FINISHED'}
     result = model_base.last_bite(scene)
-    assert result["ok"], result
+    assert result["ok"], f"the bite's shape fits wherever the bite object sits: {result}"
+    assert result["gap"] < 0.05, result
     assert not model_base.bite_stale(scene, result)
-    lower.location.z -= 0.5                 # the arches no longer in the bite's occlusion
+    assert [tuple(v.co) for v in bite.data.vertices] == bite_data, "the bite's mesh is never changed"
+    lower.location.z -= 1.0                 # the arches no longer in the bite's occlusion
     bpy.context.view_layer.update()
     assert model_base.bite_stale(scene, result), "moving an arch makes the check stale"
     bpy.ops.omfs.check_bite()
     result = model_base.last_bite(scene)
-    assert not result["ok"] and result["parts"]["upper"]["ok"] and not result["parts"]["lower"]["ok"], result
+    assert not result["ok"], result
     settings.bite = settings.upper = settings.lower = None
     del scene["omfs_bite_check"]
-    for obj in (bite, upper, lower):
+    for obj in (bpy.data.objects[f"{bite.name} (recalé, contrôle)"], bite, upper, lower):
         bpy.data.objects.remove(obj)
 
 

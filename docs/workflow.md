@@ -439,24 +439,38 @@ closed into printable dental models. Most important: the teeth (the dental segme
     (MODEL_UNDER_PALATE) whatever the height asked; full flat plate;
   - horseshoe (lower arch): base at "Hauteur du modèle" under the cusp tips (default 20 mm; case1 by
     hand: 15.9) and a bar across the opening (Ø 4 mm, at the base, Boolean union Manifold) so the
-    model does not flex: the longest edge of the outline's convex hull, moved one radius inwards.
+    model does not flex. It runs parallel to the opening (the longest edge of the outline's convex
+    hull), just inside it, and each end sits in the middle of one branch, where that line crosses it
+    (moved further in until it crosses both): sunk into the solid on both sides (surgeon, 2026-11-03:
+    "la barre doit relier les deux côtés"; the first version only touched one side on case1). Exact
+    Boolean solver (Manifold cut off a part pinched at one vertex). The report checks both ends are
+    inside the model and the result is one piece; case1: heights 15.9 / 20 / 25 mm x bars 3 / 4 / 6 mm,
+    all anchored, one piece.
 - Report in the panel: palate / horseshoe, scan vertices kept (identical), teeth zone and how many of
   its vertices were removed (must be 0), plus those at the very edge of the open border or in scraps
   already loose in the scan, holes patched, base outline crossings, closed (watertight).
 - Case1: lower 0.5 s (66,415 vertices kept, 0 removed in the teeth zone, 13 in a scrap already loose
   in the scan), upper 0.9 s (117,398 kept, palate kept whole, base at 28.2 mm), both closed.
-- Bite check (surgeon, 2026-11-03): the third STL ("bite" in its name: a strip of both arches
-  captured in occlusion) must sit on both arches where they are now. Nothing is registered (that would
-  make the check agree with itself): each bite vertex goes to the closer arch, and each part must hold
-  at least 10 % of the bite (BITE_MIN_SHARE) with a median distance under 0.15 mm (BITE_TOLERANCE, TO
-  CONFIRM on matching cases). Green check "L'occlusion correspond au STL Bite", else a red X "ne
-  correspond pas", with the median gap and share per arch. Bite / upper / lower found by name (bite,
-  byte, occlu, mordu / upper, haut, maxil / lower, bas, mandib), or chosen in the panel. Moving any of
-  them makes the result stale ("revérifier").
-  - Case1 (2026-11-03): red X. The bite object had been moved and turned in the scene (lower part 4.6
-    mm off, upper 9.6 mm); at its file position it does not fit either (median 4.1 mm), so this
-    export's bite is not in the arches' coordinates. To ask: is that usual for the scanner? If so, an
-    automatic "recaler le bite" (global search + ICP on each part, then compare the two poses) is next.
+- Bite check (surgeon, 2026-11-03): the third STL ("bite" in its name) is a picture of the side of
+  the intercuspation: a strip of upper teeth and a strip of lower teeth captured together. Its
+  shape, not where the object sits, says whether the arches are in the right occlusion. The arches
+  are never moved; the bite object is not moved either, its pose is only computed:
+  1. global search: start poses at 60 points spread over both arches, 8 orientations each (bite's
+     long axis along the arch, its height or thickness along the occlusal axis, both ways), short
+     trimmed ICP, best 6 refined: the pose where the bite fits both arches at once;
+  2. its upper part (points on the upper arch at that pose) fitted alone on the upper arch, its lower
+     part alone on the lower arch;
+  3. in the right occlusion both poses are the same: their gap (mm at the bite, degrees) is the error.
+  Green check "L'occlusion correspond au STL Bite" when the common fit holds 60 % of the bite within
+  0.3 mm, each arch holds 10 %, and the gap is under 0.5 mm and 1.5 degrees; else a red X. A wireframe
+  ghost "(recalé, contrôle)" shows where the bite belongs (same mesh data). About 7 s.
+  - Fitting the bite on one arch alone is ambiguous (only half of it matches: 23 % at best, poses
+    170 degrees apart); on both arches the right pose stands out (case1: 78 %, next best 29 %).
+  - "One rigid bite on both arches" residuals alone were too insensitive (3 mm shift: +0.08 mm).
+  - Case1 as is: 78 %, gap 0.20 mm / 0.6 degrees: green. Lower arch moved on purpose (separate
+    Blender, copy of the case): 0.2 mm -> 0.28 mm, 0.5 deg -> 0.39 mm / 1.3 deg, 1 mm front-back ->
+    0.96 mm, 2 deg -> 0.94 mm / 2.8 deg, 3 mm -> 2.9 mm (46 %); 0.5-1 mm in the other axes: no common
+    fit (30 %). Detection limit about 0.5 mm / 1 degree; thresholds TO CONFIRM on more cases.
 
 ## Cross-cutting tool: Section & Analysis
 

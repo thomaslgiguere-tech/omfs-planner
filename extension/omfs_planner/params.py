@@ -113,10 +113,18 @@ MODEL_OUTLINE_SMOOTH = 30       # smoothing passes of the base outline (moves on
 MODEL_SCRAP_FRACTION = 0.01     # detached pieces smaller than this share of the scan are removed
 MODEL_UNDER_PALATE = 3.0        # mm: with a full palate, the base goes this far under its deepest point (nothing of the palate is cut)
 MODEL_BAR_DIAMETER = 4.0        # mm, the bar across a horseshoe's opening (stops it flexing)
+MODEL_BAR_INSET = 1.0           # mm the bar's line starts inside the opening (beyond its radius)
+MODEL_BAR_MAX_INSET = 20.0      # mm: farther in than this, give up (the panel says there is no bar)
 MODEL_REATTACH_RINGS = 30       # most face rings of fringe put back to keep a protected part attached
 
-# Bite check (model_base.py): do the arches, where they are, sit on the bite scan?
-BITE_TOLERANCE = 0.15           # mm: median distance from each part of the bite to its arch (TO CONFIRM on matching cases)
-BITE_MIN_SHARE = 0.10           # each arch must hold at least this share of the bite's points
-BITE_SEARCH = 10.0              # mm: farther than this counts as this far
-BITE_SAMPLES = 20000            # bite vertices measured (spread evenly)
+# Bite check (model_base.py): does the bite's shape say the arches are in the right occlusion?
+# Case1 (2026-11-03, lower arch moved on purpose): none 0.20 mm / 0.6 deg, 0.2 mm -> 0.28 mm,
+# 0.5 deg -> 0.39 mm / 1.3 deg, 2 deg -> 0.94 mm / 2.8 deg, 3 mm -> 2.9 mm; 0.5-1 mm in the other
+# axes: no common fit (30 %). Detection limit about 0.5 mm / 1 deg. TO CONFIRM on more cases.
+BITE_TOLERANCE = 0.5            # mm: gap between the bite fitted on the upper arch and on the lower arch
+BITE_MAX_ANGLE = 1.5            # deg: same, in rotation
+BITE_MIN_FIT = 0.6              # share of the bite within BITE_INLIER of the arches in the common fit (case1: 0.78)
+BITE_MIN_SHARE = 0.10           # each arch must hold at least this share of the bite (else: not a bite of both)
+BITE_INLIER = 0.3               # mm: a bite point this close to an arch fits it
+BITE_SEARCH_SPOTS = 60          # start points of the global search, spread over the arches
+BITE_NEIGHBOURHOOD = 8.0        # mm around a start point used for the arch's direction there
