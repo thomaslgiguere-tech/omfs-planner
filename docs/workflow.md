@@ -519,6 +519,16 @@ relief)" (text_labels.py), also drawn as step 5 of the splint panel:
 - case1 (separate Blender): "SC BAS" engraved under the lower model's base (6.6 mm left under the
   letters, closed), "SC HAUT" embossed on the upper model; a text running off the surface is warned.
 
+## Cross-cutting: used tools put away
+
+Surgeon, 2026-11-03: the helper objects (pin parts, texts, cylinders, bar, cut-edge box...) are of no
+use once their modifiers are applied; they should gather in one folder by themselves. tidy.py: any
+object that has been a Boolean operand is marked; when no modifier uses it any more (applied with
+the OMFS buttons or Blender's own Ctrl+A, or removed), it moves to a hidden "Outils utilisés"
+collection. Never deleted: if a modifier uses it again (Ctrl+Z, a new Boolean) it goes back to the
+collection it came from. Anatomy, models, guides, splints and planning objects never move, nor an
+object that has not been used yet. A timer checks once a second, in Object Mode only.
+
 ## Cross-cutting tool: Section & Analysis
 
 Not a step: a panel usable at every planning step to inspect how objects (bone, teeth, scan,

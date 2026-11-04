@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base, tidy  # noqa: E402
 
 omfs_planner.register()
 
@@ -1536,6 +1536,30 @@ def test_universal_text():
     assert text_labels.print_check(model, bpy.context.evaluated_depsgraph_get())["open_edges"] == 0
     model_settings.height, model_settings.teeth_band = params.MODEL_HEIGHT, params.MODEL_TEETH_BAND
     for obj in [o for o in bpy.data.objects if o.name.startswith("Barre —")] + [label, model_label, guide, bone, model, scan]:
+        bpy.data.objects.remove(obj)
+
+
+def test_used_tools_are_put_away():
+    scene = bpy.context.scene
+    part = box_object("Tidy part", 'GUIDE', (0, 800, 0), (20, 10, 10))
+    cutter = box_object("Tidy cutter", 'OTHER', (0, 800, 5), (4, 4, 4))
+    spare = box_object("Tidy spare", 'OTHER', (30, 800, 0), (4, 4, 4))       # never used: stays
+    bone = box_object("Tidy bone", 'BONE', (0, 830, 0), (10, 10, 10))
+    home = cutter.users_collection[0]
+    mod = part.modifiers.new("Trou", 'BOOLEAN')
+    mod.object, mod.operation = cutter, 'DIFFERENCE'
+    part.modifiers.new("Analyse", 'BOOLEAN').object = bone                     # anatomy used by a Boolean
+    assert tidy.tidy(scene) == 0, "in use: nothing moves"
+    bpy.context.view_layer.objects.active = part
+    bpy.ops.object.modifier_apply(modifier="Trou")
+    part.modifiers.remove(part.modifiers["Analyse"])
+    assert tidy.tidy(scene) == 1
+    used = bpy.data.collections[tidy.COLLECTION]
+    assert used in cutter.users_collection and home not in cutter.users_collection, "applied: put away"
+    assert used not in spare.users_collection and used not in bone.users_collection, "never anatomy, never unused"
+    part.modifiers.new("Encore", 'BOOLEAN').object = cutter                    # needed again: back home
+    assert tidy.tidy(scene) == 1 and home in cutter.users_collection and used not in cutter.users_collection
+    for obj in (part, cutter, spare, bone):
         bpy.data.objects.remove(obj)
 
 

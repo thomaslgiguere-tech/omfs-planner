@@ -38,6 +38,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
                              clicks, Boolean cutter), print check and STL export
   model_base.py              Création de modèle: open arch scan closed into a printable model (wall,
                              flat base, bar on a horseshoe; teeth zone never trimmed)
+  tidy.py                    used helper objects (Boolean operands no longer needed) moved to
+                             a hidden "Outils utilisés" collection, back if needed again
   section.py                 Section & Analysis: section plane, slab (clipping), radiograph view
   section_contours.py        live section contours, caps, overlap on the section
   analysis.py                exact intersection volume (Boolean overlay, live or snapshot)
