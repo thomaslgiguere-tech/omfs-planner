@@ -30,6 +30,7 @@ STAR_BELOW_FORAMEN = 5.0      # mm, yellow star below each mental foramen
 GUIDE_THICKNESS = 3.0           # mm, guide body away from the saw path
 GUIDE_CLEARANCE = 0.10          # mm gap between bone and guide (fit)
 SELECT_FLAT_ANGLE = 40.0        # deg, "linked flat faces": stops at the rim of the guide
+DENSIFY_CUTS = 1                # cuts per edge of "Densifier la sélection" (1 = each triangle into 4)
 GUIDE_REMESH_VOXEL = 0.2        # mm, voxel size when remeshing a guide watertight
 GUIDE_PROTECT_DISTANCE = 1.0    # mm: guide vertices closer than this to the bone are the intrados (protected when polishing)
 SCULPT_SHARP_ANGLE = 20.0       # deg, "zones by sharp angle": faces folded more than this start a new zone (case1 cap: 20 splits intrados / outside, 30 merges them)

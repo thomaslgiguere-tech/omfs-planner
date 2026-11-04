@@ -14,6 +14,7 @@ would break "CBCT mesh data is never modified".
 from collections import namedtuple
 from math import radians
 
+import bmesh
 import bpy
 import numpy as np
 from mathutils import Vector
@@ -685,6 +686,13 @@ tool('SMOOTH_VERTS', "Lisser la sélection", 'MOD_SMOOTH', 'EDIT',
 tool('FILL_HOLES', "Combler les trous", 'MOD_TRIANGULATE', 'EDIT',
      "Ferme les trous entourés par la sélection (sélectionnez tout avec A pour tout fermer).",
      "Inspector > Auto Repair", "")(mesh_op("mesh.fill_holes", sides=0))
+tool('DENSIFY', "Densifier la sélection (remesh à plat)", 'MOD_SUBSURF', 'EDIT',
+     "Ajoute des sommets dans les faces sélectionnées sans bouger un seul sommet existant: chaque arête "
+     "est coupée en son milieu, à plat, donc la surface reste exactement la même (rien n'est lissé ni "
+     "projeté). Chaque clic multiplie les triangles par 4. Nombre de coupes réglable en direct dans "
+     "« Adjust Last Operation » en bas à gauche (F9).",
+     "Edit > Remesh (mais Meshmixer déplace les sommets: pas d'équivalent exact)",
+     "Edge > Subdivide (Smoothness 0)", operator="omfs.densify")(lambda c: None)
 tool('SEPARATE', "Séparer la sélection", 'UNLINKED', 'EDIT',
      "Détache la sélection dans un nouvel objet.",
      "Edit > Separate", "P > Selection")(mesh_op("mesh.separate", type='SELECTED'))
@@ -1281,6 +1289,39 @@ class OMFS_OT_select_linked_flat(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class OMFS_OT_densify(bpy.types.Operator):
+    """Subdivide the selected faces flat: existing vertices stay where they are"""
+    bl_idname = "omfs.densify"
+    bl_label = "Densifier la sélection"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    cuts: bpy.props.IntProperty(name="Coupes par arête", min=1, max=6, default=params.DENSIFY_CUTS)
+
+    @classmethod
+    def description(cls, context, properties):
+        return tool_description(TOOLS['DENSIFY'])
+
+    def execute(self, context):
+        error = need_mode(context, 'EDIT_MESH')
+        if error:
+            self.report({'WARNING'}, error)
+            return {'CANCELLED'}
+        context.edit_object.update_from_editmode()
+        if not any(p.select for p in context.edit_object.data.polygons):
+            self.report({'WARNING'}, "Sélectionnez d'abord les faces à densifier")
+            return {'CANCELLED'}
+        count = len(context.edit_object.data.vertices)
+        # Smoothness 0: new vertices sit on the existing edges and faces, the surface does not change.
+        bpy.ops.mesh.subdivide(number_cuts=self.cuts, smoothness=0.0, quadcorner='INNERVERT')
+        # Faces around the selection got a vertex on one edge: split them back into triangles.
+        bm = bmesh.from_edit_mesh(context.edit_object.data)
+        bm.verts.index_update()
+        seam = [f for f in bm.faces if len(f.verts) > 3 and any(v.index >= count for v in f.verts)]
+        bmesh.ops.triangulate(bm, faces=seam, quad_method='BEAUTY', ngon_method='BEAUTY')
+        bmesh.update_edit_mesh(context.edit_object.data)
+        return {'FINISHED'}
+
+
 class OMFS_OT_pick_zone(bpy.types.Operator):
     """Click a painted zone (face set) to choose it (Esc or right-click to cancel)"""
     bl_idname = "omfs.pick_zone"
@@ -1405,7 +1446,7 @@ class OMFS_OT_guide_tool(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_GuideProperties, OMFS_OT_select_linked_flat, OMFS_OT_pick_zone, OMFS_OT_mask_zone_click,
+classes = (OMFS_GuideProperties, OMFS_OT_select_linked_flat, OMFS_OT_densify, OMFS_OT_pick_zone, OMFS_OT_mask_zone_click,
            OMFS_OT_guide_tool)
 
 

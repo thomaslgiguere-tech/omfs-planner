@@ -20,6 +20,7 @@ sys.path[:0] = [str(REPO / "extension"), str(REPO / "tools")]
 import make_test_case  # noqa: E402
 import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
+from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
 from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base, tidy, screws  # noqa: E402
@@ -265,6 +266,35 @@ def test_guide_workshop_tools_are_documented():
         assert "Meshmixer" in tip, tip
     sections = {s[0] for s in guide_workshop.SECTIONS} | {'START'}
     assert {t.section for t in guide_workshop.TOOLS.values()} <= sections
+
+
+def test_densify_keeps_the_surface():
+    bm = bmesh.new()
+    bmesh.ops.create_icosphere(bm, subdivisions=2, radius=10.0)
+    bmesh.ops.translate(bm, vec=(-500, 0, 0), verts=bm.verts)
+    mesh = bpy.data.meshes.new("Densify")
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new("Densify", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.omfs.role = 'GUIDE'
+    before = [tuple(v.co) for v in mesh.vertices]
+    tree = BVHTree.FromPolygons(before, [tuple(p.vertices) for p in mesh.polygons])
+    for p in mesh.polygons:
+        p.select = p.center.z > 0      # the upper half
+    picked = {i for p in mesh.polygons if p.select for i in p.vertices}
+    guide_workshop.make_active(bpy.context, obj)
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.omfs.densify()
+    bpy.ops.object.mode_set(mode='OBJECT')
+    assert [tuple(v.co) for v in mesh.vertices[:len(before)]] == before, "existing vertices never move"
+    new = [v.co for v in mesh.vertices[len(before):]]
+    assert len(new) > 0
+    assert all(tree.find_nearest(co)[3] < 1e-4 for co in new), "new vertices lie on the old surface"
+    assert all(co.z > -1e-4 for co in new), "only the selection is densified"
+    assert all(len(p.vertices) == 3 for p in mesh.polygons), "still triangles (seam faces split too)"
+    assert min(p.area for p in mesh.polygons) > 1e-3, "no flat sliver triangle"
+    assert len(picked) < len(mesh.vertices)
 
 
 def test_guide_workshop():
