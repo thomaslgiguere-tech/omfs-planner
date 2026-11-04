@@ -11,7 +11,9 @@ Fixation holes: a click on the guide drills a hole for the Synthes 1.85 mm screw
 to the bone, through the guide along the surface normal there.
 
 Mega Boolean: every Boolean of the guide applied in order (unions, then differences, then the cut
-edge, the fixation holes last). Where a sleeve tube or hole crosses a pin of the cap (male or arm),
+edge, the fixation holes last). A pin may sit right over the guide's body: where a male overlaps the
+guide itself (its own volume, before any Boolean), the guide is hollowed for it (pins.male_channel),
+with the other differences. Where a sleeve tube or hole crosses a pin of the cap (male or arm),
 it is subtracted from the cap too, so the drill and the sleeve pass. The cap's own Booleans are
 applied after (its unions first).
 """
@@ -21,7 +23,7 @@ from bpy_extras import view3d_utils
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
-from . import cylinders, guide_workshop, landmarks, params, pins, screws
+from . import cylinders, guide_workshop, landmarks, model_base, params, pins, screws
 
 REACH = 30.0                    # mm past a screw's ends where a click still picks it (sleeves sit outside the bone)
 PICK_DISTANCE = 10.0            # mm: a click farther than this from every screw axis picks none
@@ -115,6 +117,41 @@ def overlaps(a, b):
     return bool(world_tree(a).overlap(world_tree(b)))
 
 
+def mother_tree(context, guide):
+    """BVH of the guide itself in world coordinates: its stack without the Booleans (no boss, no tube)."""
+    booleans = [m for m in guide.modifiers if m.type == 'BOOLEAN' and m.show_viewport]
+    for mod in booleans:
+        mod.show_viewport = False
+    depsgraph = context.evaluated_depsgraph_get()
+    depsgraph.update()
+    mesh = guide.evaluated_get(depsgraph).to_mesh()
+    m = guide.matrix_world
+    tree = BVHTree.FromPolygons([tuple(m @ v.co) for v in mesh.vertices], [tuple(f.vertices) for f in mesh.polygons])
+    guide.evaluated_get(depsgraph).to_mesh_clear()
+    for mod in booleans:
+        mod.show_viewport = True
+    return tree
+
+
+def in_guide(tree, obj):
+    """Does obj overlap the guide's own volume (surfaces crossing, or obj inside it)?"""
+    if world_tree(obj).overlap(tree):
+        return True
+    return model_base.inside(tree, obj.matrix_world @ obj.data.vertices[0].co)
+
+
+def hollow_for_males(context, guide):
+    """Channel subtracted from the guide for each male overlapping its own volume. Returns their pins."""
+    tree = mother_tree(context, guide)
+    done = []
+    for site in pins.sites(context.scene):
+        male = bpy.data.objects.get(pins.part_name(site, "mâle"))
+        if site.omfs_pin.guide == guide and site.omfs_pin.has_male and male is not None and in_guide(tree, male):
+            pins.male_channel(context.scene, site)
+            done.append(site.name)
+    return done
+
+
 def cap_pins(cap):
     """The pin parts (males, arms) united to the cap."""
     return [m.object for m in cap.modifiers if m.type == 'BOOLEAN' and m.object is not None
@@ -164,7 +201,10 @@ def mega_boolean(context):
         bpy.ops.object.mode_set(mode='OBJECT')
     guide.hide_set(False)
     crossed = subtract_from_cap(guide, cap) if cap is not None else []
+    hollowed = hollow_for_males(context, guide)
     report = [f"{guide.name}: {apply_stack(context, guide)} opérations"]
+    if hollowed:
+        report.append("guide creusé pour le mâle de " + ", ".join(hollowed))
     if cap is not None and cap.modifiers:
         cap.hide_set(False)
         report.append(f"{cap.name}: {apply_stack(context, cap)} opérations")

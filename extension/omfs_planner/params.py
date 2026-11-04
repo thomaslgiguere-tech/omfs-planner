@@ -55,6 +55,8 @@ PIN_FLOOR = 1.5                 # mm of boss under the bore
 PIN_EMBED = 1.0                 # mm the boss sinks into the guide surface where clicked
 PIN_SHOULDER_DIAMETER = 6.0     # mm: the pin above the plane, resting on the boss top
 PIN_BACK_LENGTH = 2.0           # mm of pin above the plane, up to the arm
+PIN_MALE_CHANNEL = 15.0         # mm: where a male sits in the guide's body, the guide is hollowed this far
+                                # above the plane along the pin axis (the male goes in from there)
 PIN_ARM_DIAMETER = 4.0          # mm: the tube from the cap to the pin's back
 
 # Occlusion seating (virtual, lower arch onto the fixed upper arch)

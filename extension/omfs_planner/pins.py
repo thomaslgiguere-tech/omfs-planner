@@ -139,6 +139,10 @@ def dims(scene):
         "bore": [(-p.cone_length, r_tip + p.clearance), (0.0, r_base + p.clearance),
                  (OVERSHOOT, r_base + p.clearance)],
         "boss": [(-p.cone_length - p.floor, r_base + p.wall), (0.0, r_base + p.wall)],
+        # room for the male where the pin sits over the guide's body: shoulder + clearance, from the
+        # plane out along the axis, so the male (and the end of its arm) can come in
+        "channel": [(0.0, p.shoulder_diameter / 2 + p.clearance), (params.PIN_MALE_CHANNEL,
+                                                                   p.shoulder_diameter / 2 + p.clearance)],
     }
 
 
@@ -328,6 +332,18 @@ def add_site(scene, guide, foot):
     return site
 
 
+def male_channel(scene, site):
+    """The guide hollowed where the male sits: a cylinder of the shoulder + clearance from the plane
+    out along the axis, subtracted from the guide. Returns the part."""
+    from . import guide_workshop
+    axis = (site.matrix_world.to_3x3() @ Vector((0, 0, 1))).normalized()
+    part = make_part(part_name(site, "passage du mâle"),
+                     *revolve(dims(scene)["channel"], site.matrix_world.translation, axis), site.users_collection[0])
+    boolean_on(site.omfs_pin.guide, part, 'DIFFERENCE', guide_workshop.SOLVER)
+    guide_workshop.order_booleans(site.omfs_pin.guide)
+    return part
+
+
 def add_males(scene, cap):
     count = 0
     for site in sites(scene):
@@ -357,7 +373,7 @@ def remove_part(part):
 
 
 def remove_site(site):
-    for kind in ("bossage", "logement", "tige", "pont", "mâle", "bras"):
+    for kind in ("bossage", "logement", "tige", "pont", "mâle", "bras", "passage du mâle"):
         part = bpy.data.objects.get(part_name(site, kind))
         if part is not None:
             remove_part(part)

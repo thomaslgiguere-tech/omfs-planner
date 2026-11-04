@@ -1070,7 +1070,9 @@ tool('BOOL_DIFFERENCE', "Soustraire du guide", 'SELECT_SUBTRACT', 'BOOLEAN',
      "Edit > Boolean Difference", "")(boolean('DIFFERENCE', "Trou"))
 tool('MEGA_BOOLEAN', "Méga Boolean (guide puis chape)", 'MOD_BOOLEAN', 'BOOLEAN',
      "Applique dans l'ordre tous les Boolean du guide: unions (bossages, ponts, tubes), différences "
-     "(logements, trous de manchon), trait de coupe, puis les trous de fixation. Un tube ou un trou qui "
+     "(logements, trous de manchon), trait de coupe, puis les trous de fixation. Une pin posée par-dessus le "
+     "corps du guide: là où le mâle chevauche le guide lui-même, le guide est creusé pour le recevoir "
+     "(Ø épaulement + jeu, ouvert vers le haut le long de l'axe). Un tube ou un trou qui "
      "croise une pin de la chape (mâle ou bras) est aussi soustrait de la chape, puis la chape est appliquée "
      "(unions, puis différences). Les outils sont cachés, pas supprimés. Annulable avec Ctrl+Z.",
      "Edit > Boolean, un par un dans le bon ordre", "", operator="omfs.mega_boolean")(lambda c: None)

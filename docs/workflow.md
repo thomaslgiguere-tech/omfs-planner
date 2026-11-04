@@ -191,6 +191,10 @@ Naming used below (matches the object roles in code):
 9. Mega Boolean, in order: unions (bosses, bridges, tubes), then differences (pin bores, sleeve
    bores), the cut edge, and last the small holes that fix the guide to the bone. A sleeve tube or
    hole crossing a male pin or arm of the cap is subtracted from the cap too. Then the cap's own stack.
+   Pins may be placed right over the guide's body: where a male overlaps the guide itself (its own
+   volume, before any Boolean), the guide is hollowed for it (shoulder diameter + clearance, from the
+   osteotomy plane out along the pin axis, PIN_MALE_CHANNEL long, so the male can go in), with the
+   other differences.
 
 ### Tool 1: surface-to-shell
 

@@ -1819,6 +1819,22 @@ def test_pins():
     assert all((a - b).length < 1e-4 for a, b in zip(again, before)), "back with the guide"
     pins.remove_site(away)
     assert not guide.modifiers
+
+    # A pin right over the guide's body: its male overlaps the guide itself, so the Mega Boolean
+    # hollows the guide for it (shoulder + clearance, open along the axis); a pin beside it does not.
+    from omfs_planner import sleeves
+    over = pins.add_site(scene, guide, Vector((0, -22, -45)))
+    beside = pins.add_site(scene, guide, Vector((0, -40, -45)))
+    pins.add_males(scene, cap)
+    assert sleeves.hollow_for_males(bpy.context, guide) == [over.name], "only the male inside the guide"
+    channel = bpy.data.objects[pins.part_name(over, "passage du mâle")]
+    mod = next(m for m in guide.modifiers if m.object == channel)
+    assert mod.operation == 'DIFFERENCE'
+    heights = [(channel.matrix_world @ v.co - point).dot(normal) for v in channel.data.vertices]
+    assert abs(min(heights)) < 1e-4 and abs(max(heights) - params.PIN_MALE_CHANNEL) < 1e-4, "from the plane, up the axis"
+    for site in (over, beside):
+        pins.remove_site(site)
+    assert not guide.modifiers and not cap.modifiers
     for obj in (guide, cap, bone, cut):
         bpy.data.objects.remove(obj)
     for lm in ('MF_R', 'MF_L', 'POG'):
