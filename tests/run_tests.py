@@ -1457,7 +1457,7 @@ def test_splint_text_and_checks():
         return v
 
     before = volume(blank)
-    settings = props.label
+    settings = scene.omfs_text_next
     settings.text, settings.height, settings.depth, settings.mode = "AB 12", 3.0, 0.5, 'ENGRAVE'
     # Two clicks on the top, at the front of the arch (y 545), reading along +x.
     label, warning = text_labels.add_label(blank, Vector((-5, 545, 12)), Vector((5, 545, 12)), Vector((0, 0, 1)), settings)
@@ -1485,7 +1485,7 @@ def test_splint_text_and_checks():
     assert text_labels.labels_on(solid) == [label]
     with tempfile.TemporaryDirectory() as folder:
         path = str(Path(folder) / "splint.stl")
-        bpy.ops.omfs.export_splint(filepath=path, part_name=solid.name)
+        bpy.ops.omfs.export_part(filepath=path, part_name=solid.name)
         assert Path(path).stat().st_size > 1000
 
     text_labels.remove_label(label)
@@ -1494,6 +1494,49 @@ def test_splint_text_and_checks():
     for obj in (lower, upper, blank, solid):
         bpy.data.objects.remove(obj)
     bpy.ops.omfs.arch_curve_clear()
+
+
+def test_universal_text():
+    """The same text tool on any printable part (a guide, a model...), never on raw anatomy."""
+    scene = bpy.context.scene
+    guide = box_object("Text guide", 'GUIDE', (0, 700, 0), (30, 10, 10))      # top face at z = 5
+    bone = box_object("Text bone", 'BONE', (0, 750, 0), (30, 10, 10))
+    assert text_labels.can_carry(guide) and not text_labels.can_carry(bone), "CBCT data is never written on"
+    locking.set_locked(guide, True)
+    assert not text_labels.can_carry(guide), "locked: not editable"
+    locking.set_locked(guide, False)
+    settings = scene.omfs_text_next
+    settings.text, settings.height, settings.depth, settings.mode = "G1", 4.0, 0.6, 'ENGRAVE'
+    label, warning = text_labels.add_label(guide, Vector((-6, 700, 5)), Vector((6, 700, 5)), Vector((0, 0, 1)), settings)
+    assert warning is None, warning
+    result = text_labels.print_check(guide, bpy.context.evaluated_depsgraph_get())
+    assert result["ok"] and abs(result["texts"][0]["wall"] - 9.4) < 1e-3, result
+    bpy.context.view_layer.objects.active = label
+    assert text_labels.target(bpy.context) == guide, "the active text's part"
+    with tempfile.TemporaryDirectory() as folder:
+        path = str(Path(folder) / "guide.stl")
+        assert bpy.ops.omfs.export_part(filepath=path, part_name=guide.name) == {'FINISHED'}
+        assert Path(path).stat().st_size > 1000
+
+    # On a dental model: the text follows when the model is made again.
+    model_settings = scene.omfs_model
+    model_settings.teeth_band = 3.0
+    scan = horseshoe_scan("Text LowerJaw", 0, False)
+    model_settings.scan = scan
+    bpy.ops.omfs.make_model()
+    model = model_base.model_of(scene, scan)
+    base, up = pins.model_base_plane(model)
+    front = Vector((0, -29, base.z + 5))              # on the front wall, outside the horseshoe
+    hit = model.ray_cast(front, Vector((0, 1, 0)))
+    assert hit[0], "the model's front wall"
+    text_labels.add_label(model, hit[1] + Vector((-5, 0, 0)), hit[1] + Vector((5, 0, 0)), hit[2], settings)
+    model_label = text_labels.labels_on(model)[0]
+    model_settings.height = 18.0                      # rebuilds the model
+    assert text_labels.labels_on(model) == [model_label]
+    assert text_labels.print_check(model, bpy.context.evaluated_depsgraph_get())["open_edges"] == 0
+    model_settings.height, model_settings.teeth_band = params.MODEL_HEIGHT, params.MODEL_TEETH_BAND
+    for obj in [o for o in bpy.data.objects if o.name.startswith("Barre —")] + [label, model_label, guide, bone, model, scan]:
+        bpy.data.objects.remove(obj)
 
 
 def test_deleted_work_copy_is_gone():

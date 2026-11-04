@@ -501,6 +501,22 @@ arch's own axis pointing at its teeth (away from a scan's open border, or from a
 base). The reference frame still wins when there is one. Case1: up found 0.99 along Y; blank and both
 imprints right (1.2 s).
 
+## Cross-cutting tool: Text (engraved / embossed)
+
+Surgeon, 2026-11-03: one text tool for every printed part (model, splint, cap, guide, bone
+reconstruction...), instead of a text step inside the splint panel only. Panel "Texte (gravure /
+relief)" (text_labels.py), also drawn as step 5 of the splint panel:
+- works on the active object (or the active text's part, or a part chosen in the panel); two clicks
+  on its surface, letters fit between them; engraved or embossed, height and depth live;
+- never on raw anatomy (roles bone, teeth, nerve, skin, scan, segment: CBCT and scanner data are
+  never modified), nor on a locked object: write on a model, a guide or a working copy instead;
+- the texts on the part are listed (click to edit, trash to remove); a text follows its part when it
+  is rebuilt (splint blank, dental model made again);
+- generic print check (closed mesh with every modifier applied: text, pins, tubes, bar...; material
+  left under each engraving >= 0.5 mm; letters >= 2 mm) and STL export with every modifier applied;
+- case1 (separate Blender): "SC BAS" engraved under the lower model's base (6.6 mm left under the
+  letters, closed), "SC HAUT" embossed on the upper model; a text running off the surface is warned.
+
 ## Cross-cutting tool: Section & Analysis
 
 Not a step: a panel usable at every planning step to inspect how objects (bone, teeth, scan,

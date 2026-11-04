@@ -1,4 +1,5 @@
-"""Text engraved into (or embossed on) a printed part: splint, cap, later the bone guides.
+"""Text engraved into (or embossed on) any printed part: model, splint, cap, guide, bone
+reconstruction... One tool for all (panel "Texte"), also used by the splint panel.
 
 A label is placed by two clicks on the part's surface: where the text starts and where it ends.
 That gives its place, its reading direction and its length in one gesture; the letters fit between
@@ -8,16 +9,23 @@ The label is a small closed mesh (the "cutter"): the letters, laid on the surfac
 sight, pushed into the part (engraved) or out of it (embossed). A Boolean modifier on the part
 subtracts or adds it, so the part's mesh is never modified until the modifiers are applied at export,
 and the text, size or depth can change at any time. The cutter is drawn as a wireframe.
+
+Anatomy straight from the CBCT or the scanner is never written on (its data is never modified):
+make a working copy, a model or a guide from it first. The print check and the STL export are
+generic too: closed mesh with the text applied, material left under the engravings, letter size.
 """
+
+import json
 
 import bmesh
 import bpy
 import numpy as np
 from bpy_extras import view3d_utils
+from bpy_extras.io_utils import ExportHelper
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
-from . import landmarks, params
+from . import landmarks, locking, params
 
 TEXT_TAG = "text label"         # made_by of a cutter
 MODES = (
@@ -25,12 +33,31 @@ MODES = (
     ('EMBOSS', "En relief", "Lettres en relief sur la pièce"),
 )
 REACH = 5.0                     # mm: rays onto the surface start this far outside it
+ANATOMY = {'BONE', 'TEETH', 'NERVE', 'SKIN', 'SCAN', 'SEGMENT'}   # CBCT / scanner data: never written on
 
 _surfaces = {}                  # part -> BVH tree of its own mesh (without the text Booleans)
 
 
 def is_label(obj):
     return isinstance(obj, bpy.types.Object) and obj.type == 'MESH' and obj.omfs.made_by == TEXT_TAG
+
+
+def can_carry(obj):
+    """Can text go on this object? Any free mesh, never raw anatomy (CBCT, scans) nor a text itself."""
+    return (isinstance(obj, bpy.types.Object) and obj.type == 'MESH' and not is_label(obj)
+            and obj.omfs.role not in ANATOMY and not locking.is_locked(obj))
+
+
+def target(context):
+    """The part the Text panel works on: the active text's part, else the active object if it can
+    carry text, else the part chosen in the panel."""
+    active = context.view_layer.objects.active
+    if is_label(active) and active.omfs_text.part is not None:
+        return active.omfs_text.part
+    if can_carry(active):
+        return active
+    chosen = context.scene.omfs_text_target
+    return chosen if can_carry(chosen) and chosen.name in context.scene.objects else None
 
 
 def labels_on(part):
@@ -212,6 +239,31 @@ def wall_under(label):
     return thinnest
 
 
+def print_check(part, depsgraph):
+    """Checks on the part as it will be printed (every modifier applied): closed mesh, material left
+    under each engraving, letter size. Stored on the part."""
+    evaluated = part.evaluated_get(depsgraph)
+    mesh = evaluated.to_mesh()
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    open_count = sum(1 for e in bm.edges if not e.is_manifold)
+    volume = bm.calc_volume(signed=True)
+    bm.free()
+    evaluated.to_mesh_clear()
+    texts = [{"name": label.name, "height": label.omfs_text.letter_height, "wall": wall_under(label)}
+             for label in labels_on(part)]
+    result = {"open_edges": open_count, "volume": volume, "texts": texts}
+    result["ok"] = (open_count == 0 and volume > 0
+                    and all(x["wall"] is None or x["wall"] >= params.PRINT_MIN_WALL for x in texts)
+                    and all(x["height"] >= params.TEXT_MIN_HEIGHT for x in texts))
+    part["omfs_check"] = json.dumps(result)
+    return result
+
+
+def last_check(part):
+    return json.loads(part.get("omfs_check", "{}")) if part else {}
+
+
 # --- Properties -------------------------------------------------------------------------------
 
 def _on_label(t, context):
@@ -324,6 +376,86 @@ class OMFS_OT_place_text(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class OMFS_OT_check_part(bpy.types.Operator):
+    """Check the part as it will be printed: closed mesh with every modifier applied (text, pins,
+    tubes...), material left under the engravings, letter size"""
+    bl_idname = "omfs.check_part"
+    bl_label = "Vérifier"
+
+    part_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        part = bpy.data.objects.get(self.part_name)
+        if part is None:
+            return {'CANCELLED'}
+        result = print_check(part, context.evaluated_depsgraph_get())
+        self.report({'INFO'} if result["ok"] else {'WARNING'},
+                    "Prêt à imprimer" if result["ok"] else "À corriger: voir le panneau")
+        return {'FINISHED'}
+
+
+class OMFS_OT_export_part(bpy.types.Operator, ExportHelper):
+    """Export the part as STL, every modifier applied (text, pins...), in the patient's original
+    coordinates (1 unit = 1 mm)"""
+    bl_idname = "omfs.export_part"
+    bl_label = "Exporter STL"
+    filename_ext = ".stl"
+    filter_glob: bpy.props.StringProperty(default="*.stl", options={'HIDDEN'})
+
+    part_name: bpy.props.StringProperty(options={'HIDDEN'})
+
+    def invoke(self, context, event):
+        part = bpy.data.objects.get(self.part_name)
+        if part is not None and not self.filepath:
+            self.filepath = bpy.path.clean_name(part.name) + ".stl"
+        return ExportHelper.invoke(self, context, event)
+
+    def execute(self, context):
+        part = bpy.data.objects.get(self.part_name)
+        if part is None:
+            return {'CANCELLED'}
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        selected, active = list(context.selected_objects), context.view_layer.objects.active
+        hidden = part.hide_get()
+        part.hide_set(False)
+        for obj in selected:
+            obj.select_set(False)
+        part.select_set(True)
+        try:
+            bpy.ops.wm.stl_export(filepath=self.filepath, export_selected_objects=True,
+                                  apply_modifiers=True, use_scene_unit=False)
+        finally:
+            part.select_set(False)
+            part.hide_set(hidden)
+            for obj in selected:
+                obj.select_set(True)
+            context.view_layer.objects.active = active
+        self.report({'INFO'}, f"Exporté: {self.filepath}")
+        return {'FINISHED'}
+
+
+class OMFS_OT_select_text(bpy.types.Operator):
+    """Select this text to change its words, size, depth or mode (or the part, to add a new text)"""
+    bl_idname = "omfs.select_text"
+    bl_label = "Choisir le texte"
+
+    label_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        label = bpy.data.objects.get(self.label_name)
+        if not (is_label(label) or can_carry(label)):
+            return {'CANCELLED'}
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        for other in context.selected_objects:
+            other.select_set(False)
+        label.hide_set(False)
+        context.view_layer.objects.active = label
+        label.select_set(True)
+        return {'FINISHED'}
+
+
 class OMFS_OT_remove_text(bpy.types.Operator):
     """Remove this text and its Boolean modifier (the part itself is untouched)"""
     bl_idname = "omfs.remove_text"
@@ -339,16 +471,23 @@ class OMFS_OT_remove_text(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_TextSettings, OMFS_OT_place_text, OMFS_OT_remove_text)
+classes = (OMFS_TextSettings, OMFS_OT_place_text, OMFS_OT_check_part, OMFS_OT_export_part, OMFS_OT_select_text,
+           OMFS_OT_remove_text)
 
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Object.omfs_text = bpy.props.PointerProperty(type=OMFS_TextSettings)
+    bpy.types.Scene.omfs_text_next = bpy.props.PointerProperty(type=OMFS_TextSettings)   # for the next text
+    bpy.types.Scene.omfs_text_target = bpy.props.PointerProperty(
+        name="Pièce", type=bpy.types.Object, poll=lambda _s, o: can_carry(o),
+        description="Où écrire quand l'objet actif ne peut pas porter de texte (anatomie, rien de sélectionné)")
 
 
 def unregister():
+    del bpy.types.Scene.omfs_text_target
+    del bpy.types.Scene.omfs_text_next
     del bpy.types.Object.omfs_text
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

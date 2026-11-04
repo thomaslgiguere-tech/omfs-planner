@@ -23,7 +23,7 @@ from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.kdtree import KDTree
 
-from . import params, reference_frame, registration
+from . import params, reference_frame, registration, text_labels
 
 COLLECTION = "Modèles"
 TAG = "dental model"          # made_by of a generated model
@@ -607,6 +607,7 @@ def make_model(scene, scan):
             bpy.data.meshes.remove(old)
     obj.matrix_world = scan.matrix_world
     set_bar(scene, obj, report["bar"], settings.bar_diameter)
+    text_labels.rebuild_on(obj)                          # its text follows the new surface
     report["open_edges"] = check(obj)
     if report["bar"]:
         report["bar_anchored"] = bar_anchored(obj, report["bar"])

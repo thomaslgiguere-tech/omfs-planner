@@ -34,7 +34,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   cylinders.py               adjustable workshop cylinders (diameter, length) + their drag handles
   pins.py                    tubes and pins: conical females in the guide (stop on the osteotomy
                              plane), males and curved arms on the cap; same pins between the models
-  text_labels.py             engraved / embossed text on a printed part (two clicks, Boolean cutter)
+  text_labels.py             universal text tool: engraved / embossed text on any printed part (two
+                             clicks, Boolean cutter), print check and STL export
   model_base.py              Création de modèle: open arch scan closed into a printable model (wall,
                              flat base, bar on a horseshoe; teeth zone never trimmed)
   section.py                 Section & Analysis: section plane, slab (clipping), radiograph view
