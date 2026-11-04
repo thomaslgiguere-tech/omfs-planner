@@ -101,3 +101,16 @@ TEXT_DEPTH = 0.5                # mm engraved into the part, or embossed above i
 TEXT_OVERLAP = 0.3              # mm the cutter reaches past the surface, for a clean Boolean
 TEXT_MIN_HEIGHT = 2.0           # mm: smaller letters may not read once printed
 PRINT_MIN_WALL = 0.5            # mm of material that must stay under an engraving
+
+# Model base ("Création de modèle", model_base.py): an open arch scan closed into a printable model
+MODEL_HEIGHT = 20.0             # mm from the highest cusp tip to the flat base (case1 by hand: lower 15.9, upper 34.4 with the palate)
+MODEL_MIN_WALL = 1.0            # mm: the scan is cut at least this far above the base, so a wall always remains
+MODEL_FRINGE = 1.0              # mm of ragged border removed along the scan's open edge (never in the teeth zone)
+MODEL_TEETH_BAND = 8.0          # mm under the neighbouring cusp tips that is never trimmed (crowns + marginal gingiva)
+MODEL_TEETH_RADIUS = 6.0        # mm, seen from above: how far to look for the neighbouring cusp tips
+MODEL_OCCLUSAL_SPREAD = 6.0     # mm: points at most this far below the highest one count as cusp tips (curve of Spee, tilt)
+MODEL_OUTLINE_SMOOTH = 30       # smoothing passes of the base outline (moves only the base's own vertices)
+MODEL_SCRAP_FRACTION = 0.01     # detached pieces smaller than this share of the scan are removed
+MODEL_UNDER_PALATE = 3.0        # mm: with a full palate, the base goes this far under its deepest point (nothing of the palate is cut)
+MODEL_BAR_DIAMETER = 4.0        # mm, the bar across a horseshoe's opening (stops it flexing)
+MODEL_REATTACH_RINGS = 30       # most face rings of fringe put back to keep a protected part attached

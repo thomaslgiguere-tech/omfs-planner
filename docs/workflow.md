@@ -416,6 +416,39 @@ Naming used below (matches the object roles in code):
      Boolean 0.6 s.
 - Nuances: (add here)
 
+## Model base: "Création de modèle (base)"
+
+Surgeon's request (2026-11-03): reproduce, automated, what was done by hand on case1: open arch scans
+closed into printable dental models. Most important: the teeth (the dental segment) stay untouched.
+
+- What it does (model_base.py), on a copy, the scan itself is only read:
+  - no vertex of the scan ever moves: faces are only removed (loose scraps, the ragged fringe along
+    the open border, whatever lies beyond the base plane) and added (small hole patches, wall, base);
+  - teeth zone, never trimmed: every vertex less than 8 mm (MODEL_TEETH_BAND) below the cusp tips
+    within 6 mm around it (seen from above); only points within 6 mm of the highest one count as
+    cusp tips, so the palate or the vestibule far from the teeth is not protected by itself;
+  - if trimming the fringe would cut a protected part off (it would be thrown away as a scrap), the
+    fringe joining it is put back; at a bow-tie (two runs of border touching at one vertex) the border
+    is followed by turning around the vertex, nothing is removed or split;
+  - a wall drops from the open border along the occlusal axis to a flat base; only the base outline
+    is smoothed (its own new vertices).
+- Occlusal axis: the reference frame's if there is one, else the direction in which the arch is
+  thinnest, pointing away from the open border; "Inverser l'axe" if wrong. (case1's scans: Y.)
+- Two kinds, detected (is the middle of the teeth zone covered by the scan, seen from above?):
+  - full palate (upper arch): the whole palate is kept, the base goes 3 mm under its deepest point
+    (MODEL_UNDER_PALATE) whatever the height asked; full flat plate;
+  - horseshoe (lower arch): base at "Hauteur du modèle" under the cusp tips (default 20 mm; case1 by
+    hand: 15.9) and a bar across the opening (Ø 4 mm, at the base, Boolean union Manifold) so the
+    model does not flex: the longest edge of the outline's convex hull, moved one radius inwards.
+- Report in the panel: palate / horseshoe, scan vertices kept (identical), teeth zone and how many of
+  its vertices were removed (must be 0), plus those at the very edge of the open border or in scraps
+  already loose in the scan, holes patched, base outline crossings, closed (watertight).
+- Case1: lower 0.5 s (66,415 vertices kept, 0 removed in the teeth zone, 13 in a scrap already loose
+  in the scan), upper 0.9 s (117,398 kept, palate kept whole, base at 28.2 mm), both closed.
+- Next (surgeon, 2026-11-03): check that the two arches' relative position matches the bite scan
+  (third STL with "bite" in its name, parts of both arches): green check "L'occlusion correspond au
+  STL Bite", or a red X when they differ too much.
+
 ## Cross-cutting tool: Section & Analysis
 
 Not a step: a panel usable at every planning step to inspect how objects (bone, teeth, scan,

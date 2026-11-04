@@ -35,6 +35,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   pins.py                    tubes and pins: conical females in the guide (stop on the osteotomy
                              plane), males and curved arms on the cap
   text_labels.py             engraved / embossed text on a printed part (two clicks, Boolean cutter)
+  model_base.py              Création de modèle: open arch scan closed into a printable model (wall,
+                             flat base, bar on a horseshoe; teeth zone never trimmed)
   section.py                 Section & Analysis: section plane, slab (clipping), radiograph view
   section_contours.py        live section contours, caps, overlap on the section
   analysis.py                exact intersection volume (Boolean overlay, live or snapshot)

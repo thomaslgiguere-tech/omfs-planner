@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
+from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -747,6 +747,59 @@ class OMFS_PT_splint(bpy.types.Panel):
                       icon='CHECKMARK' if result["ok"] else 'ERROR')
 
 
+class OMFS_PT_model(bpy.types.Panel):
+    bl_label = "Création de modèle (base)"
+    bl_idname = "OMFS_PT_model"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "OMFS"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        layout = self.layout
+        settings = context.scene.omfs_model
+        draw_text(layout, context, "Ferme un scan d'arcade ouvert en modèle imprimable: paroi droite et base "
+                                   "plane. Aucun sommet du scan ne bouge; rien n'est retiré dans la zone des dents.")
+        layout.prop(settings, "scan")
+        col = layout.column(align=True)
+        col.prop(settings, "height")
+        col.prop(settings, "fringe")
+        col.prop(settings, "outline_smooth")
+        col = layout.column(align=True)
+        col.prop(settings, "teeth_band")
+        col.prop(settings, "teeth_radius")
+        col = layout.column(align=True)
+        col.prop(settings, "use_bar")
+        col.prop(settings, "bar_diameter")
+        layout.prop(settings, "flip")
+        model = model_base.model_of(context.scene, settings.scan) if model_base.is_scan(settings.scan) else None
+        layout.operator("omfs.make_model", text="Recréer le modèle" if model else "Créer le modèle", icon='MESH_CUBE')
+        report = model_base.last_report(model)
+        if report:
+            col = layout.box().column(align=True)
+            col.label(text=model.name, icon='MESH_DATA')
+            if report["palate"]:
+                col.label(text=f"Palais complet gardé: base à {report['height']:.1f} mm", icon='CHECKMARK')
+            else:
+                col.label(text=f"Fer à cheval: base à {report['height']:.1f} mm"
+                               + (", barre de renfort" if report["bar"] else ", sans barre"),
+                          icon='CHECKMARK' if report["bar"] else 'ERROR')
+            col.label(text=f"Scan gardé intact: {report['kept']} sommets (aucun déplacé)", icon='CHECKMARK')
+            lost = report["protected_removed"]
+            col.label(text=f"Zone des dents: {report['protected']} sommets, {lost} retiré(s)",
+                      icon='CHECKMARK' if lost == 0 else 'ERROR')
+            if report["protected_edge"]:
+                col.label(text=f"Plus {report['protected_edge']} au ras du bord ouvert / débris détachés", icon='INFO')
+            col.label(text=f"Retirés: {report['removed']} sommets (frange, débris, sous la base)", icon='INFO')
+            if report["patched"]:
+                col.label(text=f"Petits trous comblés: {report['patched']}", icon='INFO')
+            if report["outline_crossings"]:
+                col.label(text=f"Contour de base croisé {report['outline_crossings']} fois: lisser plus",
+                          icon='ERROR')
+            col.label(text="Fermé (étanche)" if report["open_edges"] == 0 else f"{report['open_edges']} arêtes ouvertes",
+                      icon='CHECKMARK' if report["open_edges"] == 0 else 'ERROR')
+
+
 class OMFS_PT_guide(bpy.types.Panel):
     bl_label = "Confection de guide"
     bl_idname = "OMFS_PT_guide"
@@ -885,7 +938,7 @@ class OMFS_PT_guide_recipe(bpy.types.Panel):
 GUIDE_SECTION_PANELS = tuple(make_guide_section(*s) for s in guide_workshop.SECTIONS)
 
 classes = (OMFS_PT_case, OMFS_PT_view, OMFS_PT_section, OMFS_PT_registration, OMFS_PT_landmarks, OMFS_PT_reference_frame, OMFS_PT_osteotomy,
-           OMFS_PT_movement, OMFS_PT_occlusion, OMFS_PT_splint,
+           OMFS_PT_movement, OMFS_PT_occlusion, OMFS_PT_splint, OMFS_PT_model,
            OMFS_PT_guide, *GUIDE_SECTION_PANELS, OMFS_PT_guide_recipe)
 
 

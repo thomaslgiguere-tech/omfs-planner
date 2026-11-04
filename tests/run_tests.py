@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base  # noqa: E402
 
 omfs_planner.register()
 
@@ -1051,6 +1051,82 @@ def test_zones_by_angle_and_mask():
     guide_workshop.mask_faces(mesh, sets == sets[top][0], 0.0)
     assert not guide_workshop.read_mask(mesh).any(), "Ctrl + click unmasks"
     bpy.data.objects.remove(box)
+
+
+def open_scan(name, bm):
+    """A scan object from a bmesh (freed), role SCAN."""
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.omfs.role = 'SCAN'
+    return obj
+
+
+def model_vertices_on_scan(model, scan):
+    """How many of the model's vertices sit exactly on a vertex of the scan."""
+    scan_points = {tuple(v.co) for v in scan.data.vertices}
+    return sum(tuple(v.co) in scan_points for v in model.data.vertices)
+
+
+def test_model_base_horseshoe():
+    scene = bpy.context.scene
+    verts, tris = make_test_case.arch_tube(arch_radius=25, tube_radius=4, z=0)
+    bm = bmesh.new()
+    for co in verts:
+        bm.verts.new(co)
+    bm.verts.ensure_lookup_table()
+    for tri in tris:
+        bm.faces.new([bm.verts[i] for i in tri])
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.calc_center_median().z < -2], context='FACES')
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    scan = open_scan("Horseshoe scan", bm)
+    settings = scene.omfs_model
+    settings.scan = scan
+    settings.teeth_band = 3.0                     # the crown: the top 3 mm of the tube
+    assert bpy.ops.omfs.make_model() == {'FINISHED'}
+    model = model_base.model_of(scene, scan)
+    report = model_base.last_report(model)
+    assert not report["palate"] and report["bar"] is not None, report
+    assert report["open_edges"] == 0, "the model is closed"
+    assert report["protected_removed"] == 0 and report["protected_edge"] == 0, report
+    assert model_vertices_on_scan(model, scan) == report["kept"], "kept vertices of the scan never move"
+    z = np.array([v.co.z for v in model.data.vertices])
+    top = max(v.co.z for v in scan.data.vertices)
+    assert abs(z.min() - (top - settings.height)) < 1e-4, "flat base at the height asked"
+    assert model.modifiers["Barre de renfort"].object is not None
+    settings.use_bar = False                      # settings rebuild the model
+    assert model_base.last_report(model)["bar"] is None and "Barre de renfort" not in model.modifiers
+    bar = bpy.data.objects.get(f"Barre — {model.name}")
+    assert bar is None, "no bar left behind"
+    settings.use_bar = True
+    for obj in (model, bpy.data.objects[f"Barre — {model.name}"], scan):
+        bpy.data.objects.remove(obj)
+
+
+def test_model_base_keeps_the_palate():
+    scene = bpy.context.scene
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=20)
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.calc_center_median().z < 0], context='FACES')
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    bmesh.ops.reverse_faces(bm, faces=bm.faces[:])   # a palate is seen from inside the dome
+    scan = open_scan("Palate scan", bm)
+    settings = scene.omfs_model
+    settings.scan = scan
+    settings.height = 10.0                        # less than the dome: must be overridden
+    settings.flip = False
+    assert bpy.ops.omfs.make_model() == {'FINISHED'}
+    model = model_base.model_of(scene, scan)
+    report = model_base.last_report(model)
+    assert report["palate"] and report["bar"] is None, report
+    assert report["height"] >= 20 + params.MODEL_UNDER_PALATE - 1e-3, "the base goes under the whole palate"
+    assert report["open_edges"] == 0
+    assert model_vertices_on_scan(model, scan) == report["kept"]
+    settings.height = params.MODEL_HEIGHT
+    for obj in (model, scan):
+        bpy.data.objects.remove(obj)
 
 
 def test_arch_curve():
