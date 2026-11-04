@@ -1122,9 +1122,10 @@ tool('CUT_KEEP_BELOW', "Garder en dessous du trait", 'TRIA_DOWN', 'OSTEO',
 
 # --- 6. Tubes and pins ----------------------------------------------------------------------
 
-tool('PIN_FEMALES', "Ajouter les femelles (clics sur le guide)", 'MESH_CYLINDER', 'PINS',
-     "Cliquez sur le guide de coupe où mettre chaque femelle (souvent 3), clic droit pour finir. Axe "
-     "perpendiculaire au plan d'ostéotomie, dessus du bossage exactement dans le plan.",
+tool('PIN_FEMALES', "Ajouter les femelles (clic, glisser, clic)", 'MESH_CYLINDER', 'PINS',
+     "Cliquez sur le guide près de l'endroit voulu, bougez la souris pour placer la femelle, cliquez pour "
+     "confirmer; recommencez (souvent 3), clic droit pour finir. Elle glisse dans le plan d'ostéotomie: "
+     "le dessus du bossage reste exactement dans le plan. Éloignée du guide, un pont l'y relie (toute la moitié du bossage côté guide, dessus dans le plan: plus de surface de coupe).",
      "Aucun (le plus proche: Meshmix > pièce à insérer)", "", operator="omfs.add_pin_female")(lambda c: None)
 
 

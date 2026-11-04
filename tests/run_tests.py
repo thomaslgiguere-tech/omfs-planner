@@ -1631,12 +1631,13 @@ def test_pins():
     cut = osteotomy.add_cut(scene)
     cut.omfs_cut.source = bone
     bpy.context.view_layer.update()
-    guide = box_object("Pin guide", 'GUIDE', (0, -22, -60), (30, 4, 10))
+    guide = box_object("Pin guide", 'GUIDE', (0, -22, -50), (30, 4, 20))   # crosses the plane (z = -45), like a real guide
     cap = box_object("Pin cap", 'GUIDE', (0, -15, -30), (30, 10, 4))
     point, normal = pins.osteotomy_plane(scene, guide)
-    click = Vector((0, -24, -58))                    # on the guide's front face
-    site = pins.add_site(scene, guide, click, Vector((0, -1, 0)))
+    click = Vector((0, -24, -50))                    # on the guide's front face
+    site = pins.add_site(scene, guide, pins.guide_start(scene, guide, click, Vector((0, -1, 0))))
     assert not isinstance(site, str), site
+    assert not site.omfs_pin.has_stem, "against the guide: no bridge"
     stop = site.matrix_world.translation
     assert abs((stop - point).dot(normal)) < 1e-4, "the stop is on the osteotomy plane"
     axis = site.matrix_world.to_3x3() @ Vector((0, 0, 1))
@@ -1663,6 +1664,26 @@ def test_pins():
     p.clearance = params.PIN_CLEARANCE
     pins.remove_site(site)
     assert not guide.modifiers and not cap.modifiers and not pins.sites(scene)
+
+    # Slid 12 mm away from the guide's front: the stop stays in the plane, a bridge joins it to the
+    # guide, as wide as the boss, its top flush with the plane.
+    away = pins.add_site(scene, guide, pins.guide_start(scene, guide, click, Vector((0, -1, 0))) + Vector((0, -12, 0)))
+    stop = away.matrix_world.translation
+    assert abs((stop - point).dot(normal)) < 1e-4, "slid: the stop is still on the osteotomy plane"
+    assert away.omfs_pin.has_stem
+    bridge = bpy.data.objects[pins.part_name(away, "pont")]
+    corners = [bridge.matrix_world @ v.co for v in bridge.data.vertices]
+    tops = sorted((c - point).dot(normal) for c in corners)
+    assert abs(tops[-1]) < 1e-4 and abs(tops[-4]) < 1e-4, "the bridge's top is in the plane"
+    p = scene.omfs_pins
+    assert abs((corners[0] - corners[3]).length - (p.base_diameter + 2 * p.wall)) < 1e-3, "as wide as the boss"
+    dg = bpy.context.evaluated_depsgraph_get()
+    bm = bmesh.new()
+    bm.from_mesh(guide.evaluated_get(dg).to_mesh())
+    assert len(model_base.bmesh_pieces(bm)) == 1, "guide, bridge and boss: one solid"
+    bm.free()
+    pins.remove_site(away)
+    assert not guide.modifiers
     for obj in (guide, cap, bone, cut):
         bpy.data.objects.remove(obj)
     for lm in ('MF_R', 'MF_L', 'POG'):

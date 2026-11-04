@@ -208,6 +208,12 @@ Naming used below (matches the object roles in code):
   connections. Surgeon's choices: pin axis perpendicular to the osteotomy plane (warned: if that
   plane is not perpendicular to the cap's insertion axis, cap-on-teeth and pins-in-females cannot
   seat in one gesture), conical pins like the surgeon's model, curved arm.
+  - Placing a female, guide and models alike (surgeon, 2026-11-03): click, slide with the mouse,
+    click to confirm. On the guide it first appears next to the clicked surface (below), then slides
+    in the osteotomy plane: its stop stays exactly in the plane. Slid away from the guide, a bridge
+    joins them: the boss's whole guide-side half (as wide as the boss, as deep), straight out to the
+    guide (1.5 mm into it), its top flush with the plane, so it also adds cutting-plane surface for
+    the blade (surgeon's correction: a bridge, not a rod).
   - Female: click on the guide; the axis runs `embed` mm inside the boss's edge from the clicked
     surface, perpendicular to the plane (osteotomy plane moved with the guide if it followed the
     segment). Boss (Union) and conical bore (Difference) below the plane; the boss's top is exactly
