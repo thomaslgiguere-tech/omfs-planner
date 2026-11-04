@@ -472,6 +472,16 @@ closed into printable dental models. Most important: the teeth (the dental segme
     0.96 mm, 2 deg -> 0.94 mm / 2.8 deg, 3 mm -> 2.9 mm (46 %); 0.5-1 mm in the other axes: no common
     fit (30 %). Detection limit about 0.5 mm / 1 degree; thresholds TO CONFIRM on more cases.
 
+### Occlusal axis without a reference frame
+
+Surgeon, 2026-11-03: a final splint built without a reference frame "did not work at all": up was
+assumed to be the file's Z, and case1's scans have their occlusal axis along Y, so the blank stood on
+its side. Now, without a frame, up comes from the arches (splint.arch_up): the direction across which
+each arch is thinnest, averaged over both, pointing from the lower arch to the upper; for a cap, the
+arch's own axis pointing at its teeth (away from a scan's open border, or from a closed model's flat
+base). The reference frame still wins when there is one. Case1: up found 0.99 along Y; blank and both
+imprints right (1.2 s).
+
 ## Cross-cutting tool: Section & Analysis
 
 Not a step: a panel usable at every planning step to inspect how objects (bone, teeth, scan,

@@ -66,9 +66,72 @@ def arches(scene):
 
 
 def up_axis(scene):
-    """Occlusal "up": the reference frame's, else the scanner's Z."""
+    """Occlusal "up": the reference frame's, else found from the arches (scanners do not agree on
+    which file axis is up: case1's scans have it along Y)."""
     frame = reference_frame.find_frame(scene)
-    return frame.matrix_world.col[2].xyz.normalized() if frame else Vector((0, 0, 1))
+    if frame:
+        return frame.matrix_world.col[2].xyz.normalized()
+    return arch_up(scene) or Vector((0, 0, 1))
+
+
+_axes = {}
+
+
+def thinnest_axis(obj):
+    """World direction across which the arch is thinnest (the occlusal axis, either way), and the
+    arch's centre. Cached until the mesh or its placement changes."""
+    key = (obj.name, len(obj.data.vertices), tuple(round(x, 6) for row in obj.matrix_world for x in row))
+    if key not in _axes:
+        co = np.empty(len(obj.data.vertices) * 3)
+        obj.data.vertices.foreach_get("co", co)
+        m = np.array(obj.matrix_world)
+        points = co.reshape(-1, 3)[::max(1, len(obj.data.vertices) // 20000)] @ m[:3, :3].T + m[:3, 3]
+        centre = points.mean(0)
+        _axes[key] = (np.linalg.svd(points - centre, full_matrices=False)[2][2], centre)
+    return _axes[key]
+
+
+def towards_teeth(obj, axis):
+    """The occlusal axis of one arch pointed at its teeth: away from the open border of a scan, or
+    away from the flat base of a closed model (its biggest flat area facing out along the axis)."""
+    mesh = obj.data
+    to_world = np.array(obj.matrix_world)[:3, :3]
+    co = np.empty(len(mesh.vertices) * 3)
+    mesh.vertices.foreach_get("co", co)
+    heights = co.reshape(-1, 3) @ to_world.T @ axis
+    edges = np.empty(len(mesh.loops), np.int32)
+    mesh.loops.foreach_get("edge_index", edges)
+    open_edges = np.flatnonzero(np.bincount(edges, minlength=len(mesh.edges)) == 1)
+    if len(open_edges):
+        pairs = np.empty(len(mesh.edges) * 2, np.int32)
+        mesh.edges.foreach_get("vertices", pairs)
+        border = pairs.reshape(-1, 2)[open_edges].ravel()
+        return axis if heights[border].mean() < heights.mean() else -axis
+    normals = np.empty(len(mesh.polygons) * 3)
+    mesh.polygons.foreach_get("normal", normals)
+    areas = np.empty(len(mesh.polygons))
+    mesh.polygons.foreach_get("area", areas)
+    facing = normals.reshape(-1, 3) @ to_world.T @ axis
+    return axis if areas[facing < -0.999].sum() > areas[facing > 0.999].sum() else -axis
+
+
+def arch_up(scene):
+    """Up from the arches: with both, the mean of their occlusal axes, pointing from the lower arch to
+    the upper; with one (a cap), its occlusal axis pointing at its teeth (the cap side)."""
+    props = scene.omfs_splint
+    if props.kind == 'CHAPE':
+        arch = props.cap_arch
+        if not is_scan(arch):
+            return None
+        return Vector(towards_teeth(arch, thinnest_axis(arch)[0])).normalized()
+    upper, lower = upper_arch(scene), lower_arch(scene)
+    if upper is None or lower is None:
+        return None
+    (a, upper_centre), (b, lower_centre) = thinnest_axis(upper), thinnest_axis(lower)
+    axis = a + (b if a @ b > 0 else -b)
+    if axis @ (upper_centre - lower_centre) < 0:
+        axis = -axis
+    return Vector(axis).normalized()
 
 
 def ray_hit(obj, origin, direction, depsgraph):

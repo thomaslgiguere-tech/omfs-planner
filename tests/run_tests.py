@@ -1178,6 +1178,33 @@ def test_bite_check():
         bpy.data.objects.remove(obj)
 
 
+def test_up_axis_from_the_arches():
+    """No reference frame: up comes from the arches, whatever file axis the scanner used (case1: Y)."""
+    scene = bpy.data.scenes.new("No frame")              # earlier tests left a frame in the main scene
+    props = scene.omfs_splint
+    upper, lower = tube_scan("Up upper", 9), tube_scan("Up lower", -9)
+    turn = Matrix.Rotation(radians(-90), 4, 'X')        # the occlusal axis becomes the file's Y
+    for obj in (upper, lower):
+        obj.matrix_world = turn @ obj.matrix_world
+        scene.collection.objects.link(obj)
+    props.kind, props.upper, props.lower = 'FINAL', upper, lower
+    assert reference_frame.find_frame(scene) is None
+    up = splint.up_axis(scene)
+    assert up.dot(turn.to_3x3() @ Vector((0, 0, 1))) > 0.99, up
+    # A cap on one open scan: up points at its teeth, away from its open border.
+    bm = bmesh.new()
+    bm.from_mesh(lower.data)
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.calc_center_median().z < -9], context='FACES')
+    bm.to_mesh(lower.data)
+    bm.free()
+    props.kind, props.cap_arch = 'CHAPE', lower
+    up = splint.up_axis(scene)
+    assert up.dot(turn.to_3x3() @ Vector((0, 0, 1))) > 0.99, f"teeth side of an open scan: {up}"
+    for obj in (upper, lower):
+        bpy.data.objects.remove(obj)
+    bpy.data.scenes.remove(scene)
+
+
 def test_arch_curve():
     scene = bpy.context.scene
     reference_frame.build(scene, FRAME_POINTS)       # up = world Z
