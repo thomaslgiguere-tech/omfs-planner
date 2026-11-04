@@ -68,7 +68,7 @@ def on_screw(screw, t):
 
 
 SLEEVES = {   # kind -> (name, diameter, length, Boolean on the guide)
-    'TUBE': ("Tube manchon", lambda: guide_workshop.sleeve_bore_diameter() + 2 * params.SLEEVE_TUBE_WALL,
+    'TUBE': ("Tube manchon", lambda: params.SLEEVE_TUBE_DIAMETER,
              lambda: params.SLEEVE_TUBE_LENGTH, 'UNION'),
     'BORE': ("Trou manchon", guide_workshop.sleeve_bore_diameter,
              lambda: params.SLEEVE_TUBE_LENGTH + 2 * params.SLEEVE_BORE_OVERSHOOT, 'DIFFERENCE'),

@@ -272,7 +272,7 @@ Naming used below (matches the object roles in code):
 - Thickness about 10 mm along the saw's path, i.e. in the same plane as the osteotomy (Step 4), to guide the saw blade.
 - About 3 mm thick elsewhere.
 - The transition between the two thicknesses should be smooth.
-- Drill-sleeve tubes: for each bicortical screw from Step 7, a tube is extruded from the cutting guide along the screw axis. Its inner diameter is the Step 7 cylinder (sleeve outer diameter + clearance), so it holds a drill sleeve. Tube length and wall thickness are adjustable per tube. Defaults: length 5 mm, wall thickness 3 mm.
+- Drill-sleeve tubes: for each bicortical screw from Step 7, a tube is extruded from the cutting guide along the screw axis. Its inner diameter is the Step 7 cylinder (sleeve outer diameter + clearance), so it holds a drill sleeve. Tube length and outer diameter are adjustable per tube. Defaults: length 5 mm, outer diameter 7.5 mm (surgeon, 2026-11-04).
 - Because the cutting guide moves with the chin segment, the tubes end up aligned with the planned screw paths once the positioning guide sets the segment in place.
 - Done (2026-11-04, sleeves.py): the sleeve cylinders take the axis of a final screw (Step 7); click near
   the screw, the cylinder slides along its axis with the mouse, a click fixes it; the tube is united to

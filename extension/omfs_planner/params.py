@@ -36,7 +36,7 @@ SCULPT_SHARP_ANGLE = 20.0       # deg, "zones by sharp angle": faces folded more
 SLEEVE_OUTER_DIAMETER = 4.0     # mm, MatrixMANDIBLE sleeve 03.503.045: just under 4 mm, TO MEASURE
 SLEEVE_FIT_CLEARANCE = 0.10     # mm added to the sleeve diameter for the tube bore, TO TEST (print)
 SLEEVE_TUBE_LENGTH = 5.0        # mm
-SLEEVE_TUBE_WALL = 3.0          # mm
+SLEEVE_TUBE_DIAMETER = 7.5      # mm, outer diameter of the drill-sleeve tube (wall = (7.5 - bore) / 2)
 SLEEVE_BORE_OVERSHOOT = 1.0     # mm the sleeve bore reaches past each end of its tube (opens it cleanly)
 FIXATION_HOLE_DIAMETER = 2.0    # mm, hole holding the guide to the bone: Synthes 1.85 mm screw + clearance, TO TEST (print)
 FIXATION_HOLE_OVERSHOOT = 1.0   # mm the fixation hole reaches past the guide on both sides

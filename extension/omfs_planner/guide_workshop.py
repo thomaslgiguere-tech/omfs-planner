@@ -976,7 +976,7 @@ def polish_filter(context):
 # --- 4. Cylinders and Boolean ------------------------------------------------------------
 
 tool('ADD_TUBE', "Tube de manchon (sur une vis)", 'MESH_CYLINDER', 'BOOLEAN',
-     f"Cliquez près d'une vis finale: un cylindre plein (trou + 2 × paroi de {params.SLEEVE_TUBE_WALL} mm, "
+     f"Cliquez près d'une vis finale: un cylindre plein (Ø {params.SLEEVE_TUBE_DIAMETER} mm, "
      f"long de {params.SLEEVE_TUBE_LENGTH} mm) apparaît sur l'axe de la vis; bougez la souris pour le glisser "
      "le long de l'axe (il ne le quitte jamais), cliquez pour le fixer. Uni au guide aussitôt. Ensuite: flèches "
      "bleues aux bouts = longueur, orange = diamètre, ou tapez les valeurs. Échap retire celui qui glisse.",
