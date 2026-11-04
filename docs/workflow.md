@@ -158,6 +158,15 @@ Naming used below (matches the object roles in code):
 - Also display: whether each cylinder actually engages both cortices (buccal of segment, lingual of mandible), and the resulting screw length from entry to lingual exit.
 - What I need to see: the cylinders through the bone, the nerve canal and roots, the distances and warnings.
 - Nuances: (add here)
+- First tool (surgeon, 2026-11-04), guide workshop section 4, "Positionnement de vis bicorticale"
+  (screws.py): the screw itself as a cylinder (Synthes 1.85 mm, SCREW_DIAMETER), not yet the sleeve
+  channel. Click the entry on the bone (usually the buccal cortex of the genial segment), the screw
+  then follows the mouse with its live length, click the exit (usually the lingual cortex of the
+  proximal segment); the two clicks may land on two different objects (roles bone / segment;
+  guide, teeth, scans in front are passed through). Several in a row. The panel lists "Vis 1:
+  14.32 mm" with the objects of entry and exit. Each end can be moved: it slides on the bone surface
+  under the mouse (the surface is the absolute reference), a click fixes it, the length follows.
+  Still to come: collision checks (roots, nerve), both cortices engaged, the sleeve channel.
 
 ## Step 8. Design the guides
 

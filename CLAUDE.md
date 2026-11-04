@@ -32,6 +32,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   occlusion_seating.py       springs between the arches, seating solver, overlap map
   splint.py                  Object creator: Splint / Chape (arch curve, blank, imprints, solid, text)
   cylinders.py               adjustable workshop cylinders (diameter, length) + their drag handles
+  screws.py                  bicortical screws: two clicks on the bone (entry, exit), exact lengths,
+                             ends slid on the bone surface
   pins.py                    tubes and pins: conical females in the guide (stop on the osteotomy
                              plane), males and curved arms on the cap; same pins between the models
   text_labels.py             universal text tool: engraved / embossed text on any printed part (two

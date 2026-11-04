@@ -22,7 +22,7 @@ import omfs_planner  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base, tidy  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base, tidy, screws  # noqa: E402
 
 omfs_planner.register()
 
@@ -1599,6 +1599,38 @@ def test_planning_aids_are_put_away():
     tidy.tidy(scene)
     assert not away(curve), "the blank shown again (to change it): the curve comes back"
     for obj in (curve, blank, solid):
+        bpy.data.objects.remove(obj)
+
+
+def test_bicortical_screws():
+    scene = bpy.context.scene
+    segment = box_object("Screw segment", 'SEGMENT', (0, 900, 0), (20, 10, 10))     # front face y = 895
+    mandible = box_object("Screw mandible", 'BONE', (0, 915, 0), (20, 10, 10))      # back face y = 920
+    guide = box_object("Screw guide", 'GUIDE', (0, 892, 0), (20, 2, 10))            # in front of the segment
+    bpy.context.view_layer.update()
+    entry = screws.first_bone(bpy.context, Vector((0, 850, 1)), Vector((0, 1, 0)))
+    assert entry[1] == segment and abs(entry[0].y - 895) < 1e-4, "the guide in front is passed through"
+    exit_ = screws.first_bone(bpy.context, Vector((0, 960, -1)), Vector((0, -1, 0)))
+    assert exit_[1] == mandible and abs(exit_[0].y - 920) < 1e-4
+    screw = screws.add_screw(scene, entry[0], entry[1].name, exit_[0], exit_[1].name)
+    expected = (exit_[0] - entry[0]).length
+    assert abs(screws.length(screw) - expected) < 1e-6
+    ends = [screw.matrix_world @ v.co for v in screw.data.vertices]
+    along = Vector(exit_[0] - entry[0]).normalized()
+    heights = [(e - entry[0]).dot(along) for e in ends]
+    assert abs(min(heights)) < 1e-4 and abs(max(heights) - expected) < 1e-4, "from the entry to the exit"
+    radius = max((e - entry[0] - along * (e - entry[0]).dot(along)).length for e in ends)
+    assert abs(radius - params.SCREW_DIAMETER / 2) < 1e-4
+    scene.omfs_screws.diameter = 2.4                 # every screw follows
+    radius = max((screw.matrix_world @ v.co - entry[0] - along * (screw.matrix_world @ v.co - entry[0]).dot(along)).length
+                 for v in screw.data.vertices)
+    assert abs(radius - 1.2) < 1e-4
+    scene.omfs_screws.diameter = params.SCREW_DIAMETER
+    second = screws.add_screw(scene, entry[0] + Vector((5, 0, 0)), segment.name, exit_[0], mandible.name)
+    assert [o.name for o in screws.screws(scene)] == ["Vis 1", "Vis 2"]
+    for obj in (screw, second):
+        screws.remove_screw(obj)
+    for obj in (segment, mandible, guide):
         bpy.data.objects.remove(obj)
 
 

@@ -37,6 +37,8 @@ SLEEVE_OUTER_DIAMETER = 4.0     # mm, MatrixMANDIBLE sleeve 03.503.045: just und
 SLEEVE_FIT_CLEARANCE = 0.10     # mm added to the sleeve diameter for the tube bore, TO TEST (print)
 SLEEVE_TUBE_LENGTH = 5.0        # mm
 SLEEVE_TUBE_WALL = 3.0          # mm
+SCREW_DIAMETER = 1.85           # mm, Synthes bicortical screw (the screw itself, entry to lingual exit)
+SCREW_COLOUR = (0.85, 0.65, 0.15, 1.0)   # gold, like the titanium screws in the planning images
 CYLINDER_MIN_SIZE = 0.5         # mm: smallest diameter or length a workshop cylinder can be dragged to
 
 # Tubes and pins (cutting guide <-> cap): conical pins, axial stop on the osteotomy plane. TO TEST (print)

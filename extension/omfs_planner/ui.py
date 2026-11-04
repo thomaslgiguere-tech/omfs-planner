@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
+from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, screws, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -968,12 +968,34 @@ def draw_pins_settings(layout, context):
         row.operator("omfs.remove_pin", text="", icon='TRASH').site_name = site.name
 
 
+def draw_screws(layout, context):
+    """Bicortical screws: place them with two clicks, their exact lengths, move an end on the bone."""
+    box = layout.box()
+    box.label(text="Positionnement de vis bicorticale", icon='MOD_SCREW')
+    draw_text(box, context, "Clic sur l'entrée (segment génien), clic sur la sortie (lingual du segment "
+                            "proximal). Pour corriger, déplacez un bout: il glisse sur l'os, clic pour fixer.")
+    box.prop(context.scene.omfs_screws, "diameter")
+    box.operator("omfs.place_screws", icon='ADD')
+    for screw in screws.screws(context.scene):
+        s = screw.omfs_screw
+        row = box.row(align=True)
+        row.label(text=f"{screw.name}: {screws.length(screw):.2f} mm", icon='DOT')
+        for end, label in (('ENTRY', "Entrée"), ('EXIT', "Sortie")):
+            op = row.operator("omfs.move_screw_end", text=label)
+            op.screw_name, op.end = screw.name, end
+        row.operator("omfs.remove_screw", text="", icon='TRASH').screw_name = screw.name
+        if s.entry_on and s.exit_on:
+            box.label(text=f"   {s.entry_on} → {s.exit_on}"
+                           + ("" if s.entry_on != s.exit_on else "  (même objet)"), icon='BLANK1')
+
+
 def make_guide_section(section_id, title, text):
     """One collapsible sub-panel per workshop section."""
     def draw(self, context):
         layout = self.layout
         draw_text(layout, context, text)
         if section_id == 'BOOLEAN':
+            draw_screws(layout, context)
             layout.prop(context.scene.omfs_guide, "cutter")
             active = context.active_object
             if cylinders.is_cylinder(active):
