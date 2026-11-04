@@ -407,9 +407,24 @@ def surface_hit(context, region, mouse, obj):
     return obj.matrix_world @ location, (obj.matrix_world.to_3x3() @ normal).normalized()
 
 
+_running = []                   # the click tool in use: starting another one ends it
+
+
+def take_over(operator):
+    """`operator` becomes the click tool in use; the one running before ends at its next event
+    (otherwise it keeps eating the clicks: case1, the females tool still running asked for the lower
+    model while the surgeon wanted to click the arms)."""
+    _running[:] = [operator]
+
+
+def superseded(operator):
+    return not _running or _running[0] is not operator
+
+
 class ClickOperator:
     """Modal clicks on one object, with a header; subclasses say what a click does."""
     def start(self, context, target):
+        take_over(self)
         self.target = target
         self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
             (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
@@ -428,6 +443,9 @@ class ClickOperator:
         return {'FINISHED'}
 
     def modal(self, context, event):
+        if superseded(self):
+            self.finish(context)
+            return {'PASS_THROUGH'}
         if event.value == 'PRESS' and event.type in {'RIGHTMOUSE', 'ESC', 'RET', 'NUMPAD_ENTER'}:
             return self.finish(context)
         if event.type != 'LEFTMOUSE' or event.value != 'PRESS':
@@ -531,6 +549,7 @@ class OMFS_OT_add_model_pin(bpy.types.Operator):
             return {'CANCELLED'}
         if context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
+        take_over(self)
         self.plane = model_base_plane(self.lower)
         self.sliding = False
         self.added = 0
@@ -543,7 +562,7 @@ class OMFS_OT_add_model_pin(bpy.types.Operator):
     def header(self, distance):
         if not self.sliding:
             return (f"Cliquez sur la base du modèle du bas où mettre une femelle ({self.added} placées)"
-                    "   |   Clic droit / Entrée: terminer")
+                    "   |   Clic droit / Entrée: terminer (ou lancez « Bras depuis le modèle du haut »)")
         where = "dans le modèle" if distance is None else f"{distance:.1f} mm du modèle"
         return f"Bougez la souris pour placer la femelle ({where}), clic: confirmer   |   Échap: annuler celle-ci"
 
@@ -579,6 +598,9 @@ class OMFS_OT_add_model_pin(bpy.types.Operator):
         return {'FINISHED'}
 
     def modal(self, context, event):
+        if superseded(self):
+            self.finish(context)
+            return {'PASS_THROUGH'}
         if event.value == 'PRESS' and event.type in {'RIGHTMOUSE', 'RET', 'NUMPAD_ENTER'}:
             return self.finish(context)
         if event.value == 'PRESS' and event.type == 'ESC':

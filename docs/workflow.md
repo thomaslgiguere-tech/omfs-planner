@@ -467,6 +467,8 @@ closed into printable dental models. Most important: the teeth (the dental segme
     point of the model, 1.5 mm into it.
   - Arm: one click on the upper model per pin, exactly as from the cap: leaves at 90 degrees, arrives
     along the pin axis; the male is unioned to the upper model.
+  - Starting a pin tool ends the one still running (case1: the females tool, still waiting for a
+    right-click, kept asking for the lower model when the surgeon pressed the arms button).
   - Case1 (separate Blender, copy of the case, 3 pins): 0.4 s; both models one piece, manifold; arms
     never touch the lower model; the only contact is the male's shoulder on the boss top (the stop):
     lifted 0.02 mm, nothing touches.
