@@ -445,9 +445,18 @@ closed into printable dental models. Most important: the teeth (the dental segme
   already loose in the scan, holes patched, base outline crossings, closed (watertight).
 - Case1: lower 0.5 s (66,415 vertices kept, 0 removed in the teeth zone, 13 in a scrap already loose
   in the scan), upper 0.9 s (117,398 kept, palate kept whole, base at 28.2 mm), both closed.
-- Next (surgeon, 2026-11-03): check that the two arches' relative position matches the bite scan
-  (third STL with "bite" in its name, parts of both arches): green check "L'occlusion correspond au
-  STL Bite", or a red X when they differ too much.
+- Bite check (surgeon, 2026-11-03): the third STL ("bite" in its name: a strip of both arches
+  captured in occlusion) must sit on both arches where they are now. Nothing is registered (that would
+  make the check agree with itself): each bite vertex goes to the closer arch, and each part must hold
+  at least 10 % of the bite (BITE_MIN_SHARE) with a median distance under 0.15 mm (BITE_TOLERANCE, TO
+  CONFIRM on matching cases). Green check "L'occlusion correspond au STL Bite", else a red X "ne
+  correspond pas", with the median gap and share per arch. Bite / upper / lower found by name (bite,
+  byte, occlu, mordu / upper, haut, maxil / lower, bas, mandib), or chosen in the panel. Moving any of
+  them makes the result stale ("revérifier").
+  - Case1 (2026-11-03): red X. The bite object had been moved and turned in the scene (lower part 4.6
+    mm off, upper 9.6 mm); at its file position it does not fit either (median 4.1 mm), so this
+    export's bite is not in the arches' coordinates. To ask: is that usual for the scanner? If so, an
+    automatic "recaler le bite" (global search + ICP on each part, then compare the two poses) is next.
 
 ## Cross-cutting tool: Section & Analysis
 

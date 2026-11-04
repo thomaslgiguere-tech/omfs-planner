@@ -1129,6 +1129,47 @@ def test_model_base_keeps_the_palate():
         bpy.data.objects.remove(obj)
 
 
+def test_bite_check():
+    scene = bpy.context.scene
+
+    def surface(name, z, size=(30, 20)):
+        bm = bmesh.new()
+        bmesh.ops.create_grid(bm, x_segments=30, y_segments=20, size=1.0)
+        for v in bm.verts:
+            v.co = (v.co.x * size[0] / 2, v.co.y * size[1] / 2, z + 0.8 * np.sin(v.co.x * 9))   # cusps
+        return open_scan(name, bm)
+
+    upper = surface("Test UpperJaw", 1.0)
+    lower = surface("Test LowerJaw", -1.0)
+    bm = bmesh.new()                        # the bite: a strip of each arch's surface, one object
+    for arch in (upper, lower):
+        part = bmesh.new()
+        part.from_mesh(arch.data)
+        bmesh.ops.delete(part, geom=[f for f in part.faces if f.calc_center_median().x > 0], context='FACES')
+        mesh = bpy.data.meshes.new("part")
+        part.to_mesh(mesh)
+        part.free()
+        bm.from_mesh(mesh)
+        bpy.data.meshes.remove(mesh)
+    bite = open_scan("Test BiteScan", bm)
+    settings = scene.omfs_model
+    settings.bite, settings.upper, settings.lower = bite, upper, lower
+    assert bpy.ops.omfs.check_bite() == {'FINISHED'}
+    result = model_base.last_bite(scene)
+    assert result["ok"], result
+    assert not model_base.bite_stale(scene, result)
+    lower.location.z -= 0.5                 # the arches no longer in the bite's occlusion
+    bpy.context.view_layer.update()
+    assert model_base.bite_stale(scene, result), "moving an arch makes the check stale"
+    bpy.ops.omfs.check_bite()
+    result = model_base.last_bite(scene)
+    assert not result["ok"] and result["parts"]["upper"]["ok"] and not result["parts"]["lower"]["ok"], result
+    settings.bite = settings.upper = settings.lower = None
+    del scene["omfs_bite_check"]
+    for obj in (bite, upper, lower):
+        bpy.data.objects.remove(obj)
+
+
 def test_arch_curve():
     scene = bpy.context.scene
     reference_frame.build(scene, FRAME_POINTS)       # up = world Z

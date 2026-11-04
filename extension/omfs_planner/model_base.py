@@ -20,6 +20,7 @@ import bmesh
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
 from mathutils.kdtree import KDTree
 
 from . import params, reference_frame
@@ -511,6 +512,82 @@ def last_report(obj):
     return ast.literal_eval(obj.get("omfs_model_report", "{}")) if obj is not None else {}
 
 
+# --- Bite check ------------------------------------------------------------------------------
+
+BITE_WORDS = ("bite", "byte", "occlu", "mordu")
+UPPER_WORDS = ("upper", "haut", "maxil", "sup")
+LOWER_WORDS = ("lower", "bas", "mandib", "inf")
+
+
+def named(scene, words, exclude=()):
+    """The first scan whose name contains one of the words (case ignored), and none of `exclude`."""
+    for obj in scene.objects:
+        name = obj.name.lower()
+        if is_scan(obj) and any(w in name for w in words) and not any(w in name for w in exclude):
+            return obj
+    return None
+
+
+def bite_scans(scene):
+    """(bite, upper, lower): chosen in the panel, else found by name."""
+    settings = scene.omfs_model
+    bite = settings.bite if is_scan(settings.bite) else named(scene, BITE_WORDS)
+    upper = settings.upper if is_scan(settings.upper) else named(scene, UPPER_WORDS, BITE_WORDS)
+    lower = settings.lower if is_scan(settings.lower) else named(scene, LOWER_WORDS, BITE_WORDS)
+    return bite, upper, lower
+
+
+def world_tree(obj):
+    co = np.array([tuple(obj.matrix_world @ v.co) for v in obj.data.vertices])
+    obj.data.calc_loop_triangles()
+    tris = np.empty(len(obj.data.loop_triangles) * 3, np.int64)
+    obj.data.loop_triangles.foreach_get("vertices", tris)
+    return BVHTree.FromPolygons(co.tolist(), tris.reshape(-1, 3).tolist())
+
+
+def check_bite(bite, upper, lower):
+    """Where they are now, does the bite scan sit on both arches? Each bite vertex belongs to the arch
+    it is closest to; for each part, the median distance must be under the tolerance and the part
+    must be big enough (a bite touching one arch only proves nothing about the occlusion)."""
+    m = np.array(bite.matrix_world)
+    co = np.empty(len(bite.data.vertices) * 3)
+    bite.data.vertices.foreach_get("co", co)
+    points = co.reshape(-1, 3) @ m[:3, :3].T + m[:3, 3]
+    points = points[::max(1, len(points) // params.BITE_SAMPLES)]
+    distances = []
+    for arch in (upper, lower):
+        tree = world_tree(arch)
+        far = params.BITE_SEARCH
+        distances.append(np.array([d if d is not None else far for d in
+                                   (tree.find_nearest(Vector(p), far)[3] for p in points)]))
+    to_upper, to_lower = distances
+    on_upper = to_upper < to_lower
+    parts = {}
+    for name, mask, dist in (("upper", on_upper, to_upper), ("lower", ~on_upper, to_lower)):
+        share = float(mask.mean())
+        median = float(np.median(dist[mask])) if mask.any() else None
+        parts[name] = {"share": share, "median": median,
+                       "ok": median is not None and share >= params.BITE_MIN_SHARE
+                       and median <= params.BITE_TOLERANCE}
+    return {"ok": parts["upper"]["ok"] and parts["lower"]["ok"], "parts": parts,
+            "objects": [o.name for o in (bite, upper, lower)],
+            "where": [[float(x) for x in np.array(o.matrix_world).ravel()] for o in (bite, upper, lower)]}
+
+
+def bite_stale(scene, result):
+    """Has the bite or an arch moved since the check (or been swapped for another object)?"""
+    objects = [scene.objects.get(name) for name in result["objects"]]
+    if any(o is None for o in objects) or list(bite_scans(scene)) != objects:
+        return True
+    return any(not np.allclose(np.array(o.matrix_world).ravel(), where, atol=1e-5)
+               for o, where in zip(objects, result["where"]))
+
+
+def last_bite(scene):
+    import ast
+    return ast.literal_eval(scene.get("omfs_bite_check", "None"))
+
+
 # --- Properties and operators ---------------------------------------------------------------
 
 def _rebuild(settings, context):
@@ -551,6 +628,13 @@ class OMFS_ModelSettings(bpy.types.PropertyGroup):
     bar_diameter: bpy.props.FloatProperty(
         name="Diamètre de la barre", subtype='DISTANCE', default=params.MODEL_BAR_DIAMETER, min=1.0,
         soft_max=10.0, step=50, precision=1, update=_rebuild)
+    bite: bpy.props.PointerProperty(name="STL Bite", type=bpy.types.Object, poll=lambda _s, o: is_scan(o),
+                                    description="Scan d'occlusion (mot « bite » dans le nom, par défaut): "
+                                                "une partie du haut et une partie du bas")
+    upper: bpy.props.PointerProperty(name="Haut", type=bpy.types.Object, poll=lambda _s, o: is_scan(o),
+                                     description="Arcade du haut (par défaut: le scan dont le nom dit upper / haut)")
+    lower: bpy.props.PointerProperty(name="Bas", type=bpy.types.Object, poll=lambda _s, o: is_scan(o),
+                                     description="Arcade du bas (par défaut: le scan dont le nom dit lower / bas)")
     flip: bpy.props.BoolProperty(name="Inverser l'axe", default=False, update=_rebuild,
                                  description="Si la base apparaît du côté des dents")
 
@@ -576,7 +660,22 @@ class OMFS_OT_make_model(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_ModelSettings, OMFS_OT_make_model)
+class OMFS_OT_check_bite(bpy.types.Operator):
+    """Check that the arches, where they are now, match the bite scan (each part of the bite on its arch)"""
+    bl_idname = "omfs.check_bite"
+    bl_label = "Vérifier l'occlusion (STL Bite)"
+
+    def execute(self, context):
+        bite, upper, lower = bite_scans(context.scene)
+        missing = [label for label, obj in (("STL Bite", bite), ("haut", upper), ("bas", lower)) if obj is None]
+        if missing:
+            self.report({'WARNING'}, "Introuvable: " + ", ".join(missing) + " (choisissez-le dans le panneau)")
+            return {'CANCELLED'}
+        context.scene["omfs_bite_check"] = str(check_bite(bite, upper, lower))
+        return {'FINISHED'}
+
+
+classes = (OMFS_ModelSettings, OMFS_OT_make_model, OMFS_OT_check_bite)
 
 
 def register():

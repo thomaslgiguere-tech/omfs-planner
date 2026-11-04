@@ -798,6 +798,38 @@ class OMFS_PT_model(bpy.types.Panel):
                           icon='ERROR')
             col.label(text="Fermé (étanche)" if report["open_edges"] == 0 else f"{report['open_edges']} arêtes ouvertes",
                       icon='CHECKMARK' if report["open_edges"] == 0 else 'ERROR')
+        draw_bite_check(layout, context)
+
+
+def draw_bite_check(layout, context):
+    box = layout.box()
+    box.label(text="Occlusion et STL Bite", icon='SNAP_FACE')
+    settings = context.scene.omfs_model
+    bite, upper, lower = model_base.bite_scans(context.scene)
+    col = box.column(align=True)
+    for prop, found in (("bite", bite), ("upper", upper), ("lower", lower)):
+        row = col.row(align=True)
+        row.prop(settings, prop)
+        if getattr(settings, prop) is None and found is not None:
+            col.label(text=f"   par défaut: {found.name}", icon='LINKED')
+    box.operator("omfs.check_bite", icon='CHECKMARK')
+    result = model_base.last_bite(context.scene)
+    if result is None:
+        return
+    col = box.column(align=True)
+    if model_base.bite_stale(context.scene, result):
+        col.label(text="Un objet a bougé depuis: revérifier", icon='TIME')
+        return
+    if result["ok"]:
+        col.label(text="L'occlusion correspond au STL Bite", icon='CHECKMARK')
+    else:
+        col.alert = True
+        col.label(text="L'occlusion ne correspond pas au STL Bite", icon='CANCEL')
+    for key, label in (("upper", "Haut"), ("lower", "Bas")):
+        part = result["parts"][key]
+        median = "—" if part["median"] is None else f"{part['median']:.2f} mm"
+        col.label(text=f"{label}: écart médian {median}, {part['share'] * 100:.0f} % du bite",
+                  icon='CHECKMARK' if part["ok"] else 'X')
 
 
 class OMFS_PT_guide(bpy.types.Panel):

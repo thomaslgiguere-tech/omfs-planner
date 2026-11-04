@@ -60,6 +60,7 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Mask from selection** *(OMFS Planner)* | The vertices selected in Edit Mode become the sculpt mask, exactly. | Select, then Freeze. |
 | **Sculpt brushes (Smooth, Flatten, Clay Strips, Grab)** | Move vertices under the brush: soften, flatten, add material, pull. Masked vertices never move. | Robust Smooth, Flatten, Draw / Inflate, Drag. |
 | **Model base** *(OMFS Planner)* | Closes an open arch scan into a printable model: wall down the occlusal axis, flat base, bar across a horseshoe. Removes faces of the scan's ragged border, never moves a vertex, never trims the teeth zone. | Edit > Plane Cut + Extrude Boundary to plane (Make Solid). |
+| **Bite check** *(OMFS Planner)* | Measures, without moving anything, how far each part of the bite scan lies from its arch (BVH nearest point). Green check under 0.15 mm median on both arches. | Analysis > Deviation, between the bite and each arch. |
 | **Convex hull** | The smallest convex outline around points (an elastic band around them). Its longest edge across a horseshoe spans the opening: the bar goes there. | None. |
 | **Bow-tie vertex** | A vertex where two separate runs of an open border touch. Walking the border there must turn around the vertex through the faces to stay on the right run. | Inspector flags it as non-manifold. |
 | **Mask Extract** | Sculpt > Mask > Extract: new object from the masked area, projected on the surface, with a Solidify modifier. | Edit > Extract. |

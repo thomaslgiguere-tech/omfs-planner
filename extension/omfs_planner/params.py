@@ -114,3 +114,9 @@ MODEL_SCRAP_FRACTION = 0.01     # detached pieces smaller than this share of the
 MODEL_UNDER_PALATE = 3.0        # mm: with a full palate, the base goes this far under its deepest point (nothing of the palate is cut)
 MODEL_BAR_DIAMETER = 4.0        # mm, the bar across a horseshoe's opening (stops it flexing)
 MODEL_REATTACH_RINGS = 30       # most face rings of fringe put back to keep a protected part attached
+
+# Bite check (model_base.py): do the arches, where they are, sit on the bite scan?
+BITE_TOLERANCE = 0.15           # mm: median distance from each part of the bite to its arch (TO CONFIRM on matching cases)
+BITE_MIN_SHARE = 0.10           # each arch must hold at least this share of the bite's points
+BITE_SEARCH = 10.0              # mm: farther than this counts as this far
+BITE_SAMPLES = 20000            # bite vertices measured (spread evenly)
