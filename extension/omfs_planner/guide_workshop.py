@@ -751,21 +751,16 @@ tool('ADD_REMESH', "Remesh étanche (0,2 mm)", 'MOD_REMESH', 'SHAPE',
 @tool('APPLY_MODIFIERS', "Appliquer les modificateurs", 'CHECKMARK', 'SHAPE',
       "Grave définitivement les modificateurs dans le maillage (dans l'ordre de la liste; les Boolean "
       "sont d'abord remis dans l'ordre: tubes, puis trous, puis trait de coupe). Les cylindres et "
-      "boîtes utilisés sont ensuite cachés, pas supprimés. À faire à la fin, avant l'export. "
+      "boîtes utilisés sont ensuite cachés, pas supprimés, et les trous sont mémorisés: une union ajoutée "
+      "plus tard qui en touche un (ex. bossage de pin) sera recreusée à l'application suivante. "
+      "À faire à la fin, avant l'export. "
       "Annulable avec Ctrl+Z.",
       "Accept (dans un outil)", "Ctrl+A dans le menu des modificateurs")
 def apply_modifiers(context):
     obj, error = editable_active(context)
     if error:
         return error
-    if context.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
-    order_booleans(obj)
-    tools = [m.object for m in obj.modifiers if m.type == 'BOOLEAN' and m.object is not None]
-    for mod in list(obj.modifiers):
-        bpy.ops.object.modifier_apply(modifier=mod.name)
-    for tool_obj in tools:                # their job is done: out of the way, kept (Ctrl+Z, reuse)
-        tool_obj.hide_set(True)
+    apply_stack(context, obj)
     return None
 
 
@@ -1062,6 +1057,58 @@ def boolean_rank(mod):
     return 1 if mod.operation == 'UNION' else 2
 
 
+APPLIED_DIFFERENCES = "omfs_applied_differences"   # custom property: cutter name -> its Boolean's name
+
+
+def world_tree(obj):
+    m = obj.matrix_world
+    return BVHTree.FromPolygons([tuple(m @ v.co) for v in obj.data.vertices],
+                                [tuple(f.vertices) for f in obj.data.polygons])
+
+
+def overlaps(a, b):
+    return bool(world_tree(a).overlap(world_tree(b)))
+
+
+def redo_differences(obj):
+    """Differences applied earlier win over unions added since: a cutter already dug is subtracted
+    again when one of the new unions reaches into it (e.g. a pin boss over a sleeve bore). Returns them."""
+    unions = [m.object for m in obj.modifiers if m.type == 'BOOLEAN' and m.operation == 'UNION'
+              and m.object is not None]
+    in_stack = {m.object for m in obj.modifiers if m.type == 'BOOLEAN'}
+    redone = []
+    for name, mod_name in obj.get(APPLIED_DIFFERENCES, {}).items():
+        cutter = bpy.data.objects.get(name)
+        if cutter is None or cutter.type != 'MESH' or cutter in in_stack:
+            continue
+        if any(overlaps(cutter, union) for union in unions):
+            mod = obj.modifiers.new(mod_name, 'BOOLEAN')   # same name: the cut edge stays ranked as one
+            mod.operation, mod.object = 'DIFFERENCE', cutter
+            redone.append(name)
+    return redone
+
+
+def apply_stack(context, obj):
+    """Every modifier of obj applied in order (Booleans sorted first, earlier differences redone after the
+    new unions); the Boolean tools hidden, the cutters remembered. Returns the number of operations."""
+    make_active(context, obj)
+    redo_differences(obj)
+    for mod in obj.modifiers:
+        if mod.type == 'BOOLEAN':
+            mod.solver = SOLVER   # older stacks: Exact left open edges, then a cube (case1)
+    order_booleans(obj)
+    tools = [m.object for m in obj.modifiers if m.type == 'BOOLEAN' and m.object is not None]
+    dug = {m.object.name: m.name for m in obj.modifiers if m.type == 'BOOLEAN' and m.operation == 'DIFFERENCE'
+           and m.object is not None}
+    count = len(obj.modifiers)
+    for mod in list(obj.modifiers):
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+    obj[APPLIED_DIFFERENCES] = {**dict(obj.get(APPLIED_DIFFERENCES, {})), **dug}
+    for tool_obj in tools:                # their job is done: out of the way, kept (Ctrl+Z, reuse)
+        tool_obj.hide_set(True)
+    return count
+
+
 def order_booleans(obj):
     """Sort the Boolean modifiers by boolean_rank in the slots they occupy; the others stay put."""
     slots = [i for i, m in enumerate(obj.modifiers) if m.type == 'BOOLEAN']
@@ -1082,7 +1129,8 @@ tool('MEGA_BOOLEAN', "Méga Boolean (guide puis chape)", 'MOD_BOOLEAN', 'BOOLEAN
      "corps du guide: là où le mâle chevauche le guide lui-même, le guide est creusé pour le recevoir "
      "(Ø épaulement + jeu, ouvert vers le haut le long de l'axe). Un tube ou un trou qui "
      "croise une pin de la chape (mâle ou bras) est aussi soustrait de la chape, puis la chape est appliquée "
-     "(unions, puis différences). Les outils sont cachés, pas supprimés. Annulable avec Ctrl+Z.",
+     "(unions, puis différences). Un trou déjà appliqué plus tôt est recreusé si une nouvelle union le "
+     "touche: les trous gagnent toujours. Les outils sont cachés, pas supprimés. Annulable avec Ctrl+Z.",
      "Edit > Boolean, un par un dans le bon ordre", "", operator="omfs.mega_boolean")(lambda c: None)
 
 

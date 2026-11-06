@@ -23,7 +23,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base, tidy, screws  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base, tidy, screws, sleeves  # noqa: E402
 
 omfs_planner.register()
 
@@ -1100,6 +1100,39 @@ def test_sleeves_on_screws_and_mega_boolean():
     assert all(o.hide_get() for o in (tube, bore, hole, cut, male)), "the tools are put away"
     scene.omfs_pins.cap = scene.omfs_guide.guide = None
     for obj in (guide, cap, male, cut, tube, bore, hole, screw):
+        bpy.data.objects.remove(obj)
+
+
+def test_applied_hole_wins_over_a_later_union():
+    """Case 1 (2026-11-05): sleeve bore applied early, a pin boss united over it later filled the bore."""
+    scene = bpy.context.scene
+    guide = box_object("Late guide", 'GUIDE', (0, 700, 0), (30, 10, 10))
+    bore = cylinders.add(bpy.context, 4.0, 20.0, "Late bore", scene.collection,
+                         Matrix.Translation((0, 700, 0)) @ Matrix.Rotation(radians(90), 4, 'X'))
+    sleeves.add_boolean(guide, bore, 'DIFFERENCE')
+    assert guide_workshop.apply_stack(bpy.context, guide) == 1
+    assert dict(guide[guide_workshop.APPLIED_DIFFERENCES]) == {bore.name: f"Trou {bore.name}"}
+
+    def in_bore():
+        """Points of the bore's axis inside the guide's material."""
+        tree = guide_workshop.world_tree(guide)
+        axis = [bore.matrix_world @ Vector((0, 0, z / 2)) for z in range(-19, 20)]
+        return [p for p in axis if model_base.inside(tree, p)]
+
+    assert not in_bore()
+    far = box_object("Late far boss", 'OTHER', (12, 700, 8), (4, 4, 4))
+    boss = box_object("Late boss", 'OTHER', (0, 708, 0), (8, 8, 8))    # over the bore's mouth
+    for obj in (far, boss):
+        sleeves.add_boolean(guide, obj, 'UNION')
+    assert guide_workshop.redo_differences(guide) == [bore.name], "redone once, because the boss reaches it"
+    assert guide_workshop.redo_differences(guide) == [], "already in the stack"
+    guide_workshop.apply_stack(bpy.context, guide)
+    assert not in_bore(), "the bore stays open through the boss"
+    assert volume(guide) > 30 * 10 * 10, "the bosses were added"
+    far2 = box_object("Late far 2", 'OTHER', (12, 700, -8), (4, 4, 4))
+    sleeves.add_boolean(guide, far2, 'UNION')
+    assert guide_workshop.redo_differences(guide) == [], "a union away from the bore leaves it alone"
+    for obj in (guide, bore, far, boss, far2):
         bpy.data.objects.remove(obj)
 
 

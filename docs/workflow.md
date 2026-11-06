@@ -195,6 +195,9 @@ Naming used below (matches the object roles in code):
    volume, before any Boolean), the guide is hollowed for it (shoulder diameter + clearance, from the
    osteotomy plane out along the pin axis, PIN_MALE_CHANNEL long, so the male can go in), with the
    other differences.
+   Holes always win (surgeon, 2026-11-05): a difference applied earlier (e.g. by "Appliquer les
+   modificateurs" before polishing) is remembered on the part and dug again after any later union that
+   reaches its cutter (a pin boss over a sleeve bore must never close the sleeve's passage).
 
 ### Tool 1: surface-to-shell
 

@@ -107,16 +107,6 @@ def add_fixation_hole(context, guide, point, normal):
 
 # --- Mega Boolean ---------------------------------------------------------------------------------
 
-def world_tree(obj):
-    m = obj.matrix_world
-    return BVHTree.FromPolygons([tuple(m @ v.co) for v in obj.data.vertices],
-                                [tuple(f.vertices) for f in obj.data.polygons])
-
-
-def overlaps(a, b):
-    return bool(world_tree(a).overlap(world_tree(b)))
-
-
 def mother_tree(context, guide):
     """BVH of the guide itself in world coordinates: its stack without the Booleans (no boss, no tube)."""
     booleans = [m for m in guide.modifiers if m.type == 'BOOLEAN' and m.show_viewport]
@@ -135,7 +125,7 @@ def mother_tree(context, guide):
 
 def in_guide(tree, obj):
     """Does obj overlap the guide's own volume (surfaces crossing, or obj inside it)?"""
-    if world_tree(obj).overlap(tree):
+    if guide_workshop.world_tree(obj).overlap(tree):
         return True
     return model_base.inside(tree, obj.matrix_world @ obj.data.vertices[0].co)
 
@@ -167,27 +157,11 @@ def subtract_from_cap(guide, cap):
         tool = mod.object if mod.type == 'BOOLEAN' else None
         if not cylinders.is_cylinder(tool) or tool.omfs_cylinder.kind == 'OTHER':
             continue
-        if any(overlaps(tool, part) for part in parts):
+        if any(guide_workshop.overlaps(tool, part) for part in parts):
             if not any(m.type == 'BOOLEAN' and m.object == tool for m in cap.modifiers):
                 add_boolean(cap, tool, 'DIFFERENCE')
             done.append(tool.name)
     return done
-
-
-def apply_stack(context, obj):
-    """Every modifier of obj applied in order (Booleans sorted first); the Boolean tools hidden."""
-    guide_workshop.make_active(context, obj)
-    for mod in obj.modifiers:
-        if mod.type == 'BOOLEAN':
-            mod.solver = guide_workshop.SOLVER   # older stacks: Exact left open edges, then a cube (case1)
-    guide_workshop.order_booleans(obj)
-    tools = [m.object for m in obj.modifiers if m.type == 'BOOLEAN' and m.object is not None]
-    count = len(obj.modifiers)
-    for mod in list(obj.modifiers):
-        bpy.ops.object.modifier_apply(modifier=mod.name)
-    for tool in tools:
-        tool.hide_set(True)
-    return count
 
 
 def mega_boolean(context):
@@ -202,12 +176,12 @@ def mega_boolean(context):
     guide.hide_set(False)
     crossed = subtract_from_cap(guide, cap) if cap is not None else []
     hollowed = hollow_for_males(context, guide)
-    report = [f"{guide.name}: {apply_stack(context, guide)} opérations"]
+    report = [f"{guide.name}: {guide_workshop.apply_stack(context, guide)} opérations"]
     if hollowed:
         report.append("guide creusé pour le mâle de " + ", ".join(hollowed))
     if cap is not None and cap.modifiers:
         cap.hide_set(False)
-        report.append(f"{cap.name}: {apply_stack(context, cap)} opérations")
+        report.append(f"{cap.name}: {guide_workshop.apply_stack(context, cap)} opérations")
     if crossed:
         report.append("soustraits aussi de la chape: " + ", ".join(crossed))
     return "; ".join(report), None
