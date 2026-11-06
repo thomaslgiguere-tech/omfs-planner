@@ -36,6 +36,7 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
                              ends slid on the bone surface
   sleeves.py                 drill-sleeve tube / bore on a final screw's axis (click, slide, click), guide
                              fixation holes, Mega Boolean (guide then cap, in order)
+  trim.py                    Plane cut (line on screen -> live half-space Boolean) and Erase & Fill (smooth patch, rim kept)
   pins.py                    tubes and pins: conical females in the guide (stop on the osteotomy
                              plane), males and curved arms on the cap; same pins between the models
   text_labels.py             universal text tool: engraved / embossed text on any printed part (two

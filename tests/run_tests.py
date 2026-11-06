@@ -23,7 +23,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base, tidy, screws, sleeves  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim  # noqa: E402
 
 omfs_planner.register()
 
@@ -1134,6 +1134,65 @@ def test_applied_hole_wins_over_a_later_union():
     assert guide_workshop.redo_differences(guide) == [], "a union away from the bore leaves it alone"
     for obj in (guide, bore, far, boss, far2):
         bpy.data.objects.remove(obj)
+
+
+def test_plane_cut():
+    def evaluated_volume(obj):
+        mesh = obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh()
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        v = bm.calc_volume(signed=True)
+        bm.free()
+        obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh_clear()
+        return v
+
+    guide = box_object("Trim guide", 'GUIDE', (0, 800, 0), (30, 10, 10))
+    plane = trim.start_cut(bpy.context, guide, Vector((10, 800, 0)), Vector((0, 1, 0)), Vector((-1, 0, 0)))
+    assert abs(evaluated_volume(guide) - 2500) < 1, "the smaller side (x > 10) goes, whatever the normal said"
+    assert plane.show_in_front and trim.find_cut(guide)[0] == plane
+    trim.flip_cut(guide)
+    assert abs(evaluated_volume(guide) - 500) < 1, "flipped: the other side goes"
+    plane.matrix_world.translation.x = 0
+    assert abs(evaluated_volume(guide) - 1500) < 1, "the cut follows the plane"
+    trim.cancel_cut(bpy.context, guide)
+    assert not guide.modifiers and trim.find_cut(guide) == (None, None)
+    assert not [o for o in bpy.data.objects if o.name.startswith(trim.plane_name(guide))], "helpers removed"
+    trim.start_cut(bpy.context, guide, Vector((10, 800, 0)), Vector((0, 0, 1)), Vector((1, 0, 0)))
+    assert trim.apply_cut(bpy.context, guide) is None
+    assert not guide.modifiers and trim.is_closed(guide.data), "applied, still closed"
+    assert abs(volume(guide) - 2500) < 1
+    assert not [o for o in bpy.data.objects if o.name.startswith(trim.plane_name(guide))]
+    # An open shell thickened by Solidify, a tube already waiting: the cut goes between them.
+    shell = box_object("Trim shell", 'GUIDE', (0, 850, 0), (30, 10, 0.001))
+    shell.modifiers.new("Solidify", 'SOLIDIFY')
+    tube = box_object("Trim tube", 'OTHER', (14, 850, 0), (4, 4, 4))
+    sleeves.add_boolean(shell, tube, 'UNION')
+    trim.start_cut(bpy.context, shell, Vector((10, 850, 0)), Vector((0, 1, 0)), Vector((1, 0, 0)))
+    assert [m.name for m in shell.modifiers] == ["Solidify", guide_workshop.TRIM_MODIFIER, f"Union {tube.name}"]
+    guide_workshop.order_booleans(shell)
+    assert shell.modifiers[1].name == guide_workshop.TRIM_MODIFIER, "the trim stays before the other Booleans"
+    assert trim.apply_cut(bpy.context, shell) is None
+    assert [m.name for m in shell.modifiers] == [f"Union {tube.name}"], "the tube stays live"
+    for obj in (guide, shell, tube):
+        bpy.data.objects.remove(obj)
+
+
+def test_erase_and_fill():
+    bm = bmesh.new()
+    bmesh.ops.create_icosphere(bm, subdivisions=3, radius=10.0)
+    for f in bm.faces:
+        f.select = f.calc_center_median().z > 8      # a cap to remove
+    kept = {tuple(round(c, 6) for c in v.co) for v in bm.verts if not all(f.select for f in v.link_faces)}
+    holes, left_open = trim.erase_and_fill(bm)
+    assert holes == 1 and left_open == 0
+    assert all(e.is_manifold for e in bm.edges), "closed again"
+    after = {tuple(round(c, 6) for c in v.co) for v in bm.verts}
+    assert kept <= after, "the rest of the mesh, rim included, did not move"
+    patch = [v.co for v in bm.verts if tuple(round(c, 6) for c in v.co) not in kept]
+    assert len(patch) > 3, "the patch is as fine as the rim"
+    assert all(7.0 < co.z < 9.5 and co.length < 10 for co in patch), "a smooth membrane on the rim"
+    assert bm.calc_volume(signed=True) > 0, "faces of the patch point outwards like the rest"
+    bm.free()
 
 
 def test_zones_by_angle_and_mask():

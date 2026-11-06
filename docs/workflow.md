@@ -174,6 +174,17 @@ Naming used below (matches the object roles in code):
 - Two separate devices, each its own object in Blender: a cutting guide and a positioning guide.
 - Designs will vary a lot between cases, so version 1 focuses on generic building tools, not fixed templates.
 
+### Trimming tools (surgeon, 2026-11-05)
+
+- **Plane cut** (as Meshmixer's Edit > Plane Cut): drag a line across the part; the plane goes
+  through it, edge-on to the view, and the smaller side is removed (live preview). Move / turn the plane
+  with the gizmo, flip the side, apply or cancel. The part stays closed (Boolean Difference with a
+  half-space box). The cut waits before the other Booleans: applying it applies the modifiers above it
+  (thickness) and leaves tubes, pins, holes live. A trim is never redone like a hole.
+- **Erase & Fill** (as Meshmixer's Erase & Fill): the faces selected in Edit Mode are deleted and each
+  hole is filled with a smooth patch (membrane on the hole's rim, refined to the rim's edge length).
+  The rest of the mesh, rim included, is not modified; the part stays closed.
+
 ### Order of operations (surgeon, 2026-11-04)
 
 1. Simulate the osteotomy (Step 4).

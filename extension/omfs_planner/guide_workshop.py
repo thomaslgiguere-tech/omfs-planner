@@ -693,6 +693,12 @@ tool('DENSIFY', "Densifier la sélection (remesh à plat)", 'MOD_SUBSURF', 'EDIT
      "« Adjust Last Operation » en bas à gauche (F9).",
      "Edit > Remesh (mais Meshmixer déplace les sommets: pas d'équivalent exact)",
      "Edge > Subdivide (Smoothness 0)", operator="omfs.densify")(lambda c: None)
+tool('ERASE_FILL', "Effacer et combler (Erase & Fill)", 'TRASH', 'EDIT',
+     "Supprime les faces sélectionnées et comble chaque trou laissé par une surface lisse, tendue sur son "
+     "bord: la pièce reste fermée (étanche). Seuls les nouveaux sommets du comblement bougent; le reste du "
+     "maillage, bord compris, n'est pas touché. Ex.: sélectionner une bosse ou un débord au pinceau de "
+     "sélection, puis ce bouton.",
+     "Select > Edit > Erase & Fill (F)", "X > Faces, puis Alt+F (Fill)", operator="omfs.erase_fill")(lambda c: None)
 tool('SEPARATE', "Séparer la sélection", 'UNLINKED', 'EDIT',
      "Détache la sélection dans un nouvel objet.",
      "Edit > Separate", "P > Selection")(mesh_op("mesh.separate", type='SELECTED'))
@@ -746,6 +752,24 @@ tool('ADD_REMESH', "Remesh étanche (0,2 mm)", 'MOD_REMESH', 'SHAPE',
      "Plus la taille est petite, plus c'est fidèle (et lourd).",
      "Edit > Make Solid", "")(lambda c: add_modifier(c, 'REMESH', "Remesh", mode='VOXEL',
                                                     voxel_size=params.GUIDE_REMESH_VOXEL))
+
+
+tool('PLANE_CUT', "Coupe plane (tracer une ligne)", 'MESH_PLANE', 'SHAPE',
+     "Cliquez-glissez une ligne à travers la pièce et relâchez: le plan de coupe passe par cette ligne, vu "
+     "par la tranche, et le plus petit côté disparaît (aperçu en direct). Ensuite: flèches et anneaux sur le "
+     "plan pour le déplacer et le tourner (ou G / R au clavier), « Inverser le côté coupé » au besoin, puis "
+     "« Appliquer la coupe ». La pièce reste fermée: la face coupée est remplie par le Boolean.",
+     "Edit > Plane Cut", "", operator="omfs.plane_cut")(lambda c: None)
+tool('PLANE_CUT_FLIP', "Inverser le côté coupé", 'ARROW_LEFTRIGHT', 'SHAPE',
+     "Garde l'autre côté du plan de coupe.", "Plane Cut > Cut Type (flèche du plan)", "",
+     operator="omfs.plane_cut_flip")(lambda c: None)
+tool('PLANE_CUT_APPLY', "Appliquer la coupe", 'CHECKMARK', 'SHAPE',
+     "Grave la coupe dans le maillage (avec les modificateurs au-dessus d'elle, ex. l'épaisseur); les Boolean "
+     "en dessous (tubes, pins...) restent réglables. Le plan est retiré. Annulable avec Ctrl+Z.",
+     "Plane Cut > Accept", "", operator="omfs.plane_cut_apply")(lambda c: None)
+tool('PLANE_CUT_CANCEL', "Annuler la coupe", 'X', 'SHAPE',
+     "Retire le plan: la pièce revient telle qu'elle était.", "Plane Cut > Cancel", "",
+     operator="omfs.plane_cut_cancel")(lambda c: None)
 
 
 @tool('APPLY_MODIFIERS', "Appliquer les modificateurs", 'CHECKMARK', 'SHAPE',
@@ -1050,6 +1074,8 @@ def boolean(operation, name):
 def boolean_rank(mod):
     """Order of the Booleans in the stack: tubes added first, then holes dug (through the tubes too),
     then the cut edge (nothing sticks out past the osteotomy line), the guide's fixation holes last."""
+    if mod.name == TRIM_MODIFIER:
+        return 0
     if mod.name == CUT_EDGE_MODIFIER:
         return 3
     if cylinders.is_cylinder(mod.object) and mod.object.omfs_cylinder.kind == 'FIXATION':
@@ -1099,13 +1125,15 @@ def apply_stack(context, obj):
     order_booleans(obj)
     tools = [m.object for m in obj.modifiers if m.type == 'BOOLEAN' and m.object is not None]
     dug = {m.object.name: m.name for m in obj.modifiers if m.type == 'BOOLEAN' and m.operation == 'DIFFERENCE'
-           and m.object is not None}
+           and m.object is not None and m.name != TRIM_MODIFIER}   # a trim is not a hole: never redone
     count = len(obj.modifiers)
     for mod in list(obj.modifiers):
         bpy.ops.object.modifier_apply(modifier=mod.name)
     obj[APPLIED_DIFFERENCES] = {**dict(obj.get(APPLIED_DIFFERENCES, {})), **dug}
     for tool_obj in tools:                # their job is done: out of the way, kept (Ctrl+Z, reuse)
         tool_obj.hide_set(True)
+        if tool_obj.parent is not None and tool_obj.parent.name == f"{TRIM_MODIFIER} ({obj.name})":
+            tool_obj.parent.hide_set(True)    # the plane cut's handle
     return count
 
 
@@ -1137,6 +1165,7 @@ tool('MEGA_BOOLEAN', "Méga Boolean (guide puis chape)", 'MOD_BOOLEAN', 'BOOLEAN
 # --- 5. Osteotomy line ---------------------------------------------------------------------
 
 CUT_EDGE_MODIFIER = "Trait de coupe"
+TRIM_MODIFIER = "Coupe plane"   # trim.py: waits as a live Boolean, ranked before the others
 
 
 def cut_edge(keep_above):

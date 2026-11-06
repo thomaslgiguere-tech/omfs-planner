@@ -32,6 +32,11 @@ GUIDE_CLEARANCE = 0.10          # mm gap between bone and guide (fit)
 SELECT_FLAT_ANGLE = 40.0        # deg, "linked flat faces": stops at the rim of the guide
 DENSIFY_CUTS = 1                # cuts per edge of "Densifier la sélection" (1 = each triangle into 4)
 GUIDE_REMESH_VOXEL = 0.2        # mm, voxel size when remeshing a guide watertight
+TRIM_PLANE_SIZE = 60.0          # mm, side of the plane cut's handle (the cut itself is unbounded)
+TRIM_BOX_SIZE = 400.0           # mm, half-space box behind the plane cut (bigger than any jaw)
+ERASE_FILL_EDGE_FACTOR = 1.5    # Erase & Fill: patch edges longer than this x the rim's mean edge are split
+ERASE_FILL_REFINE_STEPS = 6     # Erase & Fill: rounds of splitting (each halves the long edges)
+ERASE_FILL_SMOOTH_ITERATIONS = 200   # Erase & Fill: membrane smoothing of the patch (its rim never moves)
 GUIDE_PROTECT_DISTANCE = 1.0    # mm: guide vertices closer than this to the bone are the intrados (protected when polishing)
 SCULPT_SHARP_ANGLE = 20.0       # deg, "zones by sharp angle": faces folded more than this start a new zone (case1 cap: 20 splits intrados / outside, 30 merges them)
 SLEEVE_OUTER_DIAMETER = 4.0     # mm, MatrixMANDIBLE sleeve 03.503.045: just under 4 mm, TO MEASURE
