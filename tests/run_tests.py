@@ -1436,6 +1436,18 @@ def test_model_pins():
         bm.free()
     for kind in ("bossage", "logement", "tige", "mâle", "bras"):
         assert bpy.data.objects.get(pins.part_name(site, kind)) is not None, kind
+    # Printed too tight, stacks already applied: a wider clearance still widens the bore.
+    for model in (lower, upper):
+        guide_workshop.apply_stack(bpy.context, model)
+    axis = site.matrix_world.to_3x3() @ Vector((0, 0, 1))
+    probe = stop - axis + axis.orthogonal().normalized() * (p.base_diameter / 2 + p.clearance + 0.05)
+    assert model_base.inside(guide_workshop.world_tree(lower), probe), "in the boss, just past the bore"
+    default = p.clearance
+    p.clearance = default + 0.25
+    guide_workshop.apply_stack(bpy.context, lower)
+    assert not model_base.inside(guide_workshop.world_tree(lower), probe), "the bore is wider"
+    assert trim.is_closed(lower.data), "and the model still closed"
+    p.clearance = default
     pins.remove_site(site)
     assert not any(m.type == 'BOOLEAN' and m.name.startswith("Pin modèle") for m in lower.modifiers)
     settings.teeth_band = params.MODEL_TEETH_BAND

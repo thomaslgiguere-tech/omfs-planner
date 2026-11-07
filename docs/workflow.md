@@ -266,8 +266,9 @@ Naming used below (matches the object roles in code):
     in the plane: the male's shoulder rests on it, so the axial stop is the osteotomy plane (and the
     guide's cut edge, flush with the plane, trims nothing of it). The tip stays 0.3 mm short of the
     bore's bottom: one stop only.
-  - Male: "Ajouter les pins mâles" puts a pin (bore minus 0.10 mm radial clearance) in every female,
-    shoulder and back above the plane, unioned to the chosen cap (Manifold solver).
+  - Male: "Ajouter les pins mâles" puts a pin (bore minus 0.25 mm radial clearance) in every female,
+    shoulder and back above the plane, unioned to the chosen cap (Manifold solver). 0.10 mm printed
+    too tight on the models (surgeon, 2026-11-07); 0.25 mm is to be confirmed by a print.
   - Arm: one click on the cap per pin; a tube leaves the cap at 90 degrees to its surface and
     arrives on the pin's back along its axis, joined by a cubic Bezier (handles a third of the
     distance), "like plugging in a cable". Warns when the bend is tighter than the tube's radius.
