@@ -392,6 +392,8 @@ Naming used below (matches the object roles in code):
     rest. Each canine spring pulls "canine weight" times harder than another spring (3 by default),
     so the anterior contact is right antero-posteriorly, even if the posterior springs are then less
     well satisfied, within the anterior overlap limit (the limit wins). Drawn thicker; always listed first; redoing one replaces it.
+  - Midline spring: one named spring, upper dental midline to lower dental midline, always listed after
+    the canine springs. Ordinary weight (not the canine weight); redoing it replaces it.
   - Magnet ("Seat the occlusion"): like pushing the two models together, it closes the gaps between
     the arches (within 3 mm) so stable contacts form, up to the overlap limits. Springs and magnet share the guidance: springs 70 % by default ("Springs' share"),
     magnet 30 %. The springs bring the key positions roughly; the occlusion itself finishes the seating.

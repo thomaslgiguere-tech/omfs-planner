@@ -714,6 +714,32 @@ def test_occlusion_anterior_limit():
         bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
 
 
+def test_midline_spring():
+    """One named spring, listed after the canines and before the numbered ones, ordinary weight."""
+    scene = bpy.context.scene
+    props = scene.omfs_occlusion
+    upper = dense_box("Upper arch", 'SCAN', (0, 0, 10), (46, 38, 8))
+    lower = dense_box("Lower arch", 'SCAN', (0, 0, -10), (40, 30, 8))
+    props.upper, props.lower = upper, lower
+    for key, x in (('1', 8), ('CR', -12), ('ML', 0)):
+        occlusion_seating.add_point(scene, f"OCC_U{key}", key, Vector((x, 10, 6)), upper)
+        occlusion_seating.add_point(scene, f"OCC_L{key}", key, Vector((x, 10, -6)), lower)
+    bpy.context.view_layer.update()
+    pairs = occlusion_seating.point_pairs(scene)
+    assert [occlusion_seating.pair_key(up) for up, _low in pairs] == ['CR', 'ML', '1']
+    assert occlusion_seating.pair_label(pairs[1][0]) == "Midline"
+    assert not occlusion_seating.is_canine(pairs[1][0])
+    assert list(occlusion_seating.pair_weights(scene, 3.0)) == [3.0, 1.0, 1.0]
+    assert not occlusion_seating.zone_ready(scene)                                # the midline makes no zone
+    for key in ('1', 'CR', 'ML'):
+        occlusion_seating.remove_pair(scene, key)
+    props.upper = props.lower = None
+    for obj in [upper, lower]:
+        bpy.data.objects.remove(obj)
+    for arch_id in ('UPPER', 'LOWER'):
+        bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
+
+
 def test_open_border_is_ignored():
     plane = box_object("Open scan", 'SCAN', (0, 0, 0), (10, 10, 1))
     bm = bmesh.new()

@@ -164,10 +164,12 @@ CANINES = (   # (key, label): the two canine springs, weighted more than the oth
     ('CR', "Canine droite"),
     ('CL', "Canine gauche"),
 )
+MIDLINE = ('ML', "Midline")   # upper to lower dental midline, an ordinary weight
+NAMED_SPRINGS = CANINES + (MIDLINE,)
 
 
 def pair_key(point):
-    """'1', '2', ... for ordinary springs, 'CR' / 'CL' for the canine springs."""
+    """'1', '2', ... for ordinary springs, 'CR' / 'CL' for the canine springs, 'ML' for the midline."""
     return point.omfs.landmark[5:]
 
 
@@ -177,15 +179,15 @@ def is_canine(point):
 
 def pair_label(point):
     key = pair_key(point)
-    return dict(CANINES).get(key, f"Ressort {key}")
+    return dict(NAMED_SPRINGS).get(key, f"Ressort {key}")
 
 
 def point_pairs(scene):
-    """[(upper point, lower point)]: canines first, then the numbered springs in order.
+    """[(upper point, lower point)]: canines first, the midline, then the numbered springs in order.
     Each point is a child of its arch scan."""
     points = {o.omfs.landmark: o for o in occlusion_points(scene)}
     keys = {lm[5:] for lm in points}
-    ordered = [k for k, _label in CANINES if k in keys] + sorted((k for k in keys if k.isdigit()), key=int)
+    ordered = [k for k, _label in NAMED_SPRINGS if k in keys] + sorted((k for k in keys if k.isdigit()), key=int)
     return [(points[f"OCC_U{k}"], points[f"OCC_L{k}"]) for k in ordered
             if f"OCC_U{k}" in points and f"OCC_L{k}" in points]
 
@@ -694,7 +696,7 @@ class OMFS_OT_add_occlusion_pair(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     key: bpy.props.StringProperty(options={'SKIP_SAVE'},
-                                  description="Vide : nouveau ressort numéroté. CR / CL : ressort canin droit / gauche")
+                                  description="Vide : nouveau ressort numéroté. CR / CL : ressort canin droit / gauche. ML : Midline")
 
     @classmethod
     def description(cls, context, properties):
@@ -702,6 +704,9 @@ class OMFS_OT_add_occlusion_pair(bpy.types.Operator):
             return (f"{dict(CANINES)[properties.key]} : cliquez la pointe de la canine du haut, puis l'embrasure "
                     "canine / 1re prémolaire du bas où elle doit s'accoter (classe I canine). Ce ressort pèse plus "
                     "que les autres (Poids des canines). Refaire remplace l'ancien")
+        if properties.key == MIDLINE[0]:
+            return ("Midline : cliquez le milieu interincisif du haut, puis le milieu interincisif du bas. "
+                    "Pèse comme un ressort ordinaire. Refaire remplace l'ancien")
         return cls.__doc__
 
     def invoke(self, context, event):
@@ -713,7 +718,7 @@ class OMFS_OT_add_occlusion_pair(bpy.types.Operator):
         self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
             (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
         if self.key:
-            self.label = dict(CANINES)[self.key]
+            self.label = dict(NAMED_SPRINGS)[self.key]
         else:
             self.key = str(next_pair_number(context.scene))
             self.label = f"Ressort {self.key}"
@@ -728,6 +733,8 @@ class OMFS_OT_add_occlusion_pair(bpy.types.Operator):
         if self.key in dict(CANINES):
             which = ("la pointe de la canine du HAUT" if self.upper_point is None
                      else "l'embrasure canine / 1re prémolaire du BAS")
+        elif self.key == MIDLINE[0]:
+            which = "le milieu interincisif du " + ("HAUT" if self.upper_point is None else "BAS")
         else:
             which = "l'arcade du HAUT" if self.upper_point is None else "l'arcade du BAS (point correspondant)"
         self.area.header_text_set(f"{self.label} : cliquez sur {which}   |   Échap / clic droit : annuler")
@@ -751,7 +758,7 @@ class OMFS_OT_add_occlusion_pair(bpy.types.Operator):
             if location is None:
                 self.report({'WARNING'}, f"Cliquez sur {arch.name}")
                 return {'RUNNING_MODAL'}
-            short = "Can. D" if self.key == 'CR' else "Can. G" if self.key == 'CL' else self.key
+            short = {'CR': "Can. D", 'CL': "Can. G", 'ML': "Midline"}.get(self.key, self.key)
             if self.upper_point is None:
                 remove_pair(context.scene, self.key)   # redoing a canine spring replaces it
                 self.upper_point = add_point(context.scene, f"OCC_U{self.key}", f"Haut {short}", location, arch)

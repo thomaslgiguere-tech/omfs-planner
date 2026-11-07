@@ -501,7 +501,7 @@ class OMFS_PT_occlusion(bpy.types.Panel):
         pairs = occlusion_seating.point_pairs(scene)
         lengths = dict(zip((occlusion_seating.pair_key(up) for up, _low in pairs), occlusion_seating.spring_lengths(scene)))
         col = box.column(align=True)
-        for key, label in occlusion_seating.CANINES:   # the two canine springs, always listed
+        for key, label in occlusion_seating.NAMED_SPRINGS:   # canine and midline springs, always listed
             row = col.row(align=True)
             if key in lengths:
                 row.label(text=f"{label} : {lengths[key]:.2f} mm", icon='FORCE_FORCE')
