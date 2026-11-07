@@ -526,7 +526,15 @@ class OMFS_PT_occlusion(bpy.types.Panel):
         box.label(text="2. Asseoir")
         col = box.column(align=True)
         col.prop(props, "spring_share")
-        col.prop(props, "tolerance")
+        box.label(text="Chevauchement permis")
+        col = box.column(align=True)
+        col.prop(props, "tolerance_anterior")
+        col.prop(props, "tolerance_posterior")
+        if not occlusion_seating.zone_ready(scene):
+            warn = box.column()
+            warn.alert = True
+            draw_text(warn, context, "Sans les deux ressorts canins, la zone antérieure n'existe pas : la limite "
+                                     "postérieure s'applique à toute l'arcade.")
         row = box.row()
         row.enabled = len(occlusion_seating.point_pairs(scene)) >= 3
         row.operator("omfs.seat_occlusion", icon='PLAY')
@@ -554,12 +562,20 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             res = box.column(align=True)
             overlap = props.max_overlap
             res.alert = overlap > params.OCC_OVERLAP_RARE
-            icon = 'ERROR' if overlap > params.OCC_OVERLAP_RARE else 'CHECKMARK'
-            res.label(text=f"Chevauchement max {overlap:.2f} mm", icon=icon)
+            if occlusion_seating.zone_ready(scene):
+                for text, value, limit in (("Antérieur", props.max_overlap_anterior, props.tolerance_anterior),
+                                           ("Postérieur", props.max_overlap_posterior, props.tolerance_posterior)):
+                    over = value > limit + params.OCC_LIMIT_MARGIN
+                    res.label(text=f"{text} : {value:.2f} mm (permis {limit:.2f})", icon='ERROR' if over else 'CHECKMARK')
+            else:
+                limit = props.tolerance_posterior   # no anterior zone: this limit is the whole arch's
+                over = overlap > limit + params.OCC_LIMIT_MARGIN
+                res.label(text=f"Chevauchement max {overlap:.2f} mm (permis {limit:.2f})",
+                          icon='ERROR' if over else 'CHECKMARK')
             if overlap > params.OCC_OVERLAP_MAX:
                 res.label(text=f"Au-delà de {params.OCC_OVERLAP_MAX:g} mm : meulage important", icon='BLANK1')
             elif overlap > params.OCC_OVERLAP_RARE:
-                res.label(text=f"Plus de {params.OCC_OVERLAP_RARE:g} mm : rare, à justifier", icon='BLANK1')
+                res.label(text=f"Plus de {params.OCC_OVERLAP_RARE:g} mm : au-delà du meulage habituel", icon='BLANK1')
             if overlap > 3.0:
                 res.label(text="Vérifier : normales inversées ou bords du scan ?", icon='BLANK1')
             col = box.column(align=True)

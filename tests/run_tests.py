@@ -545,7 +545,7 @@ def test_occlusion_springs_and_overlap():
         if start is not None:
             block.matrix_world = start @ block.matrix_world
         bpy.context.view_layer.update()
-        props.tolerance = tolerance
+        props.tolerance_anterior = props.tolerance_posterior = tolerance
         props.spring_share = 100.0   # springs only: the magnet would also pull the box sides together
         bpy.ops.omfs.seat_occlusion()
         overlap = top_of_lower() - 6.0
@@ -563,7 +563,8 @@ def test_occlusion_springs_and_overlap():
     for share in (100.0, 70.0):
         occlusion.back_to_preop(block)
         bpy.context.view_layer.update()
-        props.tolerance, props.spring_share = 0.2, share
+        props.tolerance_anterior = props.tolerance_posterior = 0.2
+        props.spring_share = share
         bpy.ops.omfs.seat_occlusion()
         gaps[share] = 6.0 - top_of_lower()
     assert abs(gaps[100.0] - 1.0) < 0.1, gaps
@@ -597,7 +598,8 @@ def test_occlusion_springs_and_overlap():
     for weight in (1.0, 3.0):
         occlusion.back_to_preop(block)
         bpy.context.view_layer.update()
-        props.tolerance, props.spring_share, props.canine_weight = 5.0, 100.0, weight
+        props.tolerance_anterior = props.tolerance_posterior = 5.0
+        props.spring_share, props.canine_weight = 100.0, weight
         bpy.ops.omfs.seat_occlusion()
         lengths = occlusion_seating.spring_lengths(scene)                 # canines first
         left[weight] = (np.mean(lengths[:2]), np.mean(lengths[2:]))
@@ -613,13 +615,78 @@ def test_occlusion_springs_and_overlap():
     icons = bpy.types.UILayout.bl_rna.functions['prop'].parameters['icon'].enum_items.keys()
     assert all(icon in icons for icon, _text in occlusion_seating.legend())
 
-    colours = occlusion_seating.overlap_colours(np.array([-2.0, -1.2, -0.7, -0.2, 0.1, 0.5, 3.0, np.nan]))
+    colours = occlusion_seating.overlap_colours(np.array([-2.0, -0.9, -0.6, -0.2, 0.1, 0.5, 3.0, np.nan]))
     expected = [occlusion_seating.MAGENTA, occlusion_seating.RED, occlusion_seating.ORANGE, occlusion_seating.YELLOW,
                 occlusion_seating.GREEN, occlusion_seating.BLUE, occlusion_seating.GREY, occlusion_seating.GREY]
     assert np.allclose(colours, expected), colours
 
     props.upper = props.lower = None
     for obj in occlusion_seating.occlusion_points(scene) + [upper, lower]:
+        bpy.data.objects.remove(obj)
+    for arch_id in ('UPPER', 'LOWER'):
+        bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
+
+
+def test_occlusion_anterior_limit():
+    """Springs asking for 1 mm of overlap: the front teeth (in front of the canine points) stop at their own limit, the back teeth at theirs."""
+    scene = bpy.context.scene
+    props = scene.omfs_occlusion
+    upper = dense_box("Upper arch", 'SCAN', (0, 0, 10), (46, 38, 8))             # wider: no shared edges
+    lower = dense_box("Lower arch", 'SCAN', (0, -4, -10), (40, 22, 8))           # back teeth, top at z = -6
+    front = dense_box("Front teeth", 'SCAN', (0, 11, -10), (40, 8, 8))           # y > 7, top at z = -6
+    bm = bmesh.new()
+    bm.from_mesh(lower.data)
+    bm.from_mesh(front.data)
+    bm.to_mesh(lower.data)
+    bm.free()
+    bpy.data.objects.remove(front)
+    props.upper, props.lower = upper, lower
+    block = occlusion.find_block(scene, 'LOWER')
+    for key, x, y in (('CR', -12, 5), ('CL', 12, 5), ('1', -12, -12), ('2', 12, -12)):
+        occlusion_seating.add_point(scene, f"OCC_U{key}", key, Vector((x, y, 7)), upper)
+        occlusion_seating.add_point(scene, f"OCC_L{key}", key, Vector((x, y, -6)), lower)
+    bpy.context.view_layer.update()
+    assert occlusion_seating.zone_ready(scene)
+    upper_plane, lower_plane = occlusion_seating.zone_planes(scene)
+    assert upper_plane[1][1] > 0.99 and lower_plane[1][1] > 0.99                 # towards the incisors (+Y)
+    assert abs(upper_plane[0][1] - (5 - params.OCC_CANINE_ZONE_MARGIN)) < 1e-6   # behind the canine tip
+    assert abs(lower_plane[0][1] - 5) < 1e-6
+
+    def overlaps():
+        points = registration.vertex_coords(lower)
+        top = points[np.abs(points[:, 2] - points[:, 2].max()) < 3.0]
+        front_z = top[top[:, 1] > 6.0][:, 2].max()
+        back_z = top[top[:, 1] < 0.0][:, 2].max()
+        return front_z - 6.0, back_z - 6.0
+
+    props.spring_share = 100.0
+    for anterior, posterior in ((0.0, 0.3), (0.2, 0.5)):
+        occlusion.back_to_preop(block)
+        bpy.context.view_layer.update()
+        props.tolerance_anterior, props.tolerance_posterior = anterior, posterior
+        bpy.ops.omfs.seat_occlusion()
+        front_overlap, back_overlap = overlaps()
+        assert front_overlap < anterior + 0.03, (anterior, front_overlap)
+        assert back_overlap < posterior + 0.03, (posterior, back_overlap)
+        assert back_overlap > front_overlap + 0.1, (front_overlap, back_overlap)  # the limits differ
+        assert props.max_overlap_anterior < anterior + 0.05, props.max_overlap_anterior
+        assert props.max_overlap_posterior < posterior + 0.05, props.max_overlap_posterior
+
+    props.upper = None                                                           # field cleared: no zone, no error
+    assert not occlusion_seating.zone_ready(scene)
+    props.upper = upper
+
+    # Without the canine springs there is no anterior zone: the posterior limit is everywhere.
+    for key in ('CR', 'CL'):
+        occlusion_seating.remove_pair(scene, key)
+    bpy.context.view_layer.update()
+    assert not occlusion_seating.zone_ready(scene)
+
+    for key in ('1', '2'):
+        occlusion_seating.remove_pair(scene, key)
+    props.spring_share = params.OCC_SPRING_SHARE
+    props.upper = props.lower = None
+    for obj in [upper, lower]:
         bpy.data.objects.remove(obj)
     for arch_id in ('UPPER', 'LOWER'):
         bpy.data.objects.remove(occlusion.find_block(scene, arch_id))

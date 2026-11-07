@@ -336,11 +336,16 @@ class OMFS_OcclusionProperties(bpy.types.PropertyGroup):
                                           update=_on_pick('LOWER'),
                                           description="Objet qui bougera avec l'arcade du bas")
     # Seating (occlusion_seating.py)
-    tolerance: bpy.props.FloatProperty(
-        name="Pénétration tolérée", subtype='DISTANCE', default=params.OCC_TOLERATED_PENETRATION,
-        min=0.0, soft_max=2.0, step=5,
-        description="Les dents ne résistent qu'au-delà de ce chevauchement. 0 = s'arrête au contact ; "
-                    "grand = ajustement pur aux points (tout le chevauchement devient visible)")
+    tolerance_anterior: bpy.props.FloatProperty(
+        name="Antérieur (canine à canine)", subtype='DISTANCE', default=params.OCC_TOLERATED_ANTERIOR,
+        min=0.0, soft_max=0.75, step=5,
+        description="Chevauchement permis de canine à canine. 0 = aucun meulage antérieur. Zone définie "
+                    "par les ressorts canins")
+    tolerance_posterior: bpy.props.FloatProperty(
+        name="Postérieur (prémolaires, molaires)", subtype='DISTANCE', default=params.OCC_TOLERATED_POSTERIOR,
+        min=0.0, soft_max=0.75, step=5,
+        description="Chevauchement permis sur les dents multicuspidées, au-delà duquel les dents bloquent "
+                    "le mouvement. 0 = s'arrête au contact")
     spring_share: bpy.props.FloatProperty(
         name="Part des ressorts", subtype='PERCENTAGE', default=params.OCC_SPRING_SHARE, min=0.0, max=100.0,
         description="Part du guidage faite par les ressorts ; le reste est l'aimant qui rapproche les arcades "
@@ -351,6 +356,8 @@ class OMFS_OcclusionProperties(bpy.types.PropertyGroup):
                     "(classe I) prime, quitte à moins respecter les ressorts postérieurs")
     show_map: bpy.props.BoolProperty()
     max_overlap: bpy.props.FloatProperty(default=-1.0)
+    max_overlap_anterior: bpy.props.FloatProperty()
+    max_overlap_posterior: bpy.props.FloatProperty()
     area_right: bpy.props.FloatProperty()
     area_anterior: bpy.props.FloatProperty()
     area_left: bpy.props.FloatProperty()

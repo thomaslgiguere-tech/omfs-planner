@@ -66,11 +66,17 @@ PIN_MALE_CHANNEL = 15.0         # mm: where a male sits in the guide's body, the
 PIN_ARM_DIAMETER = 4.0          # mm: the tube from the cap to the pin's back
 
 # Occlusion seating (virtual, lower arch onto the fixed upper arch)
-OCC_TOLERATED_PENETRATION = 0.2  # mm: the teeth resist only beyond this overlap (0 = stop at contact)
+OCC_TOLERATED_ANTERIOR = 0.0     # mm: overlap limit canine to canine (grinding there is avoided)
+OCC_TOLERATED_POSTERIOR = 0.2    # mm: overlap limit on the premolars and molars (less is better)
+OCC_CANINE_ZONE_MARGIN = 3.5     # mm behind the upper canine tip: the distal slope of the canine stays anterior
+OCC_LIMIT_BAND = 0.5             # mm: points this close to their overlap limit are held by the solver
+OCC_LIMIT_STIFFNESS = 1000.0     # how hard a held point resists, vs springs + magnet (1.0)
+OCC_LIMIT_MARGIN = 0.05          # mm: overlap this close to its limit still reads as within it (sampling)
+OCC_LIMIT_ROUNDS = 30            # rounds per iteration to catch every point that would pass its limit
 OCC_CONTACT = 0.3               # mm: closer than this counts as an occlusal contact (green)
-OCC_OVERLAP_STEPS = (0.5, 1.0, 1.5)  # mm: yellow / orange / red bands, magenta beyond the last
-OCC_OVERLAP_RARE = 1.0          # mm: overlap above this is rare, warn, TO CONFIRM
-OCC_OVERLAP_MAX = 1.5           # mm: overlap above this is beyond what is tolerated, TO CONFIRM
+OCC_OVERLAP_STEPS = (0.4, 0.75, 1.0)  # mm: yellow / orange / red bands, magenta beyond the last
+OCC_OVERLAP_RARE = 0.4          # mm: usual grinding stays around 0.3 - 0.4 mm: warn above
+OCC_OVERLAP_MAX = 0.75          # mm: grinding rarely goes beyond this: alert above
 OCC_GAP_FAR = 1.0               # mm: gaps beyond this are grey (no contact)
 OCC_OVERLAP_MIN_AREA = 0.1      # mm²: max overlap is the depth reached over at least this area (ignores lone spikes)
 OCC_SEARCH_DISTANCE = 5.0       # mm: farther surfaces are ignored by the contact search
@@ -80,9 +86,11 @@ OCC_CANINE_WEIGHT = 3.0         # a canine spring pulls this many times harder t
 OCC_SPRING_SHARE = 70.0         # %: springs' share of the guidance; the rest is the magnet (closing the gaps)
 OCC_MAGNET_RANGE = 3.0          # mm: gaps wider than this are not pulled by the magnet
 OCC_MAGNET_STEP = 0.25          # fraction of each gap closed per iteration
-OCC_CONTACT_WEIGHT = 20.0       # resistance of the teeth vs springs + magnet (1.0): overlap stays near tolerance
 OCC_TRIPOD_MIN_AREA = 1.0       # mm²: contact area right, anterior and left for a stable "tripod"
 OCC_MAX_ITERATIONS = 300
+OCC_SETTLED = 0.1               # mm and degrees per iteration: below this the position is stable
+OCC_FINISH_ITERATIONS = 40      # last iterations, on every vertex near the contacts
+OCC_FINISH_BAND = 1.0           # mm: vertices this close to the other arch are checked one by one at the end
 OCC_ANTERIOR_HALF_WIDTH = 15.0  # mm each side of the midline: anterior contacts, beyond = left / right
 OCC_PREPOSITION_GAP = 5.0       # mm between the arches after "flip and place above the lower arch"
 

@@ -3,8 +3,9 @@
 Like IPS CaseDesigner's virtual occlusion: the surgeon clicks corresponding points on both arches
 (e.g. a cusp tip on the upper arch and the fossa it goes into on the lower arch). Each pair is a
 spring. The solver moves the lower block, step by step (shown as an animation), so the springs
-shorten, while the teeth resist interpenetration beyond a tolerated overlap. Only the block's
-transform changes: rigid, nothing touches the mesh data.
+shorten, while the teeth stop at an overlap limit: one limit canine to canine (the two canine
+springs mark that zone), another on the premolars and molars. Only the block's transform changes:
+rigid, nothing touches the mesh data.
 
 Contact is tested both ways (lower vertices against the upper surface and upper vertices against
 the lower surface), with signed distances from the face normals: negative = overlap. Faces on the
@@ -142,6 +143,17 @@ def samples(obj):
     return _samples[key]
 
 
+def contact_vertices(scene):
+    """(lower, upper) local coordinates of every vertex near the other arch: random samples can miss
+    the tip of a cusp, which is exactly what sets the overlap."""
+    props = scene.omfs_occlusion
+    found = []
+    for obj, other in ((props.lower, props.upper), (props.upper, props.lower)):
+        d = signed_distances(registration.vertex_coords(obj), other, params.OCC_FINISH_BAND)[0]
+        found.append(registration.vertex_coords(obj, world=False)[~np.isnan(d)])
+    return found
+
+
 # --- Point pairs (springs) -------------------------------------------------------------
 
 def occlusion_points(scene):
@@ -222,6 +234,63 @@ def set_points_hidden(scene, hide):
         obj.hide_set(hide)
 
 
+# --- Anterior zone (canine to canine) ---------------------------------------------------
+
+def occlusal_axis(arch):
+    """(centre, unit axis), world: the arch is flat along this axis (its direction is arbitrary)."""
+    co = world_points(arch, samples(arch))
+    centre = co.mean(axis=0)
+    return centre, np.linalg.svd(co - centre, full_matrices=False)[2][2]
+
+
+def zone_plane(scene, arch, tag, margin):
+    """(point, normal towards the incisors), world, of the plane closing the anterior zone of one
+    arch: through the two canine points of that arch and its occlusal axis, moved margin mm distally.
+    None without both canine springs."""
+    points = {o.omfs.landmark: o for o in occlusion_points(scene)}
+    right, left = points.get(f"OCC_{tag}CR"), points.get(f"OCC_{tag}CL")
+    if arch is None or right is None or left is None:
+        return None
+    right, left = np.array(right.matrix_world.translation), np.array(left.matrix_world.translation)
+    centre, occlusal = occlusal_axis(arch)
+    normal = np.cross(left - right, occlusal)
+    normal /= np.linalg.norm(normal)
+    middle = (left + right) / 2
+    if (middle - centre) @ normal < 0:   # the canines are in front of the arch's centre
+        normal = -normal
+    return middle - normal * margin, normal
+
+
+def zone_planes(scene):
+    """(upper plane, lower plane). The upper point is the canine tip, so the distal slope of the canine
+    needs a margin; the lower point is the canine / premolar embrasure, already the limit."""
+    props = scene.omfs_occlusion
+    return (zone_plane(scene, props.upper, 'U', params.OCC_CANINE_ZONE_MARGIN),
+            zone_plane(scene, props.lower, 'L', 0.0))
+
+
+def in_zone(plane, points):
+    if plane is None:
+        return np.zeros(len(points), dtype=bool)
+    with np.errstate(invalid='ignore'):
+        return (points - plane[0]) @ plane[1] > 0
+
+
+def anterior_contacts(own_plane, other_plane, points, closest):
+    """A contact is anterior as soon as one of its two sides is: grinding either side of it touches
+    an anterior tooth."""
+    return in_zone(own_plane, points) | in_zone(other_plane, closest)
+
+
+def zone_ready(scene):
+    return all(plane is not None for plane in zone_planes(scene))
+
+
+def limits_of(props):
+    """(anterior, posterior) overlap limits, mm."""
+    return props.tolerance_anterior, props.tolerance_posterior
+
+
 # --- Solver --------------------------------------------------------------------------
 
 def skew(v):
@@ -236,14 +305,47 @@ def rigid_rows(points, normals, centre):
     return np.hstack((np.cross(v, normals), normals))
 
 
-def seat_step(scene, tolerance, spring_share=params.OCC_SPRING_SHARE, canine_weight=params.OCC_CANINE_WEIGHT):
-    """One iteration: a small rigid motion of the lower block. Three efforts, solved together:
+def held_points(rows, d, limit):
+    """The points near their overlap limit, as (rows, rhs): rows @ x >= rhs keeps each one within it."""
+    with np.errstate(invalid='ignore'):
+        held = d < -limit + params.OCC_LIMIT_BAND
+    return rows[held], -limit[held] - d[held]
+
+
+def solve_step(a, b, held_rows, held_rhs):
+    """Least squares a x = b, with held_rows @ x >= held_rhs. Active set: the points that would pass
+    their limit are held in turn, the worst first, stiff enough to win over the guidance; a held point
+    the motion leaves behind is released, or it would glue the arches and block a tilt."""
+    h, g = a.T @ a, a.T @ b
+    held = np.zeros(len(held_rows), dtype=bool)
+    x = np.linalg.solve(h, g)
+    for _round in range(params.OCC_LIMIT_ROUNDS):
+        excess = held_rhs - held_rows @ x
+        released = held & (excess < 0)
+        waiting = np.where(held, 0.0, excess)
+        worst = np.argsort(waiting)[-6:]
+        worst = worst[waiting[worst] > 1e-3]
+        if not len(worst) and not released.any():
+            break
+        held[released] = False
+        held[worst] = True
+        rows, rhs = held_rows[held], held_rhs[held]
+        k = params.OCC_LIMIT_STIFFNESS
+        x = np.linalg.solve(h + k * rows.T @ rows, g + k * rows.T @ rhs)
+    return x
+
+
+def seat_step(scene, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_weight=params.OCC_CANINE_WEIGHT,
+              vertices=None):
+    """One iteration: a small rigid motion of the lower block. Two guides, solved together:
     - springs pull each lower point a fraction of the way towards its upper point;
-    - the magnet closes the gaps between the arches (within range), like pushing the models together;
-    - the teeth push back any overlap deeper than the tolerance (a constraint: it wins).
+    - the magnet closes the gaps between the arches (within range), like pushing the models together.
     Springs and magnet share the guidance (spring_share vs 1 - spring_share); each group is weighted
     as a whole, so a thousand magnet points don't drown three springs. Within the springs, each
     canine spring counts canine_weight times an ordinary one.
+    The teeth are not a third guide but a limit: no point goes deeper than the overlap limit of its
+    zone, limits = (anterior, posterior), whatever the guides want.
+    vertices = (lower, upper) local points to test, random samples by default.
     Returns (translation mm, rotation deg) applied."""
     props = scene.omfs_occlusion
     upper, lower = props.upper, props.lower
@@ -263,20 +365,18 @@ def seat_step(scene, tolerance, spring_share=params.OCC_SPRING_SHARE, canine_wei
 
     # Lower vertices against the upper surface (move along the upper normal), and upper vertices
     # against the lower surface (move the lower surface against its own normal: signs flipped).
-    lp = world_points(lower, samples(lower))
-    d1, _closest, n1 = signed_distances(lp, upper, params.OCC_SEARCH_DISTANCE)
-    up_ = world_points(upper, samples(upper))
+    upper_plane, lower_plane = zone_planes(scene)
+    lower_local, upper_local = vertices or (samples(lower), samples(upper))
+    lp = world_points(lower, lower_local)
+    d1, c1, n1 = signed_distances(lp, upper, params.OCC_SEARCH_DISTANCE)
+    up_ = world_points(upper, upper_local)
     d2, c2, n2 = signed_distances(up_, lower, params.OCC_SEARCH_DISTANCE)
+    rows1, rows2 = rigid_rows(lp, n1, centre), rigid_rows(c2, n2, centre)
     with np.errstate(invalid='ignore'):
-        deep1, deep2 = d1 < -tolerance, d2 < -tolerance
         near1 = (d1 > 0) & (d1 < params.OCC_MAGNET_RANGE)
         near2 = (d2 > 0) & (d2 < params.OCC_MAGNET_RANGE)
 
-    contact_rows = np.vstack((rigid_rows(lp[deep1], n1[deep1], centre), rigid_rows(c2[deep2], n2[deep2], centre)))
-    contact_rhs = np.concatenate((-tolerance - d1[deep1], d2[deep2] + tolerance))
-    groups.append((contact_rows, contact_rhs, params.OCC_CONTACT_WEIGHT))
-
-    magnet_rows = np.vstack((rigid_rows(lp[near1], n1[near1], centre), rigid_rows(c2[near2], n2[near2], centre)))
+    magnet_rows = np.vstack((rows1[near1], rows2[near2]))
     magnet_rhs = np.concatenate((-d1[near1], d2[near2])) * params.OCC_MAGNET_STEP   # close the gap
     groups.append((magnet_rows, magnet_rhs, 1.0 - spring_share))
 
@@ -286,11 +386,18 @@ def seat_step(scene, tolerance, spring_share=params.OCC_SPRING_SHARE, canine_wei
             w = np.sqrt(weight / len(rows))
             a.append(w * rows)
             b.append(w * rhs)
-    x, *_ = np.linalg.lstsq(np.vstack(a), np.concatenate(b), rcond=None)
+
+    anterior, posterior = limits
+    limit1 = np.where(anterior_contacts(lower_plane, upper_plane, lp, c1), anterior, posterior)
+    limit2 = np.where(anterior_contacts(upper_plane, lower_plane, up_, c2), anterior, posterior)
+    held1, rhs1 = held_points(rows1, d1, limit1)
+    held2, rhs2 = held_points(-rows2, d2, limit2)
+    x = solve_step(np.vstack(a), np.concatenate(b), np.vstack((held1, held2)), np.concatenate((rhs1, rhs2)))
+
     omega, t = Vector(x[:3]), Vector(x[3:])
-    angle = min(omega.length, np.radians(MAX_STEP))
-    if t.length > MAX_STEP:
-        t *= MAX_STEP / t.length
+    scale = min(1.0, MAX_STEP / max(t.length, 1e-12), np.radians(MAX_STEP) / max(omega.length, 1e-12))
+    omega, t = omega * scale, t * scale   # together, so the motion keeps its direction
+    angle = omega.length
     rotation = Matrix.Rotation(angle, 4, omega.normalized()) if angle > 1e-12 else Matrix()
     c = Vector(centre)
     motion = Matrix.Translation(c + t) @ rotation @ Matrix.Translation(-c)
@@ -302,6 +409,12 @@ def seat_step(scene, tolerance, spring_share=params.OCC_SPRING_SHARE, canine_wei
 def converged(step):
     shift, angle = step
     return shift < CONVERGED and angle < CONVERGED
+
+
+def settled(step):
+    """The last step is too small to matter clinically (it may still vibrate between two contacts)."""
+    shift, angle = step
+    return shift < params.OCC_SETTLED and angle < params.OCC_SETTLED
 
 
 def pair_arrays(scene):
@@ -327,17 +440,23 @@ def point_fit(scene, canine_weight=params.OCC_CANINE_WEIGHT):
     return registration.as_rigid(fit @ block.matrix_world)
 
 
-def seat(scene, tolerance, spring_share=params.OCC_SPRING_SHARE, canine_weight=params.OCC_CANINE_WEIGHT,
+def seat(scene, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_weight=params.OCC_CANINE_WEIGHT,
          max_iterations=params.OCC_MAX_ITERATIONS):
-    """Run the solver to the end (no animation): point fit, then springs against contact.
-    Returns the number of contact iterations."""
+    """Run the solver to the end (no animation): point fit, then springs and magnet up to the overlap
+    limits.
+    Returns (contact iterations, True if it settled)."""
     block = occlusion.find_block(scene, 'LOWER')
     block.matrix_world = point_fit(scene, canine_weight)
     bpy.context.view_layer.update()
     for i in range(1, max_iterations + 1):
-        if converged(seat_step(scene, tolerance, spring_share, canine_weight)):
-            return i
-    return max_iterations
+        if converged(seat_step(scene, limits, spring_share, canine_weight)):
+            break
+    vertices = contact_vertices(scene)
+    for _i in range(params.OCC_FINISH_ITERATIONS):
+        step = seat_step(scene, limits, spring_share, canine_weight, vertices)
+        if converged(step):
+            break
+    return i, settled(step)
 
 
 # --- Overlap map ---------------------------------------------------------------------
@@ -371,35 +490,51 @@ def write_overlap_map(scene):
     """Colour both arches by their signed distance to the other one; store the summary."""
     props = scene.omfs_occlusion
     upper, lower = props.upper, props.lower
-    deepest = 0.0
+    planes = dict(zip((upper, lower), zone_planes(scene)))
+    deepest = {True: 0.0, False: 0.0}   # anterior, posterior
     for obj, other in ((lower, upper), (upper, lower)):
         points = registration.vertex_coords(obj)
-        d, _closest, _normals = signed_distances(points, other, params.OCC_SEARCH_DISTANCE)
+        d, closest, _normals = signed_distances(points, other, params.OCC_SEARCH_DISTANCE)
         mesh = obj.data
         attr = mesh.color_attributes.get(MAP_ATTRIBUTE) or mesh.color_attributes.new(
             MAP_ATTRIBUTE, 'FLOAT_COLOR', 'POINT')
         attr.data.foreach_set("color", overlap_colours(d).ravel())
         mesh.color_attributes.active_color = attr
-        deepest = max(deepest, robust_overlap(d, vertex_areas(obj)))
+        area = vertex_areas(obj)
+        anterior = anterior_contacts(planes[obj], planes[other], points, closest)
+        for zone, part in ((True, anterior), (False, ~anterior)):
+            deepest[zone] = max(deepest[zone], robust_overlap(d[part], area[part]))
         if obj is lower:
-            contact_areas(scene, lower, points, d)
-    props.max_overlap = deepest
+            contact_areas(scene, lower, points, d, anterior)
+    props.max_overlap_anterior, props.max_overlap_posterior = deepest[True], deepest[False]
+    props.max_overlap = max(deepest.values())
     props.map_state = repr(map_key(scene))
 
 
-def contact_areas(scene, lower, points, d):
-    """Contact area (mm²) on the lower arch: patient's right, anterior, left of the block's midline."""
+def midline_offset(scene, points):
+    """Signed distance (mm, + = patient's left) of world points from the midline: from the lower canine
+    points if placed, else from the block centre along its X axis."""
+    canines = {o.omfs.landmark: o.matrix_world.translation for o in occlusion_points(scene)}
+    right, left = canines.get("OCC_LCR"), canines.get("OCC_LCL")
+    if right is not None and left is not None:
+        return (points - np.array((right + left) / 2)) @ np.array((left - right).normalized())
+    m = occlusion.find_block(scene, 'LOWER').matrix_world
+    return (points - np.array(m.translation)) @ np.array(m.to_3x3().col[0])   # block X = patient left
+
+
+def contact_areas(scene, lower, points, d, anterior):
+    """Contact area (mm²) on the lower arch: patient's right, anterior, left. Anterior = the canine to
+    canine zone, or a band around the midline without the canine springs."""
     props = scene.omfs_occlusion
-    block = occlusion.find_block(scene, 'LOWER')
-    m = block.matrix_world
-    x = (points - np.array(m.translation)) @ np.array(m.to_3x3().col[0])   # block X = patient left
+    x = midline_offset(scene, points)
+    if not zone_ready(scene):
+        anterior = np.abs(x) <= params.OCC_ANTERIOR_HALF_WIDTH
     with np.errstate(invalid='ignore'):
         touching = d < params.OCC_CONTACT
     area = vertex_areas(lower)
-    w = params.OCC_ANTERIOR_HALF_WIDTH
-    props.area_right = float(area[touching & (x < -w)].sum())
-    props.area_anterior = float(area[touching & (np.abs(x) <= w)].sum())
-    props.area_left = float(area[touching & (x > w)].sum())
+    props.area_right = float(area[touching & ~anterior & (x < 0)].sum())
+    props.area_anterior = float(area[touching & anterior].sum())
+    props.area_left = float(area[touching & ~anterior & (x > 0)].sum())
 
 
 def tripod(props):
@@ -483,6 +618,22 @@ def _draw_springs():
         shader.uniform_float("viewportSize", (region.width, region.height))
         shader.uniform_float("lineWidth", 4.0 if is_canine(up) else 2.0)
         shader.uniform_float("color", spring_colour((q - p).length))
+        batch.draw(shader)
+    _draw_zone_limits(scene, shader, region)
+
+
+def _draw_zone_limits(scene, shader, region):
+    """A line across each arch, where the anterior zone ends."""
+    points = {o.omfs.landmark: o.matrix_world.translation for o in occlusion_points(scene)}
+    for tag, plane in zip("UL", zone_planes(scene)):
+        if plane is None:
+            continue
+        shift = Vector(plane[0]) - (points[f"OCC_{tag}CR"] + points[f"OCC_{tag}CL"]) / 2
+        ends = [points[f"OCC_{tag}CR"] + shift, points[f"OCC_{tag}CL"] + shift]
+        batch = batch_for_shader(shader, 'LINE_STRIP', {"pos": ends})
+        shader.uniform_float("viewportSize", (region.width, region.height))
+        shader.uniform_float("lineWidth", 2.0)
+        shader.uniform_float("color", (1.0, 1.0, 1.0, 1.0))
         batch.draw(shader)
 
 
@@ -599,8 +750,8 @@ class OMFS_OT_toggle_occlusion_points(bpy.types.Operator):
 
 class OMFS_OT_seat_occlusion(bpy.types.Operator):
     """L'arcade du bas vient s'asseoir sur l'arcade du haut fixe : les ressorts guident (part réglable),
-    l'aimant rapproche les arcades jusqu'aux contacts stables, et les dents résistent au-delà de la
-    pénétration tolérée. Animé dans la vue ; Échap : annuler et revenir au départ"""
+    l'aimant rapproche les arcades jusqu'aux contacts stables, et les dents s'arrêtent au chevauchement
+    permis de chaque zone. Animé dans la vue ; Échap : annuler et revenir au départ"""
     bl_idname = "omfs.seat_occlusion"
     bl_label = "Asseoir l'occlusion"
     bl_options = {'REGISTER', 'UNDO'}
@@ -617,14 +768,19 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
             return False
         return True
 
+    def report_end(self, settled):
+        if not settled:
+            self.report({'WARNING'}, "Assise non stabilisée : vérifiez les ressorts")
+
     def execute(self, context):   # scripts and tests: no animation
         if not self.ready(context):
             return {'CANCELLED'}
         scene = context.scene
         props = scene.omfs_occlusion
-        iterations = seat(scene, props.tolerance, props.spring_share / 100, props.canine_weight)
+        iterations, settled = seat(scene, limits_of(props), props.spring_share / 100, props.canine_weight)
         write_overlap_map(scene)
         self.report({'INFO'}, f"Assise : {iterations} itérations")
+        self.report_end(settled)
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -633,9 +789,10 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
             return {'CANCELLED'}
         self.block = occlusion.find_block(context.scene, 'LOWER')
         self.start = self.block.matrix_world.copy()
-        self.fit = point_fit(context.scene, context.scene.omfs_occlusion.canine_weight)   # phase 1: glide to the point fit, phase 2: contact
+        self.fit = point_fit(context.scene, context.scene.omfs_occlusion.canine_weight)   # phase 1: glide to the point fit, phase 2: guides up to the limits
         self.frame = 0
         self.iteration = 0
+        self.vertices = None
         _seating = True
         self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
             (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
@@ -667,14 +824,19 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
             return {'RUNNING_MODAL'}
         self.iteration += 1
         props = scene.omfs_occlusion
-        step = seat_step(scene, props.tolerance, props.spring_share / 100, props.canine_weight)
+        step = seat_step(scene, limits_of(props), props.spring_share / 100, props.canine_weight, self.vertices)
         longest = max(spring_lengths(scene), default=0.0)
         if self.area:
             self.area.header_text_set(f"Assise : itération {self.iteration}, ressort le plus long "
                                       f"{longest:.2f} mm   |   Échap : annuler")
             self.area.tag_redraw()
-        if converged(step) or self.iteration >= params.OCC_MAX_ITERATIONS:
+        if self.vertices is None and (converged(step) or self.iteration >= params.OCC_MAX_ITERATIONS):
+            self.vertices = contact_vertices(scene)   # last iterations: every vertex near the contacts
+            self.last_iteration = self.iteration + params.OCC_FINISH_ITERATIONS
+            return {'RUNNING_MODAL'}
+        if self.vertices is not None and (converged(step) or self.iteration >= self.last_iteration):
             self.finish(context)
+            self.report_end(settled(step))
             write_overlap_map(scene)
             scene.omfs_occlusion.show_map = True
             set_map_shading(context, True)

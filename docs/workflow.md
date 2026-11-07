@@ -362,26 +362,41 @@ Naming used below (matches the object roles in code):
     fossa it sits in). 3 pairs or more, spread out (incisors + left and right molars). Each pair is a
     spring, drawn as a zig-zag (green < 0.6 mm, yellow < 2 mm, orange beyond) with its length listed.
   - "Seat": animated. Phase 1, the lower block glides to the best fit of the springs (works from any
-    start, even a scan exported upside down). Phase 2, the springs keep pulling while the teeth resist
-    any overlap deeper than the "tolerated penetration" (0 = stop at contact; large = pure point fit,
-    all the overlap the springs cause becomes visible). Esc cancels and goes back.
+    start, even a scan exported upside down). Phase 2, springs and magnet keep pulling and the teeth
+    stop at the overlap limit of their zone. Last iterations on every vertex near the contacts, so a
+    cusp tip is held too (within about 0.05 mm). Esc cancels and goes back. A warning says if it did
+    not settle.
+  - Overlap limits, two zones, set by the surgeon before seating (grinding is the surgeon's decision):
+    - Anterior, canine to canine: 0 mm by default (no anterior grinding).
+    - Posterior, premolars and molars: 0.2 mm by default. Less is better; usual grinding is around
+      0.3-0.4 mm at most, rarely beyond 0.75 mm, on both arches.
+    - The limits are real stops, not preferences: the guidance does not push past them. If springs ask
+      for more, the spring stays longer instead. This includes the canine springs: the anterior limit
+      wins over the Class I canine relation.
+    - The number shown ignores lone spikes under 0.1 mm² (scan artefacts): the map can show a little more.
+    - Zone: the two canine springs define it. Limit on the upper arch 3.5 mm behind the line of the
+      canine tips (distal slope of the canine), on the lower arch the line of the canine / premolar
+      embrasures. A contact is anterior if either of its two sides is. A white line shows the limit.
+      Without both canine springs there is no anterior zone: the posterior limit applies to the whole
+      arch, and the panel says so.
   - Canine springs (right and left): the Class I canine relation matters more than the posterior
     relation. Upper canine cusp tip, then the lower canine / first premolar embrasure where it should
     rest. Each canine spring pulls "canine weight" times harder than another spring (3 by default),
     so the anterior contact is right antero-posteriorly, even if the posterior springs are then less
-    well satisfied. Drawn thicker; always listed first; redoing one replaces it.
+    well satisfied, within the anterior overlap limit (the limit wins). Drawn thicker; always listed first; redoing one replaces it.
   - Magnet ("Seat the occlusion"): like pushing the two models together, it closes the gaps between
-    the arches (within 3 mm) so stable contacts form, while the teeth still resist overlap beyond the
-    tolerance. Springs and magnet share the guidance: springs 70 % by default ("Springs' share"),
+    the arches (within 3 mm) so stable contacts form, up to the overlap limits. Springs and magnet share the guidance: springs 70 % by default ("Springs' share"),
     magnet 30 %. The springs bring the key positions roughly; the occlusion itself finishes the seating.
   - Contacts may be as large as the dental anatomy allows: more contact area is better, no upper limit.
   - Stability: "stable tripod" when there is contact on the right, anterior and left (>= 1 mm² each).
+    Anterior = the canine to canine zone above, so a premolar touching the distal slope of the upper
+    canine counts as anterior; without both canine springs, a band of 15 mm each side of the midline.
   - Then fine-tune by hand (adjust the lower arch, G / R); the map refreshes when the movement stops.
-  - What I need to see: overlap map on both arches, in bands: magenta > 1.5 mm, red 1.0-1.5, orange
-    0.5-1.0, yellow 0-0.5 overlap; green contact (gap < 0.3 mm); light blue gap 0.3-1.0; grey > 1.0.
-    Legend in the panel. Deepest overlap in mm (warn > 1.0 mm "rare", alert > 1.5 mm "beyond tolerated":
-    grinding), and contact area right / anterior / left (mm²).
-  - Overlap up to ~1.5 mm can be acceptable, rarely more than 1 mm (values TO CONFIRM, in params.py).
+  - What I need to see: overlap map on both arches, in bands: magenta > 1.0 mm, red 0.75-1.0, orange
+    0.4-0.75, yellow 0-0.4 overlap; green contact (gap < 0.3 mm); light blue gap 0.3-1.0; grey > 1.0.
+    Legend in the panel. Deepest overlap anterior and posterior in mm, each against its limit (warn
+    > 0.4 mm "beyond usual grinding", alert > 0.75 mm "major grinding"), and contact area right /
+    anterior / left (mm²).
 - Next (to specify): movement of the maxillomandibular complex relative to the skull (Step 5), and
   intermediate / final splints.
 - Future tab "Mouvement chx orthognathique", idea noted by the surgeon: control of the rotation point
