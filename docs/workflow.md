@@ -379,6 +379,14 @@ Naming used below (matches the object roles in code):
       embrasures. A contact is anterior if either of its two sides is. A white line shows the limit.
       Without both canine springs there is no anterior zone: the posterior limit applies to the whole
       arch, and the panel says so.
+  - After any change to the occlusion, the final position stays exactly as it is, unless the surgeon
+    clicks "Resume from here": the same seating without phase 1, from the current position, with
+    sliding blocked (no translation across the arch or antero-posteriorly, no rotation about the
+    occlusal axis: the midline and the Class stay where the surgeon put them, the arch only closes and
+    tilts). Across the arch = the line of the lower canine points, else the block's X axis. Needs no
+    minimum number of springs: fewer springs leave more to the occlusion and to the surgeon. Refused,
+    with a message, when nothing can guide it (no active spring and the arches beyond the magnet's
+    range).
   - Canine springs (right and left): the Class I canine relation matters more than the posterior
     relation. Upper canine cusp tip, then the lower canine / first premolar embrasure where it should
     rest. Each canine spring pulls "canine weight" times harder than another spring (3 by default),

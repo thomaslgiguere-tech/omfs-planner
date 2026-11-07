@@ -535,9 +535,11 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             warn.alert = True
             draw_text(warn, context, "Sans les deux ressorts canins, la zone antérieure n'existe pas : la limite "
                                      "postérieure s'applique à toute l'arcade.")
-        row = box.row()
-        row.enabled = len(occlusion_seating.point_pairs(scene)) >= 3
-        row.operator("omfs.seat_occlusion", icon='PLAY')
+        row = box.row(align=True)
+        seat = row.row(align=True)
+        seat.enabled = len(occlusion_seating.point_pairs(scene)) >= 3
+        seat.operator("omfs.seat_occlusion", icon='PLAY')
+        row.operator("omfs.seat_occlusion", text="Reprendre d'ici", icon='FORWARD').from_here = True
         block = occlusion.find_block(scene, 'LOWER')
         summary = occlusion.movement_summary(scene, block)
         if summary is None:

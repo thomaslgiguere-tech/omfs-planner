@@ -628,7 +628,7 @@ def test_occlusion_springs_and_overlap():
 
 
 def test_occlusion_anterior_limit():
-    """Springs asking for 1 mm of overlap: the front teeth (in front of the canine points) stop at their own limit, the back teeth at theirs."""
+    """Springs asking for 1 mm of overlap: the front teeth (in front of the canine points) stop at their own limit, the back teeth at theirs. Then a hand position is kept."""
     scene = bpy.context.scene
     props = scene.omfs_occlusion
     upper = dense_box("Upper arch", 'SCAN', (0, 0, 10), (46, 38, 8))             # wider: no shared edges
@@ -682,8 +682,30 @@ def test_occlusion_anterior_limit():
     bpy.context.view_layer.update()
     assert not occlusion_seating.zone_ready(scene)
 
+    # Hand position, no spring at all: "from here" keeps it and the magnet only closes the gap.
     for key in ('1', '2'):
         occlusion_seating.remove_pair(scene, key)
+    occlusion.back_to_preop(block)
+    props.spring_share, props.tolerance_posterior = 0.0, 0.2
+    block.matrix_world = Matrix.Translation((3, 0, 6)) @ block.matrix_world      # 6 mm gap: out of the magnet's range
+    bpy.context.view_layer.update()
+    try:
+        bpy.ops.omfs.seat_occlusion(from_here=True)
+    except RuntimeError as error:
+        assert "Rien ne guide" in str(error)
+    else:
+        raise AssertionError("expected an error: nothing can move the block")
+
+    block.matrix_world = Matrix.Translation((0, 0, 4)) @ block.matrix_world      # 2 mm gap, 3 mm to the left
+    bpy.context.view_layer.update()
+    bpy.ops.omfs.seat_occlusion(from_here=True)
+    assert abs(block.matrix_world.translation.x - occlusion.preop_matrix(block).translation.x - 3) < 0.01
+    assert abs(block.matrix_world.translation.y - occlusion.preop_matrix(block).translation.y) < 0.01
+    yaw = block.matrix_world.to_3x3().col[0].y                                    # X axis swinging towards Y
+    assert abs(yaw) < 1e-4, yaw                                                   # the midline did not move
+    assert overlaps()[1] > -0.3, overlaps()                                       # gap closed
+    assert overlaps()[1] < 0.25, overlaps()
+
     props.spring_share = params.OCC_SPRING_SHARE
     props.upper = props.lower = None
     for obj in [upper, lower]:

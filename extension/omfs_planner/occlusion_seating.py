@@ -305,6 +305,28 @@ def rigid_rows(points, normals, centre):
     return np.hstack((np.cross(v, normals), normals))
 
 
+def closing_motions(scene):
+    """6 x 3 basis of the motions (rotation, translation) that only close the bite: no translation
+    in the occlusal plane (across the arch or antero-posterior), no rotation about the occlusal axis
+    (it would swing the incisors sideways). What is left: along the occlusal axis, and tilts.
+    Across the arch = the line of the lower canine points, else the block's X axis."""
+    props = scene.omfs_occlusion
+    occlusal = occlusal_axis(props.lower)[1]
+    points = {o.omfs.landmark: o.matrix_world.translation for o in occlusion_points(scene)}
+    right, left = points.get("OCC_LCR"), points.get("OCC_LCL")
+    if right is not None and left is not None:
+        across = np.array(left - right)
+    else:
+        across = np.array(occlusion.find_block(scene, 'LOWER').matrix_world.to_3x3().col[0])
+    across -= (across @ occlusal) * occlusal
+    across /= np.linalg.norm(across)
+    locked = np.zeros((3, 6))
+    locked[0, :3] = occlusal
+    locked[1, 3:] = across
+    locked[2, 3:] = np.cross(occlusal, across)
+    return np.linalg.svd(locked)[2][3:].T
+
+
 def held_points(rows, d, limit):
     """The points near their overlap limit, as (rows, rhs): rows @ x >= rhs keeps each one within it."""
     with np.errstate(invalid='ignore'):
@@ -336,7 +358,7 @@ def solve_step(a, b, held_rows, held_rhs):
 
 
 def seat_step(scene, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_weight=params.OCC_CANINE_WEIGHT,
-              vertices=None):
+              vertices=None, hold_position=False):
     """One iteration: a small rigid motion of the lower block. Two guides, solved together:
     - springs pull each lower point a fraction of the way towards its upper point;
     - the magnet closes the gaps between the arches (within range), like pushing the models together.
@@ -346,6 +368,8 @@ def seat_step(scene, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_
     The teeth are not a third guide but a limit: no point goes deeper than the overlap limit of its
     zone, limits = (anterior, posterior), whatever the guides want.
     vertices = (lower, upper) local points to test, random samples by default.
+    hold_position: the block cannot slide in the occlusal plane (see closing_motions), exactly: the
+    solver only searches the other motions.
     Returns (translation mm, rotation deg) applied."""
     props = scene.omfs_occlusion
     upper, lower = props.upper, props.lower
@@ -392,7 +416,9 @@ def seat_step(scene, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_
     limit2 = np.where(anterior_contacts(upper_plane, lower_plane, up_, c2), anterior, posterior)
     held1, rhs1 = held_points(rows1, d1, limit1)
     held2, rhs2 = held_points(-rows2, d2, limit2)
-    x = solve_step(np.vstack(a), np.concatenate(b), np.vstack((held1, held2)), np.concatenate((rhs1, rhs2)))
+    free = closing_motions(scene) if hold_position else np.eye(6)
+    x = free @ solve_step(np.vstack(a) @ free, np.concatenate(b), np.vstack((held1, held2)) @ free,
+                          np.concatenate((rhs1, rhs2)))
 
     omega, t = Vector(x[:3]), Vector(x[3:])
     scale = min(1.0, MAX_STEP / max(t.length, 1e-12), np.radians(MAX_STEP) / max(omega.length, 1e-12))
@@ -441,19 +467,21 @@ def point_fit(scene, canine_weight=params.OCC_CANINE_WEIGHT):
 
 
 def seat(scene, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_weight=params.OCC_CANINE_WEIGHT,
-         max_iterations=params.OCC_MAX_ITERATIONS):
+         max_iterations=params.OCC_MAX_ITERATIONS, from_here=False):
     """Run the solver to the end (no animation): point fit, then springs and magnet up to the overlap
-    limits.
+    limits. from_here skips the point fit and holds the block against any slide in the occlusal
+    plane, to keep a position adjusted by hand.
     Returns (contact iterations, True if it settled)."""
-    block = occlusion.find_block(scene, 'LOWER')
-    block.matrix_world = point_fit(scene, canine_weight)
-    bpy.context.view_layer.update()
+    if not from_here:
+        block = occlusion.find_block(scene, 'LOWER')
+        block.matrix_world = point_fit(scene, canine_weight)
+        bpy.context.view_layer.update()
     for i in range(1, max_iterations + 1):
-        if converged(seat_step(scene, limits, spring_share, canine_weight)):
+        if converged(seat_step(scene, limits, spring_share, canine_weight, hold_position=from_here)):
             break
     vertices = contact_vertices(scene)
     for _i in range(params.OCC_FINISH_ITERATIONS):
-        step = seat_step(scene, limits, spring_share, canine_weight, vertices)
+        step = seat_step(scene, limits, spring_share, canine_weight, vertices, from_here)
         if converged(step):
             break
     return i, settled(step)
@@ -642,6 +670,17 @@ _draw_handle = None
 
 # --- Operators -----------------------------------------------------------------------
 
+def guided(scene):
+    """Something can move the lower block: an active spring, or the magnet with the arches in range."""
+    props = scene.omfs_occlusion
+    if point_pairs(scene) and props.spring_share > 0:
+        return True
+    if props.spring_share >= 100:
+        return False
+    d = signed_distances(world_points(props.lower, samples(props.lower)), props.upper, params.OCC_MAGNET_RANGE)[0]
+    return not np.isnan(d).all()
+
+
 def arches_ready(scene):
     props = scene.omfs_occlusion
     return props.upper is not None and props.lower is not None and occlusion.find_block(scene, 'LOWER')
@@ -756,10 +795,27 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
     bl_label = "Asseoir l'occlusion"
     bl_options = {'REGISTER', 'UNDO'}
 
+    from_here: bpy.props.BoolProperty(options={'SKIP_SAVE'},
+                                      description="Partir de la position actuelle, sans ajustement aux points et sans glissement")
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.from_here:
+            return ("Rasseoir depuis la position actuelle (ex. après un ajustement à la main) : seulement les "
+                    "derniers millimètres, avec les ressorts présents, l'aimant et les limites. Le glissement "
+                    "latéral et antéro-postérieur est bloqué : l'arcade ne fait que se fermer")
+        return cls.__doc__
+
     def ready(self, context):
         if not arches_ready(context.scene):
             self.report({'ERROR'}, "Choisissez d'abord l'arcade du haut et l'arcade du bas")
             return False
+        if self.from_here:
+            if not guided(context.scene):
+                self.report({'ERROR'}, "Rien ne guide l'assise : ajoutez un ressort, ou rapprochez les arcades à moins "
+                                       f"de {params.OCC_MAGNET_RANGE:g} mm avec une part des ressorts sous 100 %")
+                return False
+            return True
         if len(point_pairs(context.scene)) < 3:
             self.report({'ERROR'}, "Placez au moins 3 paires de points")
             return False
@@ -770,14 +826,15 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
 
     def report_end(self, settled):
         if not settled:
-            self.report({'WARNING'}, "Assise non stabilisée : vérifiez les ressorts")
+            self.report({'WARNING'}, "Assise non stabilisée : relancez « Reprendre d'ici » ou vérifiez les ressorts")
 
     def execute(self, context):   # scripts and tests: no animation
         if not self.ready(context):
             return {'CANCELLED'}
         scene = context.scene
         props = scene.omfs_occlusion
-        iterations, settled = seat(scene, limits_of(props), props.spring_share / 100, props.canine_weight)
+        iterations, settled = seat(scene, limits_of(props), props.spring_share / 100, props.canine_weight,
+                                   from_here=self.from_here)
         write_overlap_map(scene)
         self.report({'INFO'}, f"Assise : {iterations} itérations")
         self.report_end(settled)
@@ -789,8 +846,9 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
             return {'CANCELLED'}
         self.block = occlusion.find_block(context.scene, 'LOWER')
         self.start = self.block.matrix_world.copy()
-        self.fit = point_fit(context.scene, context.scene.omfs_occlusion.canine_weight)   # phase 1: glide to the point fit, phase 2: guides up to the limits
-        self.frame = 0
+        # Phase 1: glide to the point fit (none from here). Phase 2: guides up to the limits.
+        self.frame = FIT_FRAMES if self.from_here else 0
+        self.fit = self.start if self.from_here else point_fit(context.scene, context.scene.omfs_occlusion.canine_weight)
         self.iteration = 0
         self.vertices = None
         _seating = True
@@ -824,7 +882,8 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
             return {'RUNNING_MODAL'}
         self.iteration += 1
         props = scene.omfs_occlusion
-        step = seat_step(scene, limits_of(props), props.spring_share / 100, props.canine_weight, self.vertices)
+        step = seat_step(scene, limits_of(props), props.spring_share / 100, props.canine_weight, self.vertices,
+                         self.from_here)
         longest = max(spring_lengths(scene), default=0.0)
         if self.area:
             self.area.header_text_set(f"Assise : itération {self.iteration}, ressort le plus long "
