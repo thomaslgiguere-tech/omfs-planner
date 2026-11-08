@@ -23,7 +23,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim  # noqa: E402
 
 omfs_planner.register()
 
@@ -578,7 +578,7 @@ def test_occlusion_springs_and_overlap():
         if obj.omfs.landmark in ("OCC_U3", "OCC_L3"):
             bpy.data.objects.remove(obj)
     bpy.context.view_layer.update()
-    assert occlusion_seating.points_spread(scene) < occlusion_seating.MIN_SPREAD   # one line: refused
+    assert occlusion_seating.points_spread(occlusion_seating.seatings(scene)[0]) < occlusion_seating.MIN_SPREAD   # one line: refused
     assert occlusion.shape_fingerprint(lower) == shape          # only the block moved
 
     below = box_object("Edge probe", 'SCAN', (0, 0, 0), (10, 10, 10))          # point straight below a
@@ -739,9 +739,68 @@ def test_midline_spring():
     assert [occlusion_seating.pair_key(up) for up, _low in pairs] == ['CR', 'ML', '1']
     assert occlusion_seating.pair_label(pairs[1][0]) == "Midline"
     assert not occlusion_seating.is_canine(pairs[1][0])
-    assert list(occlusion_seating.pair_weights(scene, 3.0)) == [3.0, 1.0, 1.0]
+    assert list(occlusion_seating.pair_weights(occlusion_seating.point_pairs(scene), 3.0)) == [3.0, 1.0, 1.0]
     assert not occlusion_seating.zone_ready(scene)                                # the midline makes no zone
     for key in ('1', 'CR', 'ML'):
+        occlusion_seating.remove_pair(scene, key)
+    props.upper = props.lower = None
+    for obj in [upper, lower]:
+        bpy.data.objects.remove(obj)
+    for arch_id in ('UPPER', 'LOWER'):
+        bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
+
+
+def test_segmental_upper_arch():
+    """Two osteotomy lines divide the upper arch into three segments (scan untouched). The lower seats on
+    the anterior segment, then the right posterior segment seats on the lower and its spring expands it."""
+    scene = bpy.context.scene
+    props = scene.omfs_occlusion
+    upper = dense_box("Upper arch", 'SCAN', (0, 0, 10), (60, 20, 8))             # occlusal surface at z = 6
+    lower = dense_box("Lower arch", 'SCAN', (0, 0, -10), (60, 20, 8))            # occlusal surface at z = -6
+    props.upper, props.lower = upper, lower
+    shape, faces = occlusion.shape_fingerprint(upper), len(upper.data.polygons)
+    for x in (-10, 10):                                                          # past the scan on both sides
+        occlusion_segments.add_trait(scene, upper, Vector((x, -15, 10)), Vector((x, 15, 10)))
+    assert len(occlusion_segments.cut_points(upper, occlusion_segments.frames(scene, upper)[0])) > 0
+    for key, (x, y) in (('1', (-5, -5)), ('2', (5, -5)), ('3', (0, 5))):        # anterior: lower 12 mm up
+        occlusion_seating.add_point(scene, f"OCC_U{key}", key, Vector((x, y, 6)), upper)
+        occlusion_seating.add_point(scene, f"OCC_L{key}", key, Vector((x, y, -6)), lower)
+    occlusion_seating.add_point(scene, "OCC_U4", "4", Vector((-20, 0, 6)), upper)  # right: 3 mm outwards
+    occlusion_seating.add_point(scene, "OCC_L4", "4", Vector((-23, 0, -6)), lower)
+    bpy.context.view_layer.update()
+
+    bpy.ops.omfs.separate_segments()
+    parts = occlusion_segments.segments(scene)
+    names = sorted(p.name for p in parts)
+    assert names == ["Segment antérieur", "Segment postérieur droit", "Segment postérieur gauche"], names
+    assert sum(len(p.data.polygons) for p in parts) == faces                    # every face, once
+    assert occlusion.shape_fingerprint(upper) == shape and upper.hide_get()      # scan untouched, hidden
+    anterior, right = bpy.data.objects["Segment antérieur"], bpy.data.objects["Segment postérieur droit"]
+    assert occlusion_segments.reference(scene) is anterior
+    points = {o.omfs.landmark: o for o in occlusion_seating.occlusion_points(scene)}
+    assert points["OCC_U1"].parent is anterior and points["OCC_U4"].parent is right
+    assert (points["OCC_U4"].matrix_world.translation - Vector((-20, 0, 6))).length < 1e-6   # did not move
+    jobs = occlusion_seating.seatings(scene)
+    assert [(j.fixed.name, j.mobile.name) for j in jobs][:2] == [("Segment antérieur", "Lower arch"),
+                                                                ("Lower arch", "Segment postérieur droit")]
+
+    bpy.ops.omfs.seat_occlusion()
+    lower_block = occlusion.find_block(scene, 'LOWER')
+    rise = (lower_block.matrix_world.translation - occlusion.preop_matrix(lower_block).translation).z
+    assert 11.5 < rise < 12.3, rise                                              # up to the anterior segment
+    assert not occlusion_segments.moved(scene, anterior)                         # the reference stays
+    widening = occlusion_segments.expansion(scene, right)
+    assert 2.5 < widening < 3.3, widening                                        # the spring's 3 mm
+    assert props.max_overlap_posterior < props.tolerance_posterior + 0.05
+
+    bpy.ops.omfs.join_segments()
+    assert not occlusion_segments.segments(scene) and not upper.hide_get()
+    assert points["OCC_U4"].parent is upper
+    assert (points["OCC_U4"].matrix_world.translation - Vector((-20, 0, 6))).length < 1e-4   # back on the scan
+    assert len(occlusion_segments.trait_ends(scene)) == 2                        # kept for another try
+    for number in list(occlusion_segments.trait_ends(scene)):
+        occlusion_segments.remove_trait(scene, number)
+    for key in ('1', '2', '3', '4'):
         occlusion_seating.remove_pair(scene, key)
     props.upper = props.lower = None
     for obj in [upper, lower]:

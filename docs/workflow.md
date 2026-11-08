@@ -402,6 +402,29 @@ Naming used below (matches the object roles in code):
   - Magnet ("Seat the occlusion"): like pushing the two models together, it closes the gaps between
     the arches (within 3 mm) so stable contacts form, up to the overlap limits. Springs and magnet share the guidance: springs 70 % by default ("Springs' share"),
     magnet 30 %. The springs bring the key positions roughly; the occlusion itself finishes the seating.
+  - Segmental surgery of the upper arch (optional, e.g. transverse expansion of the posterior segments
+    for a better intercuspation), before the springs:
+    - "Draw a line": click-drag an osteotomy line across the upper arch (occlusal view), like the guide's
+      plane cut; several in a row. A line cuts the full height (along the arch's occlusal axis) but only
+      along its own length + 1 mm, so an interdental line does not cross the other side: draw past the
+      border of the scan, and make the lines that close a segment meet (e.g. two interdental lines and a
+      palatal line joining them). The cut shows live as orange dots on the scan.
+    - "Adjust the lines": press near an end and drag it; it slides on the scan (or past its border), and
+      the cut follows live, to put it exactly in the embrasure.
+    - "Separate the segments": each closed region becomes a segment (pieces under 5 mm² ignored), named
+      anterior / right / left posterior from the midline, each with its own block. The scan is never
+      modified: segments hold copies of its faces; it is hidden. Upper spring points move to the segment
+      they sit on.
+    - Seating (surgeon's choice): the lower arch seats first on the reference segment (the anterior one
+      by default: Class and midline), with that segment's springs only (3 or more). Then the lower is
+      fixed and each other segment seats on it, independently (springs on that segment, magnet, overlap
+      limits), free to slide: an expansion is a slide across the arch. Point fit only for a segment with
+      3 spread springs or more. The overlap map covers every segment.
+    - Panel: each segment with its expansion (mm its centre moved away from the midline), select (G / R)
+      and back to start. "Join the arch" deletes the segments and their movements (confirmation if
+      moved), shows the scan again, and keeps the lines to adjust and separate again.
+    - Not yet: overlap between neighbouring segments is not checked; the CBCT maxilla is not cut (later,
+      with the Le Fort I tools).
   - Contacts may be as large as the dental anatomy allows: more contact area is better, no upper limit.
   - Stability: "stable tripod" when there is contact on the right, anterior and left (>= 1 mm² each).
     Anterior = the canine to canine zone above, so a premolar touching the distal slope of the upper

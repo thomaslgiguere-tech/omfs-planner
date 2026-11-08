@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, screws, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
+from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, screws, locking, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -502,6 +502,7 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             warn.alert = True
             draw_text(warn, context, "Arcade du haut non recalée : elle est encore dans les coordonnées du "
                                      "scanner, et le bas (avec son os) y sera assis.")
+        self.draw_segments(context, box, props)
         box.label(text="1. Ressorts (3 paires ou plus)")
         pairs = occlusion_seating.point_pairs(scene)
         lengths = dict(zip((occlusion_seating.pair_key(up) for up, _low in pairs), occlusion_seating.spring_lengths(scene)))
@@ -596,6 +597,41 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             leg.scale_y = 0.8
             for icon, text in occlusion_seating.legend():
                 leg.label(text=text, icon=icon)
+
+    def draw_segments(self, context, box, props):
+        """Optional: segmental surgery of the upper arch (lines, segments, their movement)."""
+        scene = context.scene
+        sub = box.box()
+        sub.label(text="Chirurgie segmentaire du haut (optionnel)", icon='MOD_EXPLODE')
+        parts = occlusion_segments.segments(scene)
+        if not parts:
+            col = sub.column(align=True)
+            for number in occlusion_segments.trait_ends(scene):
+                row = col.row(align=True)
+                row.label(text=f"Trait {number}", icon='SCULPTMODE_HLT')
+                row.operator("omfs.delete_segment_line", text="", icon='X').number = number
+            row = col.row(align=True)
+            row.operator("omfs.draw_segment_line", icon='GREASEPENCIL')
+            adjust = row.row(align=True)
+            adjust.enabled = bool(occlusion_segments.trait_ends(scene))
+            adjust.operator("omfs.adjust_segment_lines", icon='HANDLE_FREE')
+            split = sub.row()
+            split.enabled = bool(occlusion_segments.trait_ends(scene))
+            split.operator("omfs.separate_segments", icon='MOD_EXPLODE')
+            return
+        sub.prop(props, "reference_segment")
+        reference = occlusion_segments.reference(scene)
+        for part in parts:
+            col = sub.column(align=True)
+            row = col.row(align=True)
+            landmark = part.omfs.landmark
+            row.label(text=part.name, icon='PINNED' if part is reference else 'MESH_DATA')
+            row.operator("omfs.select_block", text="", icon='RESTRICT_SELECT_OFF').arch = landmark
+            row.operator("omfs.block_preop", text="", icon='LOOP_BACK').arch = landmark
+            if part is not reference and occlusion_segments.moved(scene, part):
+                col.label(text=f"Expansion {occlusion_segments.expansion(scene, part):+.1f} mm (centre du segment)",
+                          icon='BLANK1')
+        sub.operator("omfs.join_segments", icon='MOD_BOOLEAN')
 
     def draw_preposition(self, context, box, props):
         box.label(text="Préposition de l'arcade du haut", icon='ORIENTATION_GIMBAL')

@@ -93,6 +93,9 @@ OCC_FINISH_ITERATIONS = 40      # last iterations, on every vertex near the cont
 OCC_FINISH_BAND = 1.0           # mm: vertices this close to the other arch are checked one by one at the end
 OCC_ANTERIOR_HALF_WIDTH = 15.0  # mm each side of the midline: anterior contacts, beyond = left / right
 OCC_PREPOSITION_GAP = 5.0       # mm between the arches after "flip and place above the lower arch"
+SEG_CUT_OVERSHOOT = 1.0         # mm: an osteotomy line also cuts this far past each of its ends
+SEG_MIN_AREA = 5.0              # mm²: smaller pieces left by the lines (scan debris) are not segments
+SEG_MIDLINE_BAND = 8.0          # mm: a segment whose centre is this close to the midline is the anterior one
 
 # Object creator: Splint / Chape
 SPLINT_BUCCAL_MARGIN = 1.5      # mm beyond the most buccal crown surface (more for a segmental splint)

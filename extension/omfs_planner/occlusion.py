@@ -31,6 +31,7 @@ ARCHES = (   # (id, block name, label)
 BLOCK_SIZE = 12.0     # mm, size of the block's axes in the viewport
 GHOST_ALPHA = 0.25
 GHOST_COLOR = (0.75, 0.75, 0.75)
+SEGMENT_MADE_BY = "Segmental"   # upper arch segments (occlusion_segments.py)
 MOVED_TOLERANCE = 1e-4   # mm / rad: below this, a block counts as pre-op
 
 
@@ -295,7 +296,8 @@ def set_ghosts(scene, block, show):
 
 def _poll_arch(other):
     def poll(props, obj):
-        return obj.type == 'MESH' and obj.omfs.role == 'SCAN' and obj is not getattr(props, other)
+        return (obj.type == 'MESH' and obj.omfs.role == 'SCAN' and obj is not getattr(props, other)
+                and obj.omfs.made_by != SEGMENT_MADE_BY)
     return poll
 
 
@@ -354,6 +356,11 @@ class OMFS_OcclusionProperties(bpy.types.PropertyGroup):
         name="Poids des canines", default=params.OCC_CANINE_WEIGHT, min=1.0, soft_max=10.0, step=50,
         description="Un ressort canin tire autant de fois plus fort qu'un autre ressort : la relation canine "
                     "(classe I) prime, quitte à moins respecter les ressorts postérieurs")
+    reference_segment: bpy.props.PointerProperty(
+        name="Référence", type=bpy.types.Object,
+        poll=lambda _props, obj: obj.type == 'MESH' and obj.omfs.made_by == SEGMENT_MADE_BY,
+        description="Segment sur lequel le bas s'assied d'abord (classe, milieu) ; ensuite le bas est fixe et "
+                    "chaque autre segment s'assied sur lui")
     show_map: bpy.props.BoolProperty()
     max_overlap: bpy.props.FloatProperty(default=-1.0)
     max_overlap_anterior: bpy.props.FloatProperty()

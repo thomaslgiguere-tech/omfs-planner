@@ -30,6 +30,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   movement_gizmos.py         drag arrows / rings for the segment movement, on the movement axes
   occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
   occlusion_seating.py       springs between the arches, seating solver, overlap map
+  occlusion_segments.py      segmental upper arch: osteotomy lines (drag, ends slid on the scan), segments
+                             (copies of the scan's faces, own blocks), seated one by one on the lower
   splint.py                  Object creator: Splint / Chape (arch curve, blank, imprints, solid, text)
   cylinders.py               adjustable workshop cylinders (diameter, length) + their drag handles
   screws.py                  bicortical screws: two clicks on the bone (entry, exit), exact lengths,
