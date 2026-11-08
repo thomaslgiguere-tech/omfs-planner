@@ -2159,6 +2159,22 @@ def test_pins():
     p = scene.omfs_pins
     assert abs(min(heights) - (-p.cone_length + p.tip_gap)) < 1e-4, "the tip stays short of the bottom"
 
+    # Bone rest: a click on the bone above the cut; the block joins the closest arm to the bone, its
+    # foot on the bone surface, and is united to the cap. Below the cut: refused.
+    bone_point = Vector((6, -20, -40))               # bone front face, 5 mm above the plane (z = -45)
+    assert pins.nearest_arm(scene, bone_point) == site
+    assert "ostéotomie" in pins.set_rest(scene, site, bone, Vector((6, -20, -44.5))), "below the margin: refused"
+    assert not site.omfs_pin.has_rest
+    assert pins.set_rest(scene, site, bone, bone_point) is None
+    rest = bpy.data.objects[pins.part_name(site, "appui osseux")]
+    assert any(m.object == rest and m.operation == 'UNION' for m in cap.modifiers), "united to the cap"
+    _v, _f, feet = pins.rest_shape(scene, site)
+    assert np.allclose(feet[:, 1], -20, atol=1e-4), "the foot lies on the bone's face"
+    assert feet[:, 2].min() > -45 + params.BONE_REST_CUT_MARGIN - 1e-6
+    p.rest_thickness = 6.0                            # settings rebuild the rest too
+    assert len(rest.data.vertices) > len(_v)
+    p.rest_thickness = params.BONE_REST_THICKNESS
+
     p.clearance = 0.2                                # settings rebuild every part
     bore = bpy.data.objects[pins.part_name(site, "logement")]
     radius = max((bore.matrix_world @ v.co - stop).cross(axis).length for v in bore.data.vertices)
@@ -2227,6 +2243,44 @@ def test_pins():
         bpy.data.objects.remove(obj)
     for lm in ('MF_R', 'MF_L', 'POG'):
         bpy.data.objects.remove(landmarks.find(scene, lm))
+
+
+def test_bone_rest_block():
+    # Pure geometry: an arm along X 10 mm above a sphere of bone; the block is as wide as the tube,
+    # closed, facing out, and every point of its foot lies on the bone surface.
+    bm = bmesh.new()
+    bmesh.ops.create_icosphere(bm, subdivisions=5, radius=10.0)
+    bmesh.ops.translate(bm, vec=(0, 0, -10), verts=bm.verts)
+    mesh = bpy.data.meshes.new("rest bone")
+    bm.to_mesh(mesh)
+    bm.free()
+    bone = bpy.data.objects.new("rest bone", mesh)
+    bpy.context.scene.collection.objects.link(bone)
+    bone.location = (3, 0, 0)                         # world vs local: the cast must handle both
+    bpy.context.view_layer.update()
+    path = np.linspace((-10, 0, 10), (10, 0, 10), 41) + np.array((3, 0, 0))
+    shape = pins.rest_block(path, 2.0, 4.0, (3, 0, 0), pins.bone_cast(bone, 0.0))
+    assert not isinstance(shape, str), shape
+    verts, faces, feet = shape
+    tree = BVHTree.FromObject(bone, bpy.context.evaluated_depsgraph_get())
+    to_local = bone.matrix_world.inverted()
+    assert max(tree.find_nearest(to_local @ Vector(f))[3] for f in feet) < 1e-4, "the foot fits the bone"
+    assert np.ptp(feet[:, 1]) > 3.99 and np.ptp(feet[:, 0]) > 3.99, "as wide as the tube, 4 mm along it"
+    assert feet[:, 2].max() < 1e-4 and feet[:, 2].min() < -0.3, "the foot follows the curve, not a plane"
+    block = bpy.data.meshes.new("rest block")
+    block.from_pydata(verts.tolist(), [], faces)
+    bm = bmesh.new()
+    bm.from_mesh(block)
+    assert all(e.is_manifold for e in bm.edges), "closed"
+    vol = bm.calc_volume(signed=True)
+    assert 16 * 10.6 < vol < 16 * 11.6, f"faces out, from the arm to the bone ({vol})"
+    bm.free()
+    bpy.data.meshes.remove(block)
+    with_gap = pins.rest_block(path, 2.0, 4.0, (3, 0, 0), pins.bone_cast(bone, 0.2))[2]
+    assert abs(with_gap[:, 2].max() - 0.2) < 1e-4, "the gap lifts the foot off the bone"
+    assert isinstance(pins.rest_block(path, 2.0, 4.0, (3, 0, 9), pins.bone_cast(bone, 0.0)), str), "arm on the bone"
+    bpy.data.objects.remove(bone)
+    bpy.data.meshes.remove(mesh)
 
 
 def test_empty_folder_is_an_error():

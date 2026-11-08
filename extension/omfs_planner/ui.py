@@ -1019,11 +1019,19 @@ def draw_pins_settings(layout, context):
     col.label(text="Bossage femelle et bras")
     for name in ("wall", "floor", "embed", "arm_diameter"):
         col.prop(p, name)
+    col = layout.column(align=True)
+    col.label(text="Appui osseux (largeur = Ø du bras)")
+    for name in ("rest_thickness", "rest_gap"):
+        col.prop(p, name)
     for site in pins.sites(context.scene, 'GUIDE'):
         s = site.omfs_pin
         row = layout.row()
         state = "bras" if s.has_arm else ("mâle" if s.has_male else "femelle")
-        row.label(text=f"{site.name}: {state}", icon='CHECKMARK' if s.has_arm else 'DOT')
+        rest = s.has_rest and bpy.data.objects.get(pins.part_name(site, "appui osseux")) is not None
+        row.label(text=f"{site.name}: {state}" + (" + appui osseux" if rest else ""),
+                  icon='CHECKMARK' if s.has_arm else 'DOT')
+        if rest:
+            row.operator("omfs.remove_bone_rest", text="", icon='X').site_name = site.name
         row.operator("omfs.remove_pin", text="", icon='TRASH').site_name = site.name
 
 
@@ -1075,7 +1083,14 @@ def make_guide_section(section_id, title, text):
             layout.prop(context.scene.omfs_guide, "sharp_angle")
         col = layout.column(align=True)
         for t in guide_workshop.tools_in(section_id):
-            tool_button(col, t.id)
+            if t.id == 'PIN_REST':
+                continue                      # drawn beside the arms
+            if t.id == 'PIN_ARMS':
+                row = col.row(align=True)
+                tool_button(row, 'PIN_ARMS')
+                tool_button(row, 'PIN_REST')
+            else:
+                tool_button(col, t.id)
         if section_id == 'SHAPE':
             draw_modifiers(layout, context.active_object)
 

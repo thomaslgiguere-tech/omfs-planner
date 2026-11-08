@@ -17,6 +17,11 @@ rebuilds every part. Each connection is an Empty ("Pin 1"...) at its stop, Z alo
 the guide follows the segment (movement.py), its Empties move with it and every part is rebuilt:
 the arms then reach the pins where they are, not where they were placed.
 
+Bone rest (appui osseux): one click on the bone above the osteotomy and the closest arm gets a
+rectangular block, as wide as the arm, from the arm straight down to the bone; its foot is fitted to
+the bone surface ray by ray (BONE_REST_GRID apart), so the cap also rests exactly on the bone that
+does not move. United to the cap like the arm; the bone mesh itself is only read, never changed.
+
 The same pins join two printed dental models (model_base.py), so the casts find the planned
 occlusion again by plugging them together (kind 'MODEL'): the female stands on the lower model's
 base plane (its boss flat on the build plate), slid with the mouse in that plane, and a stem joins it
@@ -118,6 +123,59 @@ def arm_path(start, normal, end, axis):
     reach = np.linalg.norm(end - start) / 3
     count = max(16, int(np.linalg.norm(end - start) / 0.5))
     return bezier(start - normal * SINK, start + normal * reach, end + axis * reach, end - axis * SINK, count)
+
+
+def rest_block(path, radius, thickness, bone_point, cast, grid=params.BONE_REST_GRID):
+    """Closed block from the arm (centre line `path`, tube `radius`) down to the bone near `bone_point`:
+    as wide as the tube (2 * radius) across the arm, `thickness` along it. Its top crosses the arm's
+    centre line (so it is sunk into the tube); its foot is a grid of points each pushed straight down
+    the block onto the bone by `cast(origin, direction)` -> hit point or None (a miss stays on the plane
+    through `bone_point`). Returns (vertices, faces, foot points) or an error message."""
+    path, bone_point = np.asarray(path, float), np.asarray(bone_point, float)
+    i = int(np.argmin(np.linalg.norm(path - bone_point, axis=1)))
+    centre = path[i]
+    down = bone_point - centre
+    length = np.linalg.norm(down)
+    if length < radius:
+        return "le bras touche déjà l'os à cet endroit"
+    down /= length
+    tangent = path[min(i + 1, len(path) - 1)] - path[max(i - 1, 0)]
+    across = np.cross(tangent, down)
+    if np.linalg.norm(across) < 1e-9:                    # the arm points straight at the bone
+        across = basis(down)[0]
+    across /= np.linalg.norm(across)
+    along = np.cross(across, down)                       # across x along = up: the top faces up
+    up = -down
+    top = centre + up * 0.3 * radius                     # past the centre line: no tangent contact with the tube
+    n = max(2, int(np.ceil(2 * radius / grid))) + 1
+    m = max(2, int(np.ceil(thickness / grid))) + 1
+    u, v = np.meshgrid(np.linspace(-radius, radius, n), np.linspace(-thickness / 2, thickness / 2, m), indexing='ij')
+    tops = top + u[..., None] * across + v[..., None] * along          # (n, m, 3)
+    feet = np.empty_like(tops)
+    reach = 2 * length + 10.0
+    for a in range(n):
+        for b in range(m):
+            hit = cast(Vector(tops[a, b]), Vector(down), reach)
+            if hit is None:                              # off the bone's edge: flat, at the clicked depth
+                feet[a, b] = tops[a, b] + down * (bone_point - tops[a, b]).dot(down)
+            else:
+                feet[a, b] = np.asarray(hit, float)
+    verts = np.concatenate([tops.reshape(-1, 3), feet.reshape(-1, 3)])
+    k = n * m
+    idx = np.arange(k).reshape(n, m)
+    faces = []
+    for a in range(n - 1):
+        for b in range(m - 1):
+            quad = (idx[a, b], idx[a + 1, b], idx[a + 1, b + 1], idx[a, b + 1])
+            faces.append(quad)                           # top, facing up
+            faces.append(tuple(int(q) + k for q in reversed(quad)))   # foot, facing the bone
+    ring = ([idx[a, 0] for a in range(n)] + [idx[n - 1, b] for b in range(1, m)]
+            + [idx[a, m - 1] for a in range(n - 2, -1, -1)] + [idx[0, b] for b in range(m - 2, 0, -1)])
+    for j in range(len(ring)):                           # walls: counter-clockwise seen from the top
+        p, q = int(ring[j]), int(ring[(j + 1) % len(ring)])
+        faces.append((p + k, q + k, q, p))
+    faces = [tuple(int(x) for x in f) for f in faces]
+    return verts, faces, feet.reshape(-1, 3)
 
 
 def tightest_bend(path):
@@ -263,14 +321,82 @@ def build(scene, site):
         male = make_part(part_name(site, "mâle"), *revolve(d["male"], origin, axis), coll)
         boolean_on(s.cap, male, 'UNION', 'MANIFOLD')
     if s.cap is not None and s.has_arm:
-        back = origin + axis * scene.omfs_pins.back_length
-        path = arm_path(s.arm_start, s.arm_normal, back, axis)
+        path = arm_centre(scene, site)
         radius = scene.omfs_pins.arm_diameter / 2
         arm = make_part(part_name(site, "bras"), *tube(path, radius), coll)
         boolean_on(s.cap, arm, 'UNION', 'MANIFOLD')
         if tightest_bend(path) < radius:
             warning = f"{site.name}: le bras se plie trop serré (départ trop proche de la pin)"
+    rest = bpy.data.objects.get(part_name(site, "appui osseux"))
+    shape = rest_shape(scene, site) if s.cap is not None and s.has_arm and s.has_rest else None
+    if isinstance(shape, tuple):
+        rest = make_part(part_name(site, "appui osseux"), *shape[:2], coll)
+        boolean_on(s.cap, rest, 'UNION', 'MANIFOLD')
+    elif rest is not None:                        # no rest any more, or it no longer fits
+        remove_part(rest)
+    if isinstance(shape, str):
+        warning = f"{site.name}: appui osseux retiré ({shape})"
     return warning
+
+
+def arm_centre(scene, site):
+    """Centre line of a connection's arm, to the pin's back where the Empty is now."""
+    s = site.omfs_pin
+    axis = (site.matrix_world.to_3x3() @ Vector((0, 0, 1))).normalized()
+    back = site.matrix_world.translation + axis * scene.omfs_pins.back_length
+    return arm_path(s.arm_start, s.arm_normal, back, axis)
+
+
+def bone_cast(bone, gap):
+    """cast(origin, direction, distance) -> world point on the bone (moved `gap` back up the ray) or None."""
+    to_local = bone.matrix_world.inverted()
+    def cast(origin, direction, distance):
+        hit, location, _normal, _index = bone.ray_cast(to_local @ origin, to_local.to_3x3() @ direction,
+                                                      distance=distance)
+        return bone.matrix_world @ location - direction * gap if hit else None
+    return cast
+
+
+def rest_shape(scene, site):
+    """(vertices, faces, feet) of a connection's bone rest, or why it cannot be made: its bone is gone,
+    or its footprint is not wholly above the osteotomy plane (the bone that does not move)."""
+    s, p = site.omfs_pin, scene.omfs_pins
+    bone = s.rest_bone
+    if bone is None or bone.name not in scene.objects:
+        return "l'os cliqué n'est plus dans la scène"
+    shape = rest_block(arm_centre(scene, site), p.arm_diameter / 2, p.rest_thickness, Vector(s.rest_point),
+                       bone_cast(bone, p.rest_gap))
+    if isinstance(shape, str):
+        return shape
+    plane = osteotomy_plane(scene, None)          # where the cut is on the bone that stays (never moved)
+    if plane is not None:
+        point, normal = plane
+        lowest = float(min((shape[2] - np.array(point)) @ np.array(normal)))
+        if lowest < params.BONE_REST_CUT_MARGIN:
+            return (f"trop près du trait d'ostéotomie: {lowest:.1f} mm, il faut au moins "
+                    f"{params.BONE_REST_CUT_MARGIN:.1f} mm au-dessus")
+    return shape
+
+
+def nearest_arm(scene, point):
+    """The connection whose arm passes closest to `point` (None without arms)."""
+    arms = [site for site in sites(scene) if site.omfs_pin.has_arm and site.omfs_pin.cap is not None]
+    return min(arms, key=lambda site: float(np.linalg.norm(arm_centre(scene, site) - np.asarray(point), axis=1).min()),
+               default=None)
+
+
+def set_rest(scene, site, bone, point):
+    """Bone rest of a connection at `point` on `bone` (replaces its old one). Returns an error or None:
+    then the old rest, if any, is kept."""
+    s = site.omfs_pin
+    old = (s.has_rest, s.rest_bone, tuple(s.rest_point))
+    s.has_rest, s.rest_bone, s.rest_point = True, bone, point
+    shape = rest_shape(scene, site)
+    if isinstance(shape, str):
+        s.has_rest, s.rest_bone, s.rest_point = old
+        return shape
+    build(scene, site)
+    return None
 
 
 def build_all(scene):
@@ -373,7 +499,7 @@ def remove_part(part):
 
 
 def remove_site(site):
-    for kind in ("bossage", "logement", "tige", "pont", "mâle", "bras", "passage du mâle"):
+    for kind in ("bossage", "logement", "tige", "pont", "mâle", "bras", "appui osseux", "passage du mâle"):
         part = bpy.data.objects.get(part_name(site, kind))
         if part is not None:
             remove_part(part)
@@ -471,6 +597,10 @@ class OMFS_PinSettings(bpy.types.PropertyGroup):
                             "Diamètre de la pin au-dessus du plan: il appuie sur le dessus du bossage", 0.5)
     back_length: _dim("Dos de la pin", params.PIN_BACK_LENGTH, "Longueur au-dessus du plan, jusqu'au bras", 0.3)
     arm_diameter: _dim("Ø du bras", params.PIN_ARM_DIAMETER, "Diamètre du tube qui part de la chape", 0.5)
+    rest_thickness: _dim("Épaisseur de l'appui", params.BONE_REST_THICKNESS,
+                         "Appui osseux: longueur du bloc le long du bras (sa largeur = le Ø du bras)", 0.5)
+    rest_gap: _dim("Jeu de l'appui", params.BONE_REST_GAP,
+                   "Appui osseux: espace laissé entre le bloc et l'os (0 = contact exact)")
     stem_diameter: _dim("Ø de la tige", params.PIN_STEM_DIAMETER,
                         "Modèles: diamètre de la tige qui relie la femelle au modèle du bas, au ras de la base", 0.5)
     cap: bpy.props.PointerProperty(name="Chape", type=bpy.types.Object,
@@ -492,6 +622,9 @@ class OMFS_PinSite(bpy.types.PropertyGroup):
     stem_start: bpy.props.FloatVectorProperty(size=3, subtype='XYZ')
     stem_end: bpy.props.FloatVectorProperty(size=3, subtype='XYZ')
     stem_local: bpy.props.BoolProperty()          # stem ends in the Empty's coordinates (see stem_ends)
+    has_rest: bpy.props.BoolProperty()            # bone rest (appui osseux) from the arm to the bone
+    rest_bone: bpy.props.PointerProperty(type=bpy.types.Object)
+    rest_point: bpy.props.FloatVectorProperty(size=3, subtype='XYZ')   # clicked, world (that bone never moves)
 
 
 # --- Clicking ---------------------------------------------------------------------------------
@@ -543,6 +676,9 @@ class ClickOperator:
         context.window.cursor_modal_restore()
         return {'FINISHED'}
 
+    def hit(self, context, region, mouse):
+        return surface_hit(context, region, mouse, self.target)
+
     def modal(self, context, event):
         if superseded(self):
             self.finish(context)
@@ -554,7 +690,7 @@ class ClickOperator:
         under_mouse = landmarks.viewport_region_under_mouse(self.area, event)
         if under_mouse is None:
             return {'PASS_THROUGH'}
-        hit = surface_hit(context, *under_mouse, self.target)
+        hit = self.hit(context, *under_mouse)
         if hit is None:
             self.report({'WARNING'}, f"Cliquez sur {self.target.name}")
             return {'RUNNING_MODAL'}
@@ -598,6 +734,66 @@ class OMFS_OT_add_pin_arm(ClickOperator, bpy.types.Operator):
         if warning:
             self.report({'WARNING'}, warning)
         return not self.queue
+
+
+class OMFS_OT_add_bone_rest(ClickOperator, bpy.types.Operator):
+    """Appui osseux: click on the bone above the osteotomy; the closest arm gets a block as wide as the
+    tube, from the arm down to the bone, its foot fitted exactly to the bone surface. United to the cap.
+    One click per rest (again on the same arm: moves it). Right-click or Enter: done"""
+    bl_idname = "omfs.add_bone_rest"
+    bl_label = "Appui osseux (un clic sur l'os)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def invoke(self, context, event):
+        scene = context.scene
+        if nearest_arm(scene, (0, 0, 0)) is None:
+            self.report({'ERROR'}, "Faites d'abord les bras depuis la chape")
+            return {'CANCELLED'}
+        self.bones = [o for o in scene.objects if o.type == 'MESH' and o.omfs.role == 'BONE' and o.visible_get()]
+        if not self.bones:
+            self.report({'ERROR'}, "Montrez l'os au-dessus du trait (rôle Bone)")
+            return {'CANCELLED'}
+        self.placed = 0
+        return self.start(context, self.bones[0])
+
+    def hit(self, context, region, mouse):
+        """The closest bone under the mouse (it becomes the target)."""
+        origin = view3d_utils.region_2d_to_origin_3d(region, region.data, mouse)
+        hits = [(h, bone) for bone in self.bones if (h := surface_hit(context, region, mouse, bone)) is not None]
+        if not hits:
+            return None
+        found, self.target = min(hits, key=lambda h: (h[0][0] - origin).length)
+        return found
+
+    def header(self, context):
+        return (f"Cliquez sur l'os au-dessus du trait d'ostéotomie, là où la chape doit s'appuyer "
+                f"({self.placed} appui(s))   |   Clic droit / Entrée: terminer")
+
+    def clicked(self, context, point, normal):
+        site = nearest_arm(context.scene, point)
+        error = set_rest(context.scene, site, self.target, point)
+        if error:
+            self.report({'WARNING'}, f"{site.name}: {error}")
+        else:
+            self.placed += 1
+            self.report({'INFO'}, f"{site.name}: appui osseux sur {self.target.name}")
+        return False
+
+
+class OMFS_OT_remove_bone_rest(bpy.types.Operator):
+    """Remove this connection's bone rest (the arm and pin stay)"""
+    bl_idname = "omfs.remove_bone_rest"
+    bl_label = "Retirer l'appui osseux"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    site_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        site = bpy.data.objects.get(self.site_name)
+        if is_site(site):
+            site.omfs_pin.has_rest = False
+            build(context.scene, site)
+        return {'FINISHED'}
 
 
 class SlideOperator:
@@ -789,8 +985,8 @@ class OMFS_OT_remove_pin(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_PinSite, OMFS_PinSettings, OMFS_OT_add_pin_female, OMFS_OT_add_pin_arm, OMFS_OT_add_model_pin,
-           OMFS_OT_remove_pin)
+classes = (OMFS_PinSite, OMFS_PinSettings, OMFS_OT_add_pin_female, OMFS_OT_add_pin_arm, OMFS_OT_add_bone_rest,
+           OMFS_OT_remove_bone_rest, OMFS_OT_add_model_pin, OMFS_OT_remove_pin)
 
 
 def register():

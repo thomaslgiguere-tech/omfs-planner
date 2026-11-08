@@ -64,6 +64,10 @@ PIN_BACK_LENGTH = 2.0           # mm of pin above the plane, up to the arm
 PIN_MALE_CHANNEL = 15.0         # mm: where a male sits in the guide's body, the guide is hollowed this far
                                 # above the plane along the pin axis (the male goes in from there)
 PIN_ARM_DIAMETER = 4.0          # mm: the tube from the cap to the pin's back
+BONE_REST_THICKNESS = 4.0       # mm, bone rest (appui osseux): block length along the arm (its width = the arm's Ø)
+BONE_REST_GAP = 0.0             # mm left between the bone rest and the bone (0 = exact contact), TO TEST (print)
+BONE_REST_CUT_MARGIN = 1.0      # mm: the rest's whole footprint stays this far above the osteotomy plane (saw kerf)
+BONE_REST_GRID = 0.25           # mm between the rays that fit the rest's foot to the bone surface
 
 # Occlusion seating (virtual, lower arch onto the fixed upper arch)
 OCC_TOLERATED_ANTERIOR = 0.0     # mm: overlap limit canine to canine (grinding there is avoided)

@@ -1238,6 +1238,12 @@ tool('PIN_ARMS', "Bras depuis la chape (un clic par pin)", 'CURVE_PATH', 'PINS',
      "Pour chaque pin à tour de rôle, cliquez sur la chape où part son bras: il sort à 90° de la "
      "surface et arrive sur le dos de la pin dans son axe, par une courbe douce (Bézier).",
      "Aucun (le plus proche: Meshmix > tube)", "", operator="omfs.add_pin_arm")(lambda c: None)
+tool('PIN_REST', "Appui osseux", 'SNAP_FACE', 'PINS',
+     "Un clic sur l'os au-dessus du trait d'ostéotomie: le bras le plus proche reçoit un bloc aussi large "
+     "que le tube, du bras jusqu'à l'os, dont le pied épouse exactement la surface osseuse. Uni à la "
+     "chape: elle s'appuie aussi sur l'os qui ne bouge pas. Recliquer près du même bras le déplace.",
+     "Aucun (le plus proche: Extrude d'une sélection puis Attract to Target)", "",
+     operator="omfs.add_bone_rest")(lambda c: None)
 
 
 # --- 7. Check ----------------------------------------------------------------------------

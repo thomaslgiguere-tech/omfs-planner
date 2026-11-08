@@ -272,6 +272,13 @@ Naming used below (matches the object roles in code):
   - Arm: one click on the cap per pin; a tube leaves the cap at 90 degrees to its surface and
     arrives on the pin's back along its axis, joined by a cubic Bezier (handles a third of the
     distance), "like plugging in a cable". Warns when the bend is tighter than the tube's radius.
+  - Bone rest, "Appui osseux" (surgeon, 2026-11-08), beside "Bras depuis la chape": one click on the
+    bone above the osteotomy; the closest arm gets a rectangular block as wide as the tube (Ø of the
+    arm; 4 mm along it, BONE_REST_THICKNESS), from the arm straight down to the clicked point. Its foot
+    is fitted to the bone surface ray by ray (every 0.25 mm), so the cap rests exactly on the bone
+    that does not move (gap 0 by default, BONE_REST_GAP, TO TEST by printing). The whole footprint
+    must stay 1 mm above the osteotomy plane (refused otherwise). United to the cap like the arm,
+    rebuilt with it; the bone mesh is only read. One rest per arm: clicking again near it moves it.
   - Every part is a generated closed mesh under a Boolean modifier: settings rebuild all parts;
     nothing is cut until Appliquer. Each connection is an Empty "Pin n" at its stop, trash to remove.
     Dimensions in params.py (PIN_*), all TO TEST by printing. Case1: build 0.14 s, cap Boolean 0.6 s.
