@@ -10,6 +10,9 @@ modifiers, so the arrows and the diameter still change it until the Mega Boolean
 Fixation holes: a click on the guide drills a hole for the Synthes 1.85 mm screw that holds the guide
 to the bone, through the guide along the surface normal there.
 
+Irrigation holes: two clicks on any surface (start, end), like a screw; a hole between them, past both
+ends, subtracted last, so water reaches the drill while the screw holes are drilled.
+
 Mega Boolean: every Boolean of the guide applied in order (unions, then differences, then the cut
 edge, the fixation holes last). A pin may sit right over the guide's body: where a male overlaps the
 guide itself (its own volume, before any Boolean), the guide is hollowed for it (pins.male_channel),
@@ -103,6 +106,61 @@ def add_fixation_hole(context, guide, point, normal):
                         guide_workshop.workshop_collection(context.scene), matrix, 'FIXATION')
     add_boolean(guide, obj, 'DIFFERENCE')
     return obj
+
+
+def irrigation_matrix(start, end):
+    """(matrix, length) of an irrigation hole from `start` to `end`, IRRIGATION_OVERSHOOT past each."""
+    start, end = Vector(start), Vector(end)
+    axis = end - start
+    return (Matrix.LocRotScale((start + end) / 2, axis.to_track_quat('Z', 'Y'), None),
+            axis.length + 2 * params.IRRIGATION_OVERSHOOT)
+
+
+def add_irrigation_hole(context, guide, start, end):
+    """Irrigation hole from `start` to `end` (past both), subtracted from the guide last."""
+    matrix, length = irrigation_matrix(start, end)
+    obj = cylinders.add(context, params.IRRIGATION_DIAMETER, length, "Trou d'irrigation",
+                        guide_workshop.workshop_collection(context.scene), matrix, 'IRRIGATION')
+    add_boolean(guide, obj, 'DIFFERENCE')
+    return obj
+
+
+IRRIGATION_PREVIEW = "Irrigation: aperçu"
+
+
+def first_surface(context, region, mouse):
+    """First solid surface under the mouse (guide, cap, bone...): wireframe helpers (cutters, pin parts,
+    the preview) are passed through. World point or None."""
+    origin = view3d_utils.region_2d_to_origin_3d(region, region.data, mouse)
+    direction = view3d_utils.region_2d_to_vector_3d(region, region.data, mouse)
+    depsgraph = context.evaluated_depsgraph_get()
+    for _ in range(20):
+        hit, location, _normal, _index, obj, _matrix = context.scene.ray_cast(depsgraph, origin, direction)
+        if not hit:
+            return None
+        if obj.display_type in {'SOLID', 'TEXTURED'}:
+            return location
+        origin = location + direction * 0.01
+    return None
+
+
+def irrigation_preview(scene, start, end):
+    obj = bpy.data.objects.get(IRRIGATION_PREVIEW)
+    if obj is None:
+        obj = bpy.data.objects.new(IRRIGATION_PREVIEW, bpy.data.meshes.new(IRRIGATION_PREVIEW))
+        guide_workshop.workshop_collection(scene).objects.link(obj)
+        obj.display_type = 'WIRE'
+    matrix, length = irrigation_matrix(start, end)
+    screws.shape(obj.data, (0, 0, 0), (0, 0, length), params.IRRIGATION_DIAMETER)
+    obj.matrix_world = matrix @ Matrix.Translation((0, 0, -length / 2))   # screws.shape starts at the origin
+
+
+def drop_irrigation_preview():
+    obj = bpy.data.objects.get(IRRIGATION_PREVIEW)
+    if obj is not None:
+        mesh = obj.data
+        bpy.data.objects.remove(obj)
+        bpy.data.meshes.remove(mesh)
 
 
 # --- Mega Boolean ---------------------------------------------------------------------------------
@@ -341,6 +399,87 @@ class OMFS_OT_add_fixation_hole(pins.ClickOperator, bpy.types.Operator):
         return False
 
 
+class OMFS_OT_add_irrigation_hole(bpy.types.Operator):
+    """Irrigation hole: click its start, then its end, on any surface (the cylinder follows the mouse
+    between the clicks); subtracted from the guide last. Again for the next; right-click or Enter: done"""
+    bl_idname = "omfs.add_irrigation_hole"
+    bl_label = "Trou d'irrigation (2 clics)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def description(cls, context, properties):
+        return guide_workshop.tool_description(guide_workshop.TOOLS['IRRIGATION_HOLE'])
+
+    def invoke(self, context, event):
+        self.guide = guide_workshop.target_guide(context)
+        if self.guide is None:
+            self.report({'ERROR'}, "Pas encore de guide de coupe")
+            return {'CANCELLED'}
+        self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
+            (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
+        if self.area is None:
+            return {'CANCELLED'}
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        self.guide.hide_set(False)
+        self.start, self.added, self.last = None, 0, 0.0
+        self.area.header_text_set(self.header())
+        context.window.cursor_modal_set('CROSSHAIR')
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def header(self):
+        if self.start is None:
+            return (f"Trou d'irrigation: cliquez le début ({self.added} posés)"
+                    "   |   Clic droit / Entrée: terminer")
+        return f"Cliquez la fin du trou — {self.last:.1f} mm   |   Échap: reprendre le début"
+
+    def finish(self, context):
+        drop_irrigation_preview()
+        self.area.header_text_set(None)
+        context.window.cursor_modal_restore()
+        return {'FINISHED'}
+
+    def modal(self, context, event):
+        if event.value == 'PRESS' and event.type in {'RIGHTMOUSE', 'RET', 'NUMPAD_ENTER'}:
+            return self.finish(context)
+        if event.value == 'PRESS' and event.type == 'ESC':
+            if self.start is None:
+                return self.finish(context)
+            self.start = None
+            drop_irrigation_preview()
+            self.area.header_text_set(self.header())
+            return {'RUNNING_MODAL'}
+        under_mouse = landmarks.viewport_region_under_mouse(self.area, event)
+        if under_mouse is None:
+            return {'PASS_THROUGH'}
+        if event.type == 'MOUSEMOVE' and self.start is not None:
+            point = first_surface(context, *under_mouse)
+            if point is not None and (point - self.start).length > 1e-3:
+                irrigation_preview(context.scene, self.start, point)
+                self.last = (point - self.start).length
+                self.area.header_text_set(self.header())
+            return {'RUNNING_MODAL'}
+        if event.type != 'LEFTMOUSE' or event.value != 'PRESS':
+            return {'PASS_THROUGH'}   # orbit, pan and zoom keep working
+        point = first_surface(context, *under_mouse)
+        if point is None:
+            self.report({'WARNING'}, "Cliquez sur une surface (le guide, l'os...)")
+            return {'RUNNING_MODAL'}
+        if self.start is None:
+            self.start, self.last = point, 0.0
+        elif (point - self.start).length < 1.0:
+            self.report({'WARNING'}, "Fin trop proche du début")
+            return {'RUNNING_MODAL'}
+        else:
+            drop_irrigation_preview()
+            add_irrigation_hole(context, self.guide, self.start, point)
+            self.start = None
+            self.added += 1
+        self.area.header_text_set(self.header())
+        return {'RUNNING_MODAL'}
+
+
 class OMFS_OT_mega_boolean(bpy.types.Operator):
     """Apply every Boolean of the guide in order (unions, differences, cut edge, fixation holes), then
     the cap's; sleeves crossing a pin are subtracted from the cap too"""
@@ -361,7 +500,8 @@ class OMFS_OT_mega_boolean(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_OT_add_sleeve_tube, OMFS_OT_add_sleeve_bore, OMFS_OT_add_fixation_hole, OMFS_OT_mega_boolean)
+classes = (OMFS_OT_add_sleeve_tube, OMFS_OT_add_sleeve_bore, OMFS_OT_add_fixation_hole, OMFS_OT_add_irrigation_hole,
+           OMFS_OT_mega_boolean)
 
 
 def register():

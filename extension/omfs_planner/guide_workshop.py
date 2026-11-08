@@ -1017,6 +1017,13 @@ tool('FIXATION_HOLE', "Trou de fixation du guide (clic)", 'DOT', 'BOOLEAN',
      f"Cliquez sur le guide où une vis le tiendra à l'os: un trou de {params.FIXATION_HOLE_DIAMETER} mm (vis "
      "Synthes 1,85 mm + jeu) le traverse selon la normale à la surface. Soustrait en tout dernier.",
      "Meshmix > primitives (cylindre) + Boolean Difference", "", operator="omfs.add_fixation_hole")(lambda c: None)
+tool('IRRIGATION_HOLE', "Trou d'irrigation (2 clics)", 'MOD_FLUIDSIM', 'BOOLEAN',
+     f"Comme pour les vis: clic sur le début, clic sur la fin (le cylindre suit la souris entre les deux, "
+     f"avec sa longueur). Un trou de {params.IRRIGATION_DIAMETER} mm qui dépasse de "
+     f"{params.IRRIGATION_OVERSHOOT:g} mm à chaque bout, soustrait du guide en dernier: l'eau arrive au "
+     "foret pendant le forage des vis. Se fait sur le guide fini: relancez le Méga Boolean pour l'appliquer. "
+     "Diamètre et longueur réglables ensuite (flèches, ou tapez les valeurs). Échap reprend le début.",
+     "Meshmix > primitives (cylindre) + Boolean Difference", "", operator="omfs.add_irrigation_hole")(lambda c: None)
 
 
 def transform(op_name):
@@ -1078,7 +1085,7 @@ def boolean_rank(mod):
         return 0
     if mod.name == CUT_EDGE_MODIFIER:
         return 3
-    if cylinders.is_cylinder(mod.object) and mod.object.omfs_cylinder.kind == 'FIXATION':
+    if cylinders.is_cylinder(mod.object) and mod.object.omfs_cylinder.kind in {'FIXATION', 'IRRIGATION'}:
         return 4
     return 1 if mod.operation == 'UNION' else 2
 

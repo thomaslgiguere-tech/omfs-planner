@@ -68,7 +68,8 @@ class OMFS_CylinderProperties(bpy.types.PropertyGroup):
                     "avec les flèches des bouts: l'autre bout reste en place)")
     kind: bpy.props.EnumProperty(items=(('OTHER', "Autre", ""), ('TUBE', "Tube de manchon", "Uni au guide"),
                                         ('BORE', "Trou de manchon", "Soustrait du guide"),
-                                        ('FIXATION', "Trou de fixation", "Soustrait du guide en dernier")))
+                                        ('FIXATION', "Trou de fixation", "Soustrait du guide en dernier"),
+                                        ('IRRIGATION', "Trou d'irrigation", "Soustrait du guide en dernier")))
     screw: bpy.props.StringProperty()   # the screw a sleeve cylinder sits on
 
 

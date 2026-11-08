@@ -308,6 +308,17 @@ Naming used below (matches the object roles in code):
 - First version (2026-11-04): a click on the guide gives a hole of FIXATION_HOLE_DIAMETER (2.0 mm, TO TEST)
   through the guide along the surface normal there, subtracted last in the Mega Boolean.
 
+### Tool 2b: irrigation holes (surgeon, 2026-11-08)
+
+- On the finished guide: a channel so the irrigation water reaches the drill while the screw holes are
+  drilled. Same gesture as the bicortical screws: click the start, click the end (any solid surface:
+  guide, sleeve tube, bone; wireframe helpers are passed through), the cylinder follows the mouse
+  between the clicks with its length. Esc takes the start back.
+- Hole of IRRIGATION_DIAMETER (2.0 mm, TO TEST) reaching IRRIGATION_OVERSHOOT (1 mm) past both clicked
+  ends, an adjustable workshop cylinder (arrows, typed diameter / length) subtracted last, with the
+  fixation holes. Run the Mega Boolean again to apply it; crossing a pin or arm of the cap, it is
+  subtracted from the cap too.
+
 ### Tool 3: text labels
 
 - User draws a rectangle on the guide surface to define where a label goes.

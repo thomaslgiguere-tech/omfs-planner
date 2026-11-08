@@ -1287,6 +1287,38 @@ def test_sleeves_on_screws_and_mega_boolean():
         bpy.data.objects.remove(obj)
 
 
+def test_irrigation_hole():
+    # On a finished guide (no modifiers left): two points give the hole, past both ends; it is dug last
+    # and the Mega Boolean (run again) applies it. The volume removed is the channel's.
+    from omfs_planner import sleeves
+    scene = bpy.context.scene
+    guide = box_object("Irrigation guide", 'GUIDE', (0, 750, 0), (30, 10, 10))
+    scene.omfs_guide.guide = guide
+    before = volume(guide)
+    start, end = Vector((-15, 750, 2)), Vector((5, 750, 2))       # from the guide's side face, 20 mm in
+    hole = sleeves.add_irrigation_hole(bpy.context, guide, start, end)
+    assert hole.omfs_cylinder.kind == 'IRRIGATION'
+    assert abs(hole.omfs_cylinder.length - (20 + 2 * params.IRRIGATION_OVERSHOOT)) < 1e-6
+    assert (cylinders.axis(hole) - Vector((1, 0, 0))).length < 1e-6, "from the start to the end"
+    assert (hole.matrix_world.translation - (start + end) / 2).length < 1e-6
+    cut = box_object("Irrigation cut", 'OTHER', (0, 750, -20), (50, 50, 20))
+    mod = guide.modifiers.new(guide_workshop.CUT_EDGE_MODIFIER, 'BOOLEAN')
+    mod.operation, mod.object = 'DIFFERENCE', cut
+    guide_workshop.order_booleans(guide)
+    assert [m.object for m in guide.modifiers] == [cut, hole], "dug after the cut edge, with the fixation holes"
+    guide.modifiers.remove(guide.modifiers[guide_workshop.CUT_EDGE_MODIFIER])
+    report, error = sleeves.mega_boolean(bpy.context)
+    assert error is None and not guide.modifiers, (report, error)
+    removed = before - volume(guide)
+    r = params.IRRIGATION_DIAMETER / 2
+    inside = 20 + params.IRRIGATION_OVERSHOOT                    # the end overshoots into the guide
+    expected = np.pi * r * r * inside * (np.sin(2 * np.pi / cylinders.SEGMENTS) * cylinders.SEGMENTS / (2 * np.pi))
+    assert abs(removed - expected) / expected < 0.01, (removed, expected)
+    scene.omfs_guide.guide = None
+    for obj in (guide, hole, cut):
+        bpy.data.objects.remove(obj)
+
+
 def test_applied_hole_wins_over_a_later_union():
     """Case 1 (2026-11-05): sleeve bore applied early, a pin boss united over it later filled the bore."""
     scene = bpy.context.scene
