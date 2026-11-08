@@ -491,7 +491,12 @@ class OMFS_PT_occlusion(bpy.types.Panel):
 
     def draw_seating(self, context, box, props):
         scene = context.scene
-        box.label(text="Assise : le bas sur le haut fixe", icon='SNAP_FACE')
+        row = box.row(align=True)
+        row.label(text="Assise : le bas sur le haut fixe", icon='SNAP_FACE')
+        if occlusion_seating.occlusion_points(scene):   # one click: points, springs and anterior zone lines
+            visible = occlusion_seating.points_visible(scene)
+            row.operator("omfs.toggle_occlusion_points", text="Ressorts", icon='HIDE_OFF' if visible else 'HIDE_ON',
+                         depress=visible)
         if props.upper.omfs_reg.rms < 0:
             warn = box.column()
             warn.alert = True
@@ -518,10 +523,6 @@ class OMFS_PT_occlusion(bpy.types.Panel):
                 row.label(text=f"Ressort {key} : {lengths[key]:.2f} mm", icon='FORCE_HARMONIC')
                 row.operator("omfs.delete_occlusion_pair", text="", icon='X').key = key
         col.operator("omfs.add_occlusion_pair", icon='ADD')
-        if occlusion_seating.occlusion_points(scene):
-            visible = occlusion_seating.points_visible(scene)
-            col.operator("omfs.toggle_occlusion_points", text="Cacher les ressorts" if visible else "Afficher les ressorts",
-                         icon='HIDE_OFF' if visible else 'HIDE_ON')
 
         box.label(text="2. Asseoir")
         col = box.column(align=True)

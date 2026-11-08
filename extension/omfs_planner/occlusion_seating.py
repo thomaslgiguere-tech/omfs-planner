@@ -784,9 +784,10 @@ class OMFS_OT_delete_occlusion_pair(bpy.types.Operator):
 
 
 class OMFS_OT_toggle_occlusion_points(bpy.types.Operator):
-    """Afficher ou cacher les points et les ressorts"""
+    """Afficher ou cacher d'un clic les points, les ressorts et les traits blancs qui délimitent la zone
+    antérieure (canine à canine). Rien n'est supprimé : les ressorts restent actifs pour l'assise"""
     bl_idname = "omfs.toggle_occlusion_points"
-    bl_label = "Afficher / cacher les ressorts"
+    bl_label = "Afficher / cacher les ressorts et les limites"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):

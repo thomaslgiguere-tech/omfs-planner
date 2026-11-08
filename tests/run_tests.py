@@ -651,6 +651,10 @@ def test_occlusion_anterior_limit():
     assert upper_plane[1][1] > 0.99 and lower_plane[1][1] > 0.99                 # towards the incisors (+Y)
     assert abs(upper_plane[0][1] - (5 - params.OCC_CANINE_ZONE_MARGIN)) < 1e-6   # behind the canine tip
     assert abs(lower_plane[0][1] - 5) < 1e-6
+    bpy.ops.omfs.toggle_occlusion_points()                                       # one click hides points, springs, zone lines
+    assert not occlusion_seating.points_visible(scene)
+    assert all(o.hide_get() for o in occlusion_seating.occlusion_points(scene))
+    assert occlusion_seating.zone_ready(scene) and len(occlusion_seating.point_pairs(scene)) == 4  # still active
 
     def overlaps():
         points = registration.vertex_coords(lower)
@@ -671,6 +675,8 @@ def test_occlusion_anterior_limit():
         assert back_overlap > front_overlap + 0.1, (front_overlap, back_overlap)  # the limits differ
         assert props.max_overlap_anterior < anterior + 0.05, props.max_overlap_anterior
         assert props.max_overlap_posterior < posterior + 0.05, props.max_overlap_posterior
+    bpy.ops.omfs.toggle_occlusion_points()                                       # seated while hidden; shown again
+    assert occlusion_seating.points_visible(scene)
 
     props.upper = None                                                           # field cleared: no zone, no error
     assert not occlusion_seating.zone_ready(scene)

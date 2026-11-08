@@ -395,6 +395,9 @@ Naming used below (matches the object roles in code):
     well satisfied, within the anterior overlap limit (the limit wins). Drawn thicker; always listed first; redoing one replaces it.
   - Midline spring: one named spring, upper dental midline to lower dental midline, always listed after
     the canine springs. Ordinary weight (not the canine weight); redoing it replaces it.
+  - "Springs" button at the top of the seating panel: one click hides (or shows) the points, the springs
+    and the white lines that close the anterior zone, to see the teeth and the overlap map unobstructed.
+    Display only: the springs stay active for the seating.
   - Magnet ("Seat the occlusion"): like pushing the two models together, it closes the gaps between
     the arches (within 3 mm) so stable contacts form, up to the overlap limits. Springs and magnet share the guidance: springs 70 % by default ("Springs' share"),
     magnet 30 %. The springs bring the key positions roughly; the occlusion itself finishes the seating.
