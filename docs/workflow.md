@@ -524,6 +524,23 @@ Naming used below (matches the object roles in code):
      volume, thinnest point, material left under each engraving (>= 0.5 mm). "Exporter STL": the
      text applied, original patient coordinates, 1 unit = 1 mm. Case1 cap: placing 1.2 s,
      Boolean 0.6 s.
+- Options (surgeon, 2026-11-08: "rebords arrondis et trous au niveau des segments interdentaires pour
+  accommoder un fil d'ostéosynthèse"):
+  - Rounded rim *(done)*: "Arrondi des bords" in the blank, 1 mm radius by default, 0 = sharp. Near the
+    outline (both sides and both ends) the flat top comes down and the flat bottom comes up along a
+    quarter circle, meeting the wall tangentially; imprints deeper than that are kept. Radius capped
+    below half the thickness. Live, like the margins.
+  - Wire holes *(done)*: "Placer des trous", on the blank or a solid. Click on the splint: a hole drops
+    there; it follows the mouse; click again to fix it; again for the next. Esc removes the one moving,
+    right-click / Enter ends. Diameter 1.5 mm by default ("Diamètre", all holes follow). Each hole is a
+    cylinder along the insertion axis, through the whole splint (1 mm past each face). All holes sit in
+    one collection subtracted by a single Boolean modifier ("Trous pour fil"), so the splint mesh is
+    untouched until export, and a hole on the blank comes along when solidifying.
+  - Constraint, the most important: a hole never touches the tooth imprints, upper or lower. Only in the
+    buccal flange: buccal of the arch curve (a lingual click is refused), at least 0.5 mm of material
+    from every tooth of either arch (across the insertion axis, over the splint's height), and 0.5 mm
+    inside the outline. Dragged onto the teeth, the hole is pushed buccally until clear; if the flange
+    is too narrow it turns red and cannot be fixed (widen the buccal margin). Green while it can be fixed.
 - Nuances: (add here)
 
 ## Model base: "Création de modèle (base)"

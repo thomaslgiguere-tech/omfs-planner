@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, screws, locking, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, view
+from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, screws, locking, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -708,6 +708,7 @@ class OMFS_PT_splint(bpy.types.Panel):
             col.prop(props, "depth_up")
             col.prop(props, "depth_low")
         box.prop(props, "resolution")
+        box.prop(props, "edge_round")
         blank = splint.find_blank(scene)
         if blank is None:
             box.operator("omfs.build_splint_blank", icon='MESH_CUBE')
@@ -746,9 +747,25 @@ class OMFS_PT_splint(bpy.types.Panel):
         if blank is not None and blank.hide_get():
             box.operator("omfs.show_splint_blank", icon='HIDE_OFF')
 
+        part = splint.current_part(context)
+        box = layout.box()
+        box.label(text="Trous pour fil d'ostéosynthèse (optionnel)", icon='MOD_WIREFRAME')
+        box.enabled = part is not None
+        draw_text(box, context, "Dans le débord vestibulaire seulement, entre les dents : jamais sur les "
+                                "empreintes. Clic, glisser, clic. Un seul Boolean soustrait tous les trous.")
+        row = box.row(align=True)
+        row.prop(props, "wire_hole_diameter")
+        row.operator("omfs.add_wire_hole", icon='ADD')
+        placed = splint_holes.holes(scene)
+        if placed:
+            col = box.column(align=True)
+            for hole in placed:
+                row = col.row(align=True)
+                row.label(text=hole.name, icon='MESH_CYLINDER')
+                row.operator("omfs.remove_wire_hole", text="", icon='X').name = hole.name
+
         box = layout.box()
         box.label(text="5. Texte et vérification", icon='FONT_DATA')
-        part = splint.current_part(context)
         box.enabled = part is not None
         if part is None:
             return

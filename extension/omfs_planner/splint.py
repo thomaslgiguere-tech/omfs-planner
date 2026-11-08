@@ -436,6 +436,22 @@ def imprint(scene, base, up, depth_up, depth_low, depsgraph, row_step, col_steps
     return np.where(contact, middle, top), np.where(contact, middle, bottom), contact
 
 
+def round_edges(top, bottom, contact, depth_up, depth_low, radius, rows_s, f, widths):
+    """Rounded rim: near the outline (lingual and buccal sides, both ends) the flat top comes down and
+    the flat bottom comes up along a quarter circle of this radius, meeting the vertical wall
+    tangentially. Imprints deeper than that are kept. The radius is capped below half the thickness."""
+    radius = min(radius, 0.45 * (depth_up + depth_low))
+    across = np.minimum(f[None, :], 1.0 - f[None, :]) * widths[:, None]        # mm to the nearer side wall
+    along = np.minimum(rows_s, rows_s[-1] - rows_s)[:, None]                    # mm to the nearer end
+    u = np.minimum(across, along).ravel()
+    drop = np.where(u < radius, radius - np.sqrt(np.clip(radius ** 2 - (radius - u) ** 2, 0.0, None)), 0.0)
+    top = np.where(contact, top, np.minimum(top, depth_up - drop))
+    bottom = np.where(contact, bottom, np.maximum(bottom, -depth_low + drop))
+    meet = top < bottom                                                         # thin there: holes, like contacts
+    middle = (top + bottom) / 2
+    return np.where(meet, middle, top), np.where(meet, middle, bottom), contact | meet
+
+
 def curve_key(obj):
     return repr([tuple(round(c, 4) for c in p) for p in curve_points(obj)])
 
@@ -493,6 +509,9 @@ def blank_data(scene, depsgraph):
     if props.imprint:
         top_h, bottom_h, contact = imprint(scene, base, up, depth_up, depth_low, depsgraph,
                                            length / (len(rows_s) - 1), (lin + buc) / cols)
+    if props.edge_round > 0:
+        top_h, bottom_h, contact = round_edges(top_h, bottom_h, contact, depth_up, depth_low, props.edge_round,
+                                               rows_s, f, lin + buc)
     verts = np.concatenate([base + up * top_h[:, None], base + up * bottom_h[:, None]])
 
     rows, w = len(rows_s), cols + 1
@@ -674,6 +693,11 @@ def last_check(part):
 
 # --- Properties and operators ---------------------------------------------------------
 
+def _on_wire_hole_diameter(props, context):
+    from . import splint_holes
+    splint_holes.set_diameter(context.scene, props.wire_hole_diameter)
+
+
 class OMFS_SplintProperties(bpy.types.PropertyGroup):
     kind: bpy.props.EnumProperty(name="Type", items=KINDS, default='FINAL', update=_on_blank_param)
     upper: bpy.props.PointerProperty(name="Arcade du haut", type=bpy.types.Object,
@@ -705,6 +729,14 @@ class OMFS_SplintProperties(bpy.types.PropertyGroup):
         step=1, precision=2, update=_on_blank_param,
         description="Distance entre les sommets du bloc: l'empreinte des dents ne sera pas plus fine que ça. "
                     "Les scans intraoraux ont environ 0,15 mm entre leurs sommets: sous 0,05 mm, rien de plus à copier")
+    edge_round: bpy.props.FloatProperty(
+        name="Arrondi des bords", subtype='DISTANCE', default=params.SPLINT_EDGE_ROUND, min=0.0, soft_max=3.0,
+        step=10, precision=2, update=_on_blank_param,
+        description="Rayon des rebords arrondis (arêtes du dessus et du dessous, tout le pourtour). 0 = bords vifs")
+    wire_hole_diameter: bpy.props.FloatProperty(
+        name="Diamètre", subtype='DISTANCE', default=params.SPLINT_WIRE_HOLE_DIAMETER, min=0.3, soft_max=3.0,
+        step=10, precision=2, update=lambda props, context: _on_wire_hole_diameter(props, context),
+        description="Diamètre des trous pour le fil d'ostéosynthèse (tous les trous)")
     imprint: bpy.props.BoolProperty(
         name="Empreinte des dents", default=False, update=_on_blank_param,
         description="Presse le dessus et le dessous du bloc sur les dents le long de l'axe d'insertion "

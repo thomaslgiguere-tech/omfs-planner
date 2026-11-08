@@ -23,7 +23,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim  # noqa: E402
 
 omfs_planner.register()
 
@@ -1672,6 +1672,7 @@ def test_splint_blank():
     bpy.context.view_layer.update()
     props = scene.omfs_splint
     props.kind, props.upper, props.lower, props.centre = 'FINAL', upper, lower, True
+    props.edge_round = 0.0                           # sharp: flat faces measured exactly (rim tested below)
     bpy.ops.omfs.arch_curve_clear()
     depsgraph = bpy.context.evaluated_depsgraph_get()
     for a in (10, 50, 90, 130, 170):
@@ -1722,6 +1723,7 @@ def test_splint_imprint():
     bpy.context.view_layer.update()
     props = scene.omfs_splint
     props.kind, props.upper, props.lower, props.centre = 'FINAL', upper, lower, True
+    props.edge_round = 0.0
     bpy.ops.omfs.arch_curve_clear()
     depsgraph = bpy.context.evaluated_depsgraph_get()
 
@@ -1790,6 +1792,74 @@ def test_splint_imprint():
     out = splint.dilate(step, 0.1, 0.1, 0.05, np.full(5, 0.05))[2]
     assert np.allclose(out[:10], 1.1) and abs(out[10] - (1 + 0.1 * np.sqrt(0.75))) < 1e-9
     assert abs(out[11] - 1.0) < 1e-9 and np.isneginf(out[12])
+    for obj in (lower, upper, blank):
+        bpy.data.objects.remove(obj)
+    bpy.ops.omfs.arch_curve_clear()
+
+
+def test_splint_rounded_rim_and_wire_holes():
+    """Rounded rim on the blank; wire holes only in the buccal flange, never on the teeth, one Boolean."""
+    scene = bpy.context.scene
+    reference_frame.build(scene, FRAME_POINTS)       # up = world Z
+    lower, upper = tube_scan("Lower tube", 0), tube_scan("Upper tube", 18)   # bite at z = 9
+    bpy.context.view_layer.update()
+    props = scene.omfs_splint
+    props.kind, props.upper, props.lower, props.centre = 'FINAL', upper, lower, True
+    props.edge_round, props.buccal_margin, props.imprint = 1.0, 6.0, True
+    bpy.ops.omfs.arch_curve_clear()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    for a in (10, 50, 90, 130, 170):
+        u = radians(a)
+        splint.add_point(scene, Vector((45 * np.cos(u), 500 + 45 * np.sin(u), 8)), depsgraph)
+    blank = splint.build_blank(scene, depsgraph)
+    n = len(blank.data.vertices) // 2
+    z = np.array([v.co.z for v in blank.data.vertices])
+    assert abs(z[:n].max() - 12) < 1e-3 and abs(z[:n].min() - (10 - params.SPLINT_CLEARANCE)) < 0.02
+    rim = z[0]                                        # first row, lingual edge: a corner of the outline
+    assert abs(rim - 11) < 1e-3 and abs(z[n] - 7) < 1e-3, (rim, z[n])   # 1 mm down / up at the very edge
+    bm = bmesh.new()
+    bm.from_mesh(blank.data)
+    assert all(e.is_manifold for e in bm.edges) and bm.calc_volume() > 0
+    volume = bm.calc_volume()
+    bm.free()
+
+    flange = splint_holes.Flange(scene, blank, depsgraph)
+    need = params.SPLINT_WIRE_HOLE_DIAMETER / 2 + params.SPLINT_WIRE_HOLE_TEETH_GAP
+    _c, error = flange.place(Vector((0, 543, 9)), params.SPLINT_WIRE_HOLE_DIAMETER)       # lingual of the curve
+    assert error and "lingual" in error
+    hole, error = splint_holes.place_hole(scene, blank, Vector((0, 545.5, 9)), params.SPLINT_WIRE_HOLE_DIAMETER,
+                                          depsgraph)                                       # on the teeth: pushed
+    assert error is None, error
+    centre = hole.matrix_world.translation
+    assert centre.y > 545.5 and flange.teeth_distance(np.array(centre)) >= need - 1e-6
+    assert abs(centre.z - 9) < 1e-3 and (hole.matrix_world.col[2].xyz - Vector((0, 0, 1))).length < 1e-6
+    for tube in (lower, upper):                       # across the axis, over the splint's height: clear
+        co = np.array([tube.matrix_world @ v.co for v in tube.data.vertices])
+        band = (co[:, 2] > 5.5) & (co[:, 2] < 12.5)
+        assert np.hypot(co[band, 0] - centre.x, co[band, 1] - centre.y).min() >= need - 1e-6
+    _h, error = splint_holes.place_hole(scene, blank, Vector((47 * np.cos(radians(60)), 500 + 47 * np.sin(radians(60)), 9)),
+                                        params.SPLINT_WIRE_HOLE_DIAMETER, depsgraph)
+    assert error is None, error
+    mods = [m for m in blank.modifiers if m.type == 'BOOLEAN' and m.operand_type == 'COLLECTION']
+    assert len(mods) == 1 and len(splint_holes.holes(scene)) == 2, "one Boolean for every hole"
+    evaluated = blank.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    bm = bmesh.new()
+    bm.from_mesh(evaluated.to_mesh())
+    evaluated.to_mesh_clear()
+    expected = 2 * np.pi * (params.SPLINT_WIRE_HOLE_DIAMETER / 2) ** 2 * 6      # two holes through 6 mm
+    assert all(e.is_manifold for e in bm.edges) and abs((volume - bm.calc_volume()) - expected) < 0.25 * expected
+    bm.free()
+    props.wire_hole_diameter = 2.0                    # every hole follows
+    assert all(abs(max(v.co.x for v in h.data.vertices) - 1.0) < 1e-4 for h in splint_holes.holes(scene))
+
+    props.buccal_margin = 1.0                         # flange too narrow: refused, never on the teeth
+    blank = splint.build_blank(scene, depsgraph)
+    _c, error = splint_holes.Flange(scene, blank, depsgraph).place(Vector((0, 546, 9)), 1.5)
+    assert error and "bord" in error, error
+    bpy.ops.omfs.remove_wire_hole()
+    assert not splint_holes.holes(scene)
+    props.wire_hole_diameter = params.SPLINT_WIRE_HOLE_DIAMETER
+    props.buccal_margin, props.imprint, props.edge_round = params.SPLINT_BUCCAL_MARGIN, False, params.SPLINT_EDGE_ROUND
     for obj in (lower, upper, blank):
         bpy.data.objects.remove(obj)
     bpy.ops.omfs.arch_curve_clear()

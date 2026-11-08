@@ -106,6 +106,11 @@ SPLINT_RESOLUTION = 0.1         # mm between the blank's vertices (the imprint i
 SPLINT_MEASURE_STEP = 1.0       # mm between the curve stations where the arch width is measured
 SPLINT_SMOOTH = 3.0             # mm: the outline is smoothed over this length along the arch
 SPLINT_CLEARANCE = 0.10         # mm between the imprint and the teeth, in every direction (walls too)
+SPLINT_EDGE_ROUND = 1.0         # mm radius of the rounded rim (top and bottom edges of the outline); 0 = sharp
+SPLINT_WIRE_HOLE_DIAMETER = 1.5 # mm: holes for the osteosynthesis wire, through the buccal flange
+SPLINT_WIRE_HOLE_TEETH_GAP = 0.5  # mm of material at least between a wire hole and the teeth (either arch)
+SPLINT_WIRE_HOLE_WALL = 0.5     # mm of material at least between a wire hole and the splint's outer edge
+SPLINT_WIRE_HOLE_OVERSHOOT = 1.0  # mm the hole cylinder sticks out above and below the splint
 
 # Section & Analysis (cross-cutting viewing tool)
 SECTION_THICKNESS = 2.0         # mm, default slab thickness
