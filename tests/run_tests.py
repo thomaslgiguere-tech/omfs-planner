@@ -677,6 +677,10 @@ def test_occlusion_anterior_limit():
         assert props.max_overlap_posterior < posterior + 0.05, props.max_overlap_posterior
     bpy.ops.omfs.toggle_occlusion_points()                                       # seated while hidden; shown again
     assert occlusion_seating.points_visible(scene)
+    bpy.ops.omfs.toggle_overlap_map()                                            # the map hides them ...
+    assert props.show_map and not occlusion_seating.points_visible(scene)
+    bpy.ops.omfs.toggle_overlap_map()                                            # ... and gives them back
+    assert not props.show_map and occlusion_seating.points_visible(scene)
 
     props.upper = None                                                           # field cleared: no zone, no error
     assert not occlusion_seating.zone_ready(scene)

@@ -589,6 +589,15 @@ def set_map_shading(context, on):
             area.spaces.active.shading.color_type = 'VERTEX' if on else 'OBJECT'
 
 
+def show_map(context, on):
+    """Map on: the points, springs and zone lines are hidden so the colours show; map off: shown again."""
+    context.scene.omfs_occlusion.show_map = on
+    if on:
+        write_overlap_map(context.scene)
+    set_points_hidden(context.scene, on)
+    set_map_shading(context, on)   # off: back to the role colours
+
+
 # Refresh the map shortly after the lower block stops moving (e.g. after a G / R by hand).
 _seating = False
 _last_change = 0.0
@@ -904,15 +913,14 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
         if self.vertices is not None and (converged(step) or self.iteration >= self.last_iteration):
             self.finish(context)
             self.report_end(settled(step))
-            write_overlap_map(scene)
-            scene.omfs_occlusion.show_map = True
-            set_map_shading(context, True)
+            show_map(context, True)
             return {'FINISHED'}
         return {'RUNNING_MODAL'}
 
 
 class OMFS_OT_toggle_overlap_map(bpy.types.Operator):
-    """Colorer les deux arcades selon le chevauchement / l'écart en mm (légende dans le panneau)"""
+    """Colorer les deux arcades selon le chevauchement / l'écart en mm (légende dans le panneau). Cache les
+    ressorts et les limites de zone pendant la carte, les réaffiche ensuite"""
     bl_idname = "omfs.toggle_overlap_map"
     bl_label = "Carte de chevauchement"
     bl_options = {'REGISTER', 'UNDO'}
@@ -921,11 +929,7 @@ class OMFS_OT_toggle_overlap_map(bpy.types.Operator):
         scene = context.scene
         if not arches_ready(scene):
             return {'CANCELLED'}
-        props = scene.omfs_occlusion
-        props.show_map = not props.show_map
-        if props.show_map:
-            write_overlap_map(scene)
-        set_map_shading(context, props.show_map)   # off: back to the role colours
+        show_map(context, not scene.omfs_occlusion.show_map)
         return {'FINISHED'}
 
 
