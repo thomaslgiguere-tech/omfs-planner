@@ -154,11 +154,10 @@ def can_join(obj):
 
 def add_member(block, obj):
     """Parent obj to the block without changing its own transform: it lands at the planned position."""
-    world = obj.matrix_world.copy()
     if obj.parent is not None:      # e.g. was in the other block: back to its pre-op pose first
         remove_member(obj)
-        world = obj.matrix_world.copy()
-    obj.parent = block
+    world = obj.matrix_basis.copy()  # unparented, its own transform is its pose (matrix_world can be stale
+    obj.parent = block               # until the next depsgraph update, e.g. right after leaving a block)
     obj.matrix_parent_inverse = preop_matrix(block).inverted()
     obj.matrix_basis = world
     remember_shape(obj)
