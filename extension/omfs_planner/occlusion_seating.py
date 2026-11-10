@@ -390,6 +390,17 @@ def solve_step(a, b, held_rows, held_rhs):
     return x
 
 
+def spring_fade(scene, pairs, spring_share):
+    """Per spring, the share of its pull it keeps: 1 when longer than the release distance, falling
+    linearly to OCC_SPRING_RESIDUAL at length 0. All 1 with springs only (100 %) or no release."""
+    release = scene.omfs_occlusion.spring_release
+    if release <= 0 or spring_share >= 1.0:
+        return np.ones(len(pairs))
+    lengths = np.array([(f.matrix_world.translation - m.matrix_world.translation).length for f, m in pairs])
+    r = params.OCC_SPRING_RESIDUAL
+    return r + (1 - r) * np.clip(lengths / release, 0.0, 1.0)
+
+
 def seat_step(scene, job, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_weight=params.OCC_CANINE_WEIGHT,
               vertices=None, free=None):
     """One iteration: a small rigid motion of the mobile block (the upper arch, or an upper segment).
@@ -398,7 +409,10 @@ def seat_step(scene, job, limits, spring_share=params.OCC_SPRING_SHARE / 100, ca
     - the magnet closes the gaps between the arches (within range), like pushing the models together.
     Springs and magnet share the guidance (spring_share vs 1 - spring_share); each group is weighted
     as a whole, so a thousand magnet points don't drown three springs. Within the springs, each
-    canine spring counts canine_weight times an ordinary one.
+    canine spring counts canine_weight times an ordinary one. Springs are for the "macro": one shorter
+    than the release distance (spring_release) pulls less and less, down to OCC_SPRING_RESIDUAL at 0,
+    and what the springs lose goes to the magnet, so the intercuspation sets the final position
+    (none of that with springs only, spring_share 100 %).
     The teeth are not a third guide but a limit: no point goes deeper than the overlap limit of its
     zone, limits = (anterior, posterior), whatever the guides want.
     vertices = (mobile, fixed) local points to test, random samples by default.
@@ -410,14 +424,17 @@ def seat_step(scene, job, limits, spring_share=params.OCC_SPRING_SHARE / 100, ca
     groups = []   # (rows, rhs, total weight of the group)
 
     pairs = job.pairs
+    pull = 0.0                                               # the springs' share, after their release
     if pairs:
         rows, rhs = [], []
-        weights = pair_weights(pairs, canine_weight)
+        fade = spring_fade(scene, pairs, spring_share)
+        weights = pair_weights(pairs, canine_weight) * fade
+        pull = spring_share * float(fade.mean())
         for (fixed, moving), w in zip(pairs, np.sqrt(weights / weights.mean())):
             p, q = np.array(moving.matrix_world.translation), np.array(fixed.matrix_world.translation)
             rows.append(w * np.hstack((-skew(p - centre), np.eye(3))))
             rhs.append(w * (q - p) * params.OCC_SPRING_STEP)
-        groups.append((np.vstack(rows), np.concatenate(rhs), spring_share))
+        groups.append((np.vstack(rows), np.concatenate(rhs), pull))
 
     # Lower vertices against the upper surface (move along the upper normal), and upper vertices
     # against the lower surface (move the lower surface against its own normal: signs flipped).
@@ -434,7 +451,7 @@ def seat_step(scene, job, limits, spring_share=params.OCC_SPRING_SHARE / 100, ca
 
     magnet_rows = np.vstack((rows1[near1], rows2[near2]))
     magnet_rhs = np.concatenate((-d1[near1], d2[near2])) * params.OCC_MAGNET_STEP   # close the gap
-    groups.append((magnet_rows, magnet_rhs, 1.0 - spring_share))
+    groups.append((magnet_rows, magnet_rhs, 1.0 - (pull if pairs else spring_share)))
 
     a, b = [1e-3 * np.eye(6)], [np.zeros(6)]
     for rows, rhs, weight in groups:

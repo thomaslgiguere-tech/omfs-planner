@@ -753,6 +753,36 @@ def test_midline_spring():
         bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
 
 
+def test_spring_release():
+    """Springs bring the arches "macro": shorter than the release distance they pull less (10 % at 0), and
+    what they lose goes to the magnet; springs only (100 %) or release 0: full strength."""
+    scene = bpy.context.scene
+    props = scene.omfs_occlusion
+    upper = dense_box("Upper arch", 'SCAN', (0, 0, 10), (40, 30, 8))
+    lower = dense_box("Lower arch", 'SCAN', (0, 0, -10), (40, 30, 8))
+    props.upper, props.lower = upper, lower
+    for key, gap in (('1', 0.0), ('2', 1.5), ('3', 6.0)):
+        occlusion_seating.add_point(scene, f"OCC_U{key}", key, Vector((0, int(key) * 5, 6)), upper)
+        occlusion_seating.add_point(scene, f"OCC_L{key}", key, Vector((0, int(key) * 5, 6 - gap)), lower)
+    bpy.context.view_layer.update()
+    pairs = occlusion_seating.seatings(scene)[0].pairs
+    props.spring_release = 3.0
+    fade = occlusion_seating.spring_fade(scene, pairs, 0.7)
+    r = params.OCC_SPRING_RESIDUAL
+    assert np.allclose(fade, [r, r + (1 - r) * 0.5, 1.0]), fade
+    assert np.allclose(occlusion_seating.spring_fade(scene, pairs, 1.0), 1.0), "springs only: no release"
+    props.spring_release = 0.0
+    assert np.allclose(occlusion_seating.spring_fade(scene, pairs, 0.7), 1.0), "release off"
+    props.spring_release = params.OCC_SPRING_RELEASE
+    for key in ('1', '2', '3'):
+        occlusion_seating.remove_pair(scene, key)
+    props.upper = props.lower = None
+    for obj in [upper, lower]:
+        bpy.data.objects.remove(obj)
+    for arch_id in ('UPPER', 'LOWER'):
+        bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
+
+
 def test_segmental_upper_arch():
     """Two osteotomy lines divide the upper arch into three segments (scan untouched). Each segment seats on
     the fixed lower arch: the surgeon's angles are kept (only translations), the right posterior segment's

@@ -529,6 +529,7 @@ class OMFS_PT_occlusion(bpy.types.Panel):
         box.label(text="2. Asseoir")
         col = box.column(align=True)
         col.prop(props, "spring_share")
+        col.prop(props, "spring_release")
         box.label(text="Chevauchement permis")
         col = box.column(align=True)
         col.prop(props, "tolerance_anterior")

@@ -90,6 +90,9 @@ OCC_SAMPLES = 4000              # vertices per arch used by the spring solver
 OCC_SPRING_STEP = 0.25          # fraction of the spring length closed per iteration (animation)
 OCC_CANINE_WEIGHT = 3.0         # a canine spring pulls this many times harder than another spring
 OCC_SPRING_SHARE = 70.0         # %: springs' share of the guidance; the rest is the magnet (closing the gaps)
+OCC_SPRING_RELEASE = 3.0        # mm: a spring shorter than this pulls less and less, its share going to the magnet (= magnet range)
+                                # (springs bring the arches "macro", the intercuspation finishes it; surgeon 2026-11-09)
+OCC_SPRING_RESIDUAL = 0.1       # share of its pull a released spring keeps at length 0 (so nothing floats away)
 OCC_MAGNET_RANGE = 3.0          # mm: gaps wider than this are not pulled by the magnet
 OCC_MAGNET_STEP = 0.25          # fraction of each gap closed per iteration
 OCC_TRIPOD_MIN_AREA = 1.0       # mm²: contact area right, anterior and left for a stable "tripod"

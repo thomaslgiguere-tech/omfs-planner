@@ -421,6 +421,13 @@ Naming used below (matches the object roles in code):
   - Magnet ("Seat the occlusion"): like pushing the two models together, it closes the gaps between
     the arches (within 3 mm) so stable contacts form, up to the overlap limits. Springs and magnet share the guidance: springs 70 % by default ("Springs' share"),
     magnet 30 %. The springs bring the key positions roughly; the occlusion itself finishes the seating.
+  - Spring release (surgeon, 2026-11-09: "les ressorts, c'est juste pour les apporter macro au bon
+    endroit"): a spring shorter than "Relâcher les ressorts sous" (3 mm by default, the magnet's range)
+    pulls less and less, linearly down to 10 % at 0 mm, and what the springs lose goes to the magnet:
+    the intercuspation sets the final position. 0 = springs always at full strength; no release with
+    springs only (100 %). Test scans (truth = their raw occlusion), 6 springs all clicked 1 mm off in the
+    same direction: error to the true occlusion 0.32 / 0.48 mm (+1 / -1 mm) without release, 0.24 / 0.25
+    mm at 3 mm, and more contact (right / left 89 / 127 -> 123 / 180 mm²); seating about 26 s instead of 16.
   - Segmental surgery of the upper arch (optional, e.g. transverse expansion of the posterior segments
     for a better intercuspation), before the springs:
     - "Draw a line": click-drag an osteotomy line across the upper arch (occlusal view), like the guide's
