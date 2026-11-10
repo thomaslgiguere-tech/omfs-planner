@@ -355,11 +355,6 @@ class OMFS_OcclusionProperties(bpy.types.PropertyGroup):
         name="Poids des canines", default=params.OCC_CANINE_WEIGHT, min=1.0, soft_max=10.0, step=50,
         description="Un ressort canin tire autant de fois plus fort qu'un autre ressort : la relation canine "
                     "(classe I) prime, quitte à moins respecter les ressorts postérieurs")
-    reference_segment: bpy.props.PointerProperty(
-        name="Référence", type=bpy.types.Object,
-        poll=lambda _props, obj: obj.type == 'MESH' and obj.omfs.made_by == SEGMENT_MADE_BY,
-        description="Segment sur lequel le bas s'assied d'abord (classe, milieu) ; ensuite le bas est fixe et "
-                    "chaque autre segment s'assied sur lui")
     show_map: bpy.props.BoolProperty()
     max_overlap: bpy.props.FloatProperty(default=-1.0)
     max_overlap_anterior: bpy.props.FloatProperty()
@@ -368,6 +363,8 @@ class OMFS_OcclusionProperties(bpy.types.PropertyGroup):
     area_anterior: bpy.props.FloatProperty()
     area_left: bpy.props.FloatProperty()
     map_state: bpy.props.StringProperty()
+    segment_overlap: bpy.props.FloatProperty()        # mm, deepest overlap between two upper segments
+    segment_overlap_pair: bpy.props.StringProperty()  # which two
 
 
 class OMFS_OcclusionObjectProperties(bpy.types.PropertyGroup):

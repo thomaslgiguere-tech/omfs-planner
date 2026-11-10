@@ -1,9 +1,11 @@
-"""Occlusion seating (part 2): the lower arch is pulled onto the fixed upper arch by springs.
+"""Occlusion seating (part 2): the upper arch is pulled onto the fixed lower arch by springs.
 
 Like IPS CaseDesigner's virtual occlusion: the surgeon clicks corresponding points on both arches
 (e.g. a cusp tip on the upper arch and the fossa it goes into on the lower arch). Each pair is a
-spring. The solver moves the lower block, step by step (shown as an animation), so the springs
-shorten, while the teeth stop at an overlap limit: one limit canine to canine (the two canine
+spring. The lower arch never moves (surgeon, 2026-11-09: always the upper onto the lower, it is
+more visual). The solver moves the upper block, or each upper segment on its own (segmental
+surgery: its angles are the surgeon's, the seating only translates it, occlusion_segments.py), step
+by step (shown as an animation), so the springs shorten, while the teeth stop at an overlap limit: one limit canine to canine (the two canine
 springs mark that zone), another on the premolars and molars. Only the block's transform changes:
 rigid, nothing touches the mesh data.
 
@@ -303,25 +305,19 @@ def upper_parts(scene):
 
 
 def seatings(scene):
-    """The seatings to run, in order. Whole arch: the lower onto the fixed upper. Segmented upper arch:
-    first the lower onto the reference segment (it sets the Class and the midline), then, the lower now
-    fixed, each other segment onto the lower, independently."""
+    """The seatings to run: the lower arch is always fixed. Whole arch: the upper block onto the lower.
+    Segmented upper arch: each segment onto the lower, independently (the order does not matter)."""
     from . import occlusion_segments
     props = scene.omfs_occlusion
     upper_plane, lower_plane = zone_planes(scene)
     pairs = point_pairs(scene)
-    lower_block = occlusion.find_block(scene, 'LOWER')
     parts = occlusion_segments.segments(scene)
     if not parts:
-        return [Seating(props.upper, props.lower, lower_block, pairs, upper_plane, lower_plane)]
-    reference = occlusion_segments.reference(scene)
-    jobs = [Seating(reference, props.lower, lower_block, [(up, low) for up, low in pairs if up.parent is reference],
-                    upper_plane, lower_plane)]
-    for part in parts:
-        if part is not reference:
-            jobs.append(Seating(props.lower, part, occlusion_segments.block_of(part),
-                                [(low, up) for up, low in pairs if up.parent is part], lower_plane, upper_plane))
-    return jobs
+        return [Seating(props.lower, props.upper, occlusion.find_block(scene, 'UPPER'),
+                        [(low, up) for up, low in pairs], lower_plane, upper_plane)]
+    return [Seating(props.lower, part, occlusion_segments.block_of(part),
+                    [(low, up) for up, low in pairs if up.parent is part], lower_plane, upper_plane)
+            for part in parts]
 
 
 def limits_of(props):
@@ -395,8 +391,8 @@ def solve_step(a, b, held_rows, held_rhs):
 
 
 def seat_step(scene, job, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_weight=params.OCC_CANINE_WEIGHT,
-              vertices=None, hold_position=False):
-    """One iteration: a small rigid motion of the mobile block (the lower arch, or an upper segment).
+              vertices=None, free=None):
+    """One iteration: a small rigid motion of the mobile block (the upper arch, or an upper segment).
     Two guides, solved together:
     - springs pull each mobile point a fraction of the way towards its fixed point;
     - the magnet closes the gaps between the arches (within range), like pushing the models together.
@@ -406,10 +402,10 @@ def seat_step(scene, job, limits, spring_share=params.OCC_SPRING_SHARE / 100, ca
     The teeth are not a third guide but a limit: no point goes deeper than the overlap limit of its
     zone, limits = (anterior, posterior), whatever the guides want.
     vertices = (mobile, fixed) local points to test, random samples by default.
-    hold_position: the block cannot slide in the occlusal plane (see closing_motions), exactly: the
-    solver only searches the other motions.
+    free: 6 x k basis of the motions allowed (see motions), exactly: the solver only searches those.
+    None: every motion.
     Returns (translation mm, rotation deg) applied."""
-    upper, lower, block = job.fixed, job.mobile, job.block   # names of the whole-arch case
+    upper, lower, block = job.fixed, job.mobile, job.block   # "upper" = fixed side, "lower" = mobile side
     centre = np.array(block.matrix_world.translation)
     groups = []   # (rows, rhs, total weight of the group)
 
@@ -452,7 +448,7 @@ def seat_step(scene, job, limits, spring_share=params.OCC_SPRING_SHARE / 100, ca
     limit2 = np.where(anterior_contacts(upper_plane, lower_plane, up_, c2), anterior, posterior)
     held1, rhs1 = held_points(rows1, d1, limit1)
     held2, rhs2 = held_points(-rows2, d2, limit2)
-    free = closing_motions(scene, job) if hold_position else np.eye(6)
+    free = np.eye(6) if free is None else free
     x = free @ solve_step(np.vstack(a) @ free, np.concatenate(b), np.vstack((held1, held2)) @ free,
                           np.concatenate((rhs1, rhs2)))
 
@@ -506,28 +502,58 @@ def point_fit(job, canine_weight=params.OCC_CANINE_WEIGHT):
     return registration.as_rigid(fit @ job.block.matrix_world)
 
 
-def holds_position(job, from_here):
-    """Only the lower arch is held against sliding ("from here"): an upper segment must be free to
-    slide, an expansion is a slide across the arch."""
-    return from_here and job.block.omfs.landmark == 'LOWER'
+def is_segment_job(job):
+    from . import occlusion_segments
+    return occlusion_segments.is_segment(job.mobile)
+
+
+def motions(scene, job, from_here):
+    """6 x k basis of the motions the seating may use, or None for all of them. A segment: only
+    translations (its angles are the surgeon's) and the axes ticked "affiner". The whole arch "from
+    here": no slide in the occlusal plane, to keep a position adjusted by hand."""
+    from . import occlusion_segments
+    if is_segment_job(job):
+        return occlusion_segments.free_motions(job.block)
+    return closing_motions(scene, job) if from_here else None
+
+
+def translation_fit(job, free, canine_weight=params.OCC_CANINE_WEIGHT):
+    """World matrix of the mobile block moved by the springs' weighted mean, along the free translations
+    only: one spring is enough, the angles are kept."""
+    moving, fixed = pair_arrays(job)
+    weights = pair_weights(job.pairs, canine_weight)
+    shift = ((fixed - moving) * weights[:, None]).sum(axis=0) / weights.sum()
+    along = [free[3:, j] for j in range(free.shape[1]) if np.linalg.norm(free[3:, j]) > 0.5]
+    shift = sum((shift @ e) * e for e in along) if along else np.zeros(3)
+    return Matrix.Translation(Vector(shift)) @ job.block.matrix_world
+
+
+def fit_target(scene, job, from_here, canine_weight=params.OCC_CANINE_WEIGHT):
+    """Where the first phase takes the block: the pure point fit (whole arch, springs spread out), the
+    springs' mean translation (a segment), or None (from here, or too few springs)."""
+    if from_here:
+        return None
+    if is_segment_job(job):
+        return translation_fit(job, motions(scene, job, False), canine_weight) if job.pairs else None
+    return point_fit(job, canine_weight) if can_fit(job) else None
 
 
 def seat_one(scene, job, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_weight=params.OCC_CANINE_WEIGHT,
              max_iterations=params.OCC_MAX_ITERATIONS, from_here=False):
-    """Run one seating to the end (no animation): point fit (when the springs allow it), then springs
-    and magnet up to the overlap limits. from_here skips the point fit; the lower arch is then held
-    against any slide in the occlusal plane, to keep a position adjusted by hand.
-    Returns (contact iterations, True if it settled)."""
-    if not from_here and can_fit(job):
-        job.block.matrix_world = point_fit(job, canine_weight)
+    """Run one seating to the end (no animation): first fit (see fit_target), then springs and magnet up
+    to the overlap limits, with the motions allowed (see motions). Returns (contact iterations, True if
+    it settled)."""
+    target = fit_target(scene, job, from_here, canine_weight)
+    if target is not None:
+        job.block.matrix_world = target
         bpy.context.view_layer.update()
-    hold = holds_position(job, from_here)
+    free = motions(scene, job, from_here)
     for i in range(1, max_iterations + 1):
-        if converged(seat_step(scene, job, limits, spring_share, canine_weight, hold_position=hold)):
+        if converged(seat_step(scene, job, limits, spring_share, canine_weight, free=free)):
             break
     vertices = contact_vertices(job)
     for _i in range(params.OCC_FINISH_ITERATIONS):
-        step = seat_step(scene, job, limits, spring_share, canine_weight, vertices, hold)
+        step = seat_step(scene, job, limits, spring_share, canine_weight, vertices, free)
         if converged(step):
             break
     return i, settled(step)
@@ -585,8 +611,48 @@ def signed_distances_to_any(points, targets, max_distance):
     return best_d, best_c
 
 
+def neighbour_overlap(part, others):
+    """How much deeper (mm, negative; NaN = no new overlap) each vertex of a segment now goes into the other
+    segments than it did pre-op: two neighbours whose angles were changed can run into each other at the
+    osteotomy line. Compared with pre-op because real scans already "overlap" there (interproximal contacts,
+    the ragged edge of the cut), which is not a planning problem."""
+    from . import occlusion_segments
+    points = registration.vertex_coords(part)
+    block = occlusion_segments.block_of(part)
+    to_preop = occlusion.preop_matrix(block) @ block.matrix_world.inverted()
+    best = np.full(len(points), np.nan)
+    for other in others:
+        d_now = signed_distances(points, other, params.SEG_NEIGHBOUR_RANGE)[0]
+        other_block = occlusion_segments.block_of(other)
+        # the part's points where they were pre-op, seen from the other segment where it is now
+        relative = np.array(other_block.matrix_world @ occlusion.preop_matrix(other_block).inverted() @ to_preop)
+        before = points @ relative[:3, :3].T + relative[:3, 3]
+        d_pre = signed_distances(before, other, params.SEG_NEIGHBOUR_RANGE)[0]
+        with np.errstate(invalid='ignore'):
+            excess = d_now - np.minimum(np.nan_to_num(d_pre, nan=0.0), 0.0)
+            better = excess < np.nan_to_num(best, nan=0.0)   # deeper than 0 and than the others so far
+        best[better] = excess[better]
+    return best
+
+
+def segment_overlaps(scene):
+    """[(segment, other segment, deepest overlap mm)] for every pair that overlaps, deepest first."""
+    from . import occlusion_segments
+    parts = occlusion_segments.segments(scene)
+    bpy.context.view_layer.update()   # a block just turned: its segment's world matrix follows on update
+    found = []
+    for i, a in enumerate(parts):
+        for b in parts[i + 1:]:
+            depth = max(robust_overlap(neighbour_overlap(a, [b]), vertex_areas(a)),
+                        robust_overlap(neighbour_overlap(b, [a]), vertex_areas(b)))
+            if depth > 0:
+                found.append((a, b, depth))
+    return sorted(found, key=lambda f: -f[2])
+
+
 def write_overlap_map(scene):
-    """Colour both arches (every upper segment) by their signed distance to the other one; store the summary."""
+    """Colour both arches (every upper segment) by their signed distance to the other one; store the summary.
+    Segments are also coloured where they overlap a neighbouring segment (the deeper of the two wins)."""
     props = scene.omfs_occlusion
     lower, parts = props.lower, upper_parts(scene)
     upper_plane, lower_plane = zone_planes(scene)
@@ -595,10 +661,15 @@ def write_overlap_map(scene):
     for obj, others, own_plane, other_plane in sides:
         points = registration.vertex_coords(obj)
         d, closest = signed_distances_to_any(points, others, params.OCC_SEARCH_DISTANCE)
+        shown = d
+        if obj is not lower and len(parts) > 1:
+            between = neighbour_overlap(obj, [p for p in parts if p is not obj])
+            with np.errstate(invalid='ignore'):
+                shown = np.where(between < np.nan_to_num(d, nan=np.inf), between, d)
         mesh = obj.data
         attr = mesh.color_attributes.get(MAP_ATTRIBUTE) or mesh.color_attributes.new(
             MAP_ATTRIBUTE, 'FLOAT_COLOR', 'POINT')
-        attr.data.foreach_set("color", overlap_colours(d).ravel())
+        attr.data.foreach_set("color", overlap_colours(shown).ravel())
         mesh.color_attributes.active_color = attr
         area = vertex_areas(obj)
         anterior = anterior_contacts(own_plane, other_plane, points, closest)
@@ -608,6 +679,9 @@ def write_overlap_map(scene):
             contact_areas(scene, lower, points, d, anterior)
     props.max_overlap_anterior, props.max_overlap_posterior = deepest[True], deepest[False]
     props.max_overlap = max(deepest.values())
+    between = segment_overlaps(scene) if len(parts) > 1 else []
+    props.segment_overlap = between[0][2] if between else 0.0
+    props.segment_overlap_pair = f"{between[0][0].name[8:]} ↔ {between[0][1].name[8:]}" if between else ""
     props.map_state = repr(map_key(scene))
 
 
@@ -763,11 +837,6 @@ def guided(scene, job):
     return not np.isnan(d).all()
 
 
-def first_is_segment(job):
-    from . import occlusion_segments
-    return occlusion_segments.is_segment(job.fixed)
-
-
 def arches_ready(scene):
     props = scene.omfs_occlusion
     return props.upper is not None and props.lower is not None and occlusion.find_block(scene, 'LOWER')
@@ -890,7 +959,7 @@ class OMFS_OT_toggle_occlusion_points(bpy.types.Operator):
 
 
 class OMFS_OT_seat_occlusion(bpy.types.Operator):
-    """L'arcade du bas vient s'asseoir sur l'arcade du haut fixe : les ressorts guident (part réglable),
+    """L'arcade du haut (ou chaque segment) vient s'asseoir sur l'arcade du bas fixe : les ressorts guident (part réglable),
     l'aimant rapproche les arcades jusqu'aux contacts stables, et les dents s'arrêtent au chevauchement
     permis de chaque zone. Animé dans la vue ; Échap : annuler et revenir au départ"""
     bl_idname = "omfs.seat_occlusion"
@@ -904,8 +973,8 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
     def description(cls, context, properties):
         if properties.from_here:
             return ("Rasseoir depuis la position actuelle (ex. après un ajustement à la main) : seulement les "
-                    "derniers millimètres, avec les ressorts présents, l'aimant et les limites. Le glissement "
-                    "latéral et antéro-postérieur est bloqué : l'arcade ne fait que se fermer")
+                    "derniers millimètres, avec les ressorts présents, l'aimant et les limites. Arcade entière : "
+                    "le glissement latéral et antéro-postérieur est bloqué, elle ne fait que se fermer")
         return cls.__doc__
 
     def ready(self, context):
@@ -914,19 +983,20 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
             self.report({'ERROR'}, "Choisissez d'abord l'arcade du haut et l'arcade du bas")
             return False
         jobs = seatings(scene)
-        first, segmented = jobs[0], len(jobs) > 1 or first_is_segment(jobs[0])
-        if self.from_here:
-            if not guided(scene, first):
-                self.report({'ERROR'}, "Rien ne guide l'assise : ajoutez un ressort, ou rapprochez les arcades à moins "
-                                       f"de {params.OCC_MAGNET_RANGE:g} mm avec une part des ressorts sous 100 %")
-                return False
+        if is_segment_job(jobs[0]) or self.from_here:   # translations (or a hand position): one spring will do
+            for job in jobs:
+                if not guided(scene, job):
+                    where = f"{job.mobile.name} : " if is_segment_job(job) else ""
+                    self.report({'ERROR'}, f"{where}Rien ne guide l'assise : ajoutez un ressort, ou rapprochez les "
+                                           f"arcades à moins de {params.OCC_MAGNET_RANGE:g} mm avec une part des "
+                                           "ressorts sous 100 %")
+                    return False
             return True
-        where = f" sur {first.fixed.name}" if segmented else ""
-        if len(first.pairs) < 3:
-            self.report({'ERROR'}, f"Placez au moins 3 paires de points{where}")
+        if len(jobs[0].pairs) < 3:
+            self.report({'ERROR'}, "Placez au moins 3 paires de points")
             return False
-        if points_spread(first) < MIN_SPREAD:
-            self.report({'ERROR'}, f"Points presque alignés{where} : étalez-les (ex. incisives + molaires gauche et droite)")
+        if points_spread(jobs[0]) < MIN_SPREAD:
+            self.report({'ERROR'}, "Points presque alignés : étalez-les (ex. incisives + molaires gauche et droite)")
             return False
         return True
 
@@ -962,14 +1032,16 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
     def begin(self, context, index):
-        """Start seating number index. Phase 1: glide to the point fit (none from here, or with too few
-        springs). Phase 2: guides up to the limits."""
+        """Start seating number index. Phase 1: glide to the first fit (see fit_target). Phase 2: guides
+        up to the limits, with the motions allowed."""
         self.index = index
         job = self.jobs[index]
+        scene = context.scene
         self.start = job.block.matrix_world.copy()
-        fit = not self.from_here and can_fit(job)
-        self.frame = 0 if fit else FIT_FRAMES
-        self.fit = point_fit(job, context.scene.omfs_occlusion.canine_weight) if fit else self.start
+        target = fit_target(scene, job, self.from_here, scene.omfs_occlusion.canine_weight)
+        self.frame = 0 if target is not None else FIT_FRAMES
+        self.fit = target if target is not None else self.start
+        self.free = motions(scene, job, self.from_here)
         self.iteration = 0
         self.vertices = None
 
@@ -1000,7 +1072,7 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
         self.iteration += 1
         props = scene.omfs_occlusion
         step = seat_step(scene, job, limits_of(props), props.spring_share / 100, props.canine_weight, self.vertices,
-                         holds_position(job, self.from_here))
+                         self.free)
         longest = max(spring_lengths(scene), default=0.0)
         if self.area:
             what = f"{job.mobile.name} sur {job.fixed.name}, " if len(self.jobs) > 1 else ""

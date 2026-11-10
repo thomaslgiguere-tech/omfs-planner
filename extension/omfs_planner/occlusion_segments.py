@@ -11,17 +11,27 @@ segments.
 The scan is never modified: each segment is a new mesh holding a copy of the scan's faces of that region
 (same vertices, same coordinates), with its own mobile block (occlusion.py). The scan is hidden while the
 arch is segmented and comes back when the segments are joined again.
+
+Angles (surgeon, 2026-11-09): the springs of one segment are close together (canine to canine), so they
+cannot decide its rotation, least of all the incisors' torque. The surgeon sets each segment's angles
+(typed, or with the rings in the view), relative to pre-op, about a pivot at its tips (the incisal edges,
+the cusp tips): anterior segment torque / cant / rotation about the clinical axes (left, anterior, up),
+posterior segment torque (bucco-lingual) / tip (mesio-distal) / rotation about its own axis (the line of
+its teeth). Seating then only translates the segment onto the fixed lower arch, except the axes ticked
+"affiner"; the anterior segment's midline is the surgeon's too, unless ticked.
 """
+
+from math import pi
 
 import bpy
 import gpu
 import numpy as np
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
-from mathutils import Matrix, Vector
+from mathutils import Euler, Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
-from . import landmarks, locking, occlusion, occlusion_seating, params, registration
+from . import landmarks, locking, occlusion, occlusion_seating, params, reference_frame, registration
 
 MADE_BY = occlusion.SEGMENT_MADE_BY
 TRAIT_PREFIX = "SEGCUT_"
@@ -204,11 +214,165 @@ def block_of(segment):
     return occlusion.find_block(bpy.context.scene, segment.omfs.landmark)
 
 
-def reference(scene):
-    """The segment the lower arch is seated on first (it sets the Class and the midline)."""
-    chosen = scene.omfs_occlusion.reference_segment
-    parts = segments(scene)
-    return chosen if chosen in parts else (parts[0] if parts else None)
+# --- Angles of a segment -------------------------------------------------------------------
+
+def clinical_axes(scene):
+    """(left, anterior, up), unit world vectors: the reference frame's, else the lower block's."""
+    frame = reference_frame.find_frame(scene) or occlusion.find_block(scene, 'LOWER')
+    m = frame.matrix_world.to_3x3()
+    return [m.col[i].normalized() for i in range(3)]
+
+
+def segment_frame(scene, obj, side):
+    """(e1, e2, e3), right-handed, world: e3 up; anterior segment (side 0): e1 left, e2 anterior; posterior:
+    e2 along its teeth (towards the front), e1 = e2 x e3 (towards the patient's left)."""
+    left, anterior, up = clinical_axes(scene)
+    if side == 0:
+        return left, anterior, up
+    co = registration.vertex_coords(obj)
+    flat = co - np.outer(co @ np.array(up), np.array(up))
+    along = Vector(np.linalg.svd(flat - flat.mean(axis=0), full_matrices=False)[2][0])
+    along = (along - up * along.dot(up)).normalized()
+    if along.dot(anterior) < 0:
+        along = -along
+    return along.cross(up).normalized(), along, up
+
+
+def tips_centre(obj, up):
+    """World centre of the segment's most occlusal vertices (incisal edges, cusp tips): its pivot."""
+    co = registration.vertex_coords(obj)
+    depth = co @ -np.array(up)                     # upper teeth point down
+    return Vector(co[depth > depth.max() - params.SEG_ANGLE_TIPS].mean(axis=0))
+
+
+def init_angles(scene, obj, block):
+    """Store the segment's frame, side and pivot on its block (pre-op, block at its pre-op matrix)."""
+    x = float(occlusion_seating.midline_offset(scene, np.array([registration.vertex_coords(obj).mean(axis=0)]))[0])
+    side = 0 if obj.name.startswith("Segment antérieur") else (1 if x > 0 else -1)
+    e = segment_frame(scene, obj, side)
+    a = block.omfs_seg
+    a.side = side
+    a.axes = [v for vec in e for v in vec]
+    a.pivot = block.matrix_world.inverted() @ tips_centre(obj, e[2])
+
+
+def frame_matrix(a):
+    """3 x 3 matrix whose columns are e1, e2, e3."""
+    return Matrix((a.axes[0:3], a.axes[3:6], a.axes[6:9])).transposed()
+
+
+def clinical_axis_vectors(a):
+    """World axes of (torque, tip / cant, rotation), each with its sign: a positive angle turns right-handed
+    about it. Anterior: + torque = crown labial, + cant = left side down, + rotation = left side forward.
+    Posterior: + torque = crown buccal, + tip = crown mesial, + rotation = front end buccal."""
+    e1, e2, e3 = (Vector(a.axes[i:i + 3]) for i in (0, 3, 6))
+    if a.side == 0:
+        return e1, e2, e3
+    return -a.side * e2, e1, -a.side * e3
+
+
+def euler_of(block):
+    """Rotation since pre-op, as XYZ Euler angles about e1, e2, e3."""
+    a = block.omfs_seg
+    e = frame_matrix(a)
+    relative = block.matrix_world.to_3x3().normalized() @ occlusion.preop_matrix(block).to_3x3().normalized().transposed()
+    return (e.transposed() @ relative @ e).to_euler('XYZ')
+
+
+def clinical_angles(block):
+    """(torque, tip or cant, rotation), radians."""
+    a = block.omfs_seg
+    x, y, z = euler_of(block)
+    return (x, y, z) if a.side == 0 else (-a.side * y, x, -a.side * z)
+
+
+def set_clinical_angles(block, angles):
+    """Turn the segment to these angles (relative to pre-op) about its pivot, wherever the pivot is now."""
+    a = block.omfs_seg
+    torque, tip, rotation = angles
+    x, y, z = (torque, tip, rotation) if a.side == 0 else (tip, -a.side * torque, -a.side * rotation)
+    e = frame_matrix(a)
+    relative = e @ Euler((x, y, z), 'XYZ').to_matrix() @ e.transposed()
+    pivot = Vector(a.pivot)
+    here = block.matrix_world @ pivot
+    m = (relative @ occlusion.preop_matrix(block).to_3x3().normalized()).to_4x4()
+    m.translation = here - m.to_3x3() @ pivot
+    block.matrix_world = m
+
+
+def midline_shift(block):
+    """mm the anterior segment's pivot moved towards the patient's left since pre-op."""
+    a = block.omfs_seg
+    pivot = Vector(a.pivot)
+    return (block.matrix_world @ pivot - occlusion.preop_matrix(block) @ pivot).dot(Vector(a.axes[0:3]))
+
+
+def free_motions(block):
+    """6 x k basis (rotation, translation) of what seating may change: the three translations (not across
+    for the anterior segment unless its midline is free) and the rotations ticked "affiner"."""
+    a = block.omfs_seg
+    columns = [np.r_[np.array(k), np.zeros(3)] for k, free in
+               zip(clinical_axis_vectors(a), (a.free_torque, a.free_tip, a.free_rotation)) if free]
+    for i in range(3):
+        if i == 0 and a.side == 0 and not a.free_midline:
+            continue
+        columns.append(np.r_[np.zeros(3), np.array(a.axes[3 * i:3 * i + 3])])
+    return np.array(columns).T
+
+
+def _angle(index):
+    def get(a):
+        return clinical_angles(a.id_data)[index] if any(a.axes) else 0.0
+
+    def set(a, value):
+        block = a.id_data
+        if not any(a.axes):
+            return
+        angles = list(clinical_angles(block))
+        angles[index] = value
+        set_clinical_angles(block, angles)
+    return get, set
+
+
+def _get_midline(a):
+    return midline_shift(a.id_data) if any(a.axes) else 0.0
+
+
+def _set_midline(a, value):
+    block = a.id_data
+    if not any(a.axes):
+        return
+    block.matrix_world = Matrix.Translation(Vector(a.axes[0:3]) * (value - midline_shift(block))) @ block.matrix_world
+
+
+def _angle_prop(name, index, description):
+    get, set = _angle(index)
+    return bpy.props.FloatProperty(name=name, subtype='ANGLE', unit='ROTATION', get=get, set=set, step=10,
+                                   precision=1, soft_min=-pi / 6, soft_max=pi / 6, description=description)
+
+
+class OMFS_SegmentAngles(bpy.types.PropertyGroup):
+    """On a segment's block: its frame and pivot, the surgeon's angles (read from and written to the block)."""
+    side: bpy.props.IntProperty()                  # 0 anterior, -1 right, +1 left
+    axes: bpy.props.FloatVectorProperty(size=9)    # e1, e2, e3, world, pre-op
+    pivot: bpy.props.FloatVectorProperty(size=3)   # in the block's coordinates
+    torque: _angle_prop("Torque", 0, "Antérieur : + = couronnes vers l'avant (vestibulaire), racines vers le "
+                                     "palais. Postérieur : + = couronnes vers le vestibule. Autour des pointes")
+    tip: _angle_prop("Tip", 1, "Antérieur (cant) : + = côté gauche vers le bas. Postérieur (tip mésio-distal) : "
+                               "+ = couronnes vers l'avant. Autour des pointes")
+    rotation: _angle_prop("Rotation", 2, "Autour de la verticale. Antérieur : + = côté gauche vers l'avant. "
+                                         "Postérieur : + = bout antérieur vers le vestibule")
+    midline: bpy.props.FloatProperty(name="Milieu", subtype='DISTANCE', get=_get_midline, set=_set_midline, step=10,
+                                     precision=2, description="Décalage du milieu du segment antérieur, + = vers la "
+                                                              "gauche du patient")
+    free_torque: bpy.props.BoolProperty(name="Affiner", description="L'assise peut retoucher cet angle")
+    free_tip: bpy.props.BoolProperty(name="Affiner", description="L'assise peut retoucher cet angle")
+    free_rotation: bpy.props.BoolProperty(name="Affiner", description="L'assise peut retoucher cet angle")
+    free_midline: bpy.props.BoolProperty(name="Affiner", description="L'assise peut déplacer le milieu")
+
+
+def has_angles(block):
+    return block is not None and any(block.omfs_seg.axes)
 
 
 def submesh(mesh, faces, name):
@@ -301,9 +465,9 @@ def separate(scene):
         locking.set_locked(obj, True)   # moves only with its block
         made.append(obj)
     bpy.context.view_layer.update()
+    for obj in made:
+        init_angles(scene, obj, block_of(obj))
     move_upper_points(scene, made)
-    anterior = next((o for o in made if o.name.startswith("Segment antérieur")), None)
-    props.reference_segment = anterior or segment_with_most_springs(scene, made)
     upper.hide_set(True)
     set_traits_hidden(scene, True)
     return None
@@ -332,14 +496,6 @@ def move_upper_points(scene, parts):
         if point.omfs.landmark.startswith("OCC_U"):
             world = point.matrix_world.translation.copy()
             reparent(point, nearest_object(parts, world), world)
-
-
-def segment_with_most_springs(scene, parts):
-    count = {p.name: 0 for p in parts}
-    for up, _low in occlusion_seating.point_pairs(scene):
-        if up.parent is not None and up.parent.name in count:
-            count[up.parent.name] += 1
-    return max(parts, key=lambda p: count[p.name])
 
 
 def join(scene):
@@ -657,14 +813,74 @@ class OMFS_OT_join_segments(bpy.types.Operator):
         return {'FINISHED'}
 
 
-classes = (OMFS_OT_draw_segment_line, OMFS_OT_adjust_segment_lines, OMFS_OT_delete_segment_line,
-           OMFS_OT_separate_segments, OMFS_OT_join_segments)
+# --- Rings in the view: the segment's angles -----------------------------------------------------
+
+RING_COLOURS = ((0.95, 0.30, 0.35), (0.45, 0.85, 0.30), (0.30, 0.55, 1.00))   # torque, tip / cant, rotation
+
+
+def active_segment_block(context):
+    """The block of the active segment (the segment or its block selected), else None."""
+    obj = context.view_layer.objects.active
+    if is_segment(obj):
+        obj = block_of(obj)
+    if obj is not None and obj.omfs.role == 'BLOCK' and obj.omfs.made_by == MADE_BY and has_angles(obj):
+        return obj
+    return None
+
+
+def _bind_ring(gizmo, name):
+    def get():
+        block = active_segment_block(bpy.context)
+        return getattr(block.omfs_seg, name) if block else 0.0
+
+    def set(value):
+        block = active_segment_block(bpy.context)
+        if block is not None:
+            setattr(block.omfs_seg, name, (value + pi) % (2 * pi) - pi)   # rings give 0..2pi
+    gizmo.target_set_handler("offset", get=get, set=set)
+
+
+class OMFS_GGT_segment_angles(bpy.types.GizmoGroup):
+    """Three rings at the active segment's pivot, on its clinical axes, bound to its angles."""
+    bl_idname = "OMFS_GGT_segment_angles"
+    bl_label = "Segment Angles"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'WINDOW'
+    bl_options = {'3D', 'PERSISTENT'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == 'OBJECT' and active_segment_block(context) is not None
+
+    def setup(self, context):
+        self.rings = []
+        for name, colour in zip(("torque", "tip", "rotation"), RING_COLOURS):
+            gz = self.gizmos.new("GIZMO_GT_dial_3d")
+            gz.draw_options = {'ANGLE_VALUE'}
+            gz.color, gz.color_highlight = colour, (1.0, 1.0, 1.0)
+            gz.alpha, gz.alpha_highlight = 0.8, 1.0
+            gz.line_width = 3
+            gz.scale_basis = 1.1
+            _bind_ring(gz, name)
+            self.rings.append(gz)
+
+    def draw_prepare(self, context):
+        block = active_segment_block(context)
+        a = block.omfs_seg
+        pivot = block.matrix_world @ Vector(a.pivot)
+        for gz, axis in zip(self.rings, clinical_axis_vectors(a)):
+            gz.matrix_basis = Matrix.LocRotScale(pivot, axis.to_track_quat('Z', 'Y'), None)
+
+
+classes = (OMFS_SegmentAngles, OMFS_OT_draw_segment_line, OMFS_OT_adjust_segment_lines, OMFS_OT_delete_segment_line,
+           OMFS_OT_separate_segments, OMFS_OT_join_segments, OMFS_GGT_segment_angles)
 
 
 def register():
     global _draw_handle
     for cls in classes:
         bpy.utils.register_class(cls)
+    bpy.types.Object.omfs_seg = bpy.props.PointerProperty(type=OMFS_SegmentAngles)
     if not bpy.app.background:
         _draw_handle = bpy.types.SpaceView3D.draw_handler_add(_draw_traits, (), 'WINDOW', 'POST_VIEW')
 
@@ -674,5 +890,6 @@ def unregister():
     if _draw_handle is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_draw_handle, 'WINDOW')
         _draw_handle = None
+    del bpy.types.Object.omfs_seg
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

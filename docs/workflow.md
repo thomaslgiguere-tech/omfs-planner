@@ -376,11 +376,12 @@ Naming used below (matches the object roles in code):
   also works once the lower arch is registered onto the CBCT.
 - Part 2 (done): virtual seating, modelled on IPS CaseDesigner (KLS Martin) virtual occlusion.
   - The final occlusion comes entirely from virtual seating in Blender (no scan of articulated models).
-  - The lower arch (and its block) is seated onto the fixed upper arch.
+  - The upper arch (and its block) is seated onto the fixed lower arch (surgeon, 2026-11-09: always the
+    upper onto the lower, segmental or not, it is more visual; it was the lower onto the upper before).
   - Gesture: click corresponding points on both arches, upper first (e.g. cusp tip), then lower (the
     fossa it sits in). 3 pairs or more, spread out (incisors + left and right molars). Each pair is a
     spring, drawn as a zig-zag (green < 0.6 mm, yellow < 2 mm, orange beyond) with its length listed.
-  - "Seat": animated. Phase 1, the lower block glides to the best fit of the springs (works from any
+  - "Seat": animated. Phase 1, the upper block glides to the best fit of the springs (works from any
     start, even a scan exported upside down). Phase 2, springs and magnet keep pulling and the teeth
     stop at the overlap limit of their zone. Last iterations on every vertex near the contacts, so a
     cusp tip is held too (within about 0.05 mm). Esc cancels and goes back. A warning says if it did
@@ -433,21 +434,37 @@ Naming used below (matches the object roles in code):
       anterior / right / left posterior from the midline, each with its own block. The scan is never
       modified: segments hold copies of its faces; it is hidden. Upper spring points move to the segment
       they sit on.
-    - Seating (surgeon's choice): the lower arch seats first on the reference segment (the anterior one
-      by default: Class and midline), with that segment's springs only (3 or more). Then the lower is
-      fixed and each other segment seats on it, independently (springs on that segment, magnet, overlap
-      limits), free to slide: an expansion is a slide across the arch. Point fit only for a segment with
-      3 spread springs or more. The overlap map covers every segment.
-    - Panel: each segment with its expansion (mm its centre moved away from the midline), select (G / R)
-      and back to start. "Join the arch" deletes the segments and their movements (confirmation if
-      moved), shows the scan again, and keeps the lines to adjust and separate again.
-    - Not yet: overlap between neighbouring segments is not checked; the CBCT maxilla is not cut (later,
-      with the Le Fort I tools).
+    - Angles first (surgeon, 2026-11-09): the springs of one segment are close together (canine to
+      canine), so they cannot decide its rotation, least of all the incisors' torque. The surgeon sets
+      each segment's angles, relative to pre-op, typed in the panel or with three rings in the view (the
+      segment's block selected), about a pivot at its tips (centre of its vertices within 1 mm of its
+      most occlusal point: incisal edges, cusp tips):
+      - anterior segment, on the clinical axes (reference frame, else the lower block's): torque (+ =
+        crowns labial, roots palatal), cant (+ = left side down), rotation (+ = left side forward), and
+        the midline (mm, + = towards the patient's left);
+      - posterior segment, on its own axis (the line of its teeth, horizontal): torque (+ = crowns
+        buccal), tip (+ = crowns mesial), rotation (+ = front end buccal).
+    - Seating (surgeon, 2026-11-09): the lower arch is fixed; each segment seats on it independently
+      (springs on that segment, magnet, overlap limits). It only translates: its angles are kept
+      exactly, and the anterior segment's midline too. One spring per segment is enough (or the magnet
+      within 3 mm); the first phase is the springs' mean translation. Each angle (and the midline) has
+      an "Affiner" padlock: unlocked, the seating may retouch it.
+    - Neighbour check: the overlap map also shows where two segments now run into each other (the deeper
+      of that and the lower arch wins the colour), and the panel gives the deepest one and which pair,
+      flagged above 0.1 mm. Measured against pre-op (only overlap the movement created): real scans
+      already "overlap" at the cut (interproximal contacts, ragged cut edge). On the test scans, pre-op
+      reads 0; 6 deg of anterior torque against -4 deg on the right segment gave 1.2 mm at the cut.
+    - Panel: each segment with its angles, padlocks, expansion (mm its centre moved away from the
+      midline) or midline, select (G / R) and back to start. "Join the arch" deletes the segments and
+      their movements (confirmation if moved), shows the scan again, and keeps the lines to adjust and
+      separate again.
+    - Not yet: the CBCT maxilla is not cut (later, with the Le Fort I tools); segments are not stopped
+      by their neighbours during seating, only flagged.
   - Contacts may be as large as the dental anatomy allows: more contact area is better, no upper limit.
   - Stability: "stable tripod" when there is contact on the right, anterior and left (>= 1 mm² each).
     Anterior = the canine to canine zone above, so a premolar touching the distal slope of the upper
     canine counts as anterior; without both canine springs, a band of 15 mm each side of the midline.
-  - Then fine-tune by hand (adjust the lower arch, G / R); the map refreshes when the movement stops.
+  - Then fine-tune by hand (adjust the upper arch, G / R); the map refreshes when the movement stops.
   - What I need to see: overlap map on both arches, in bands: magenta > 1.0 mm, red 0.75-1.0, orange
     0.4-0.75, yellow 0-0.4 overlap; green contact (gap < 0.3 mm); light blue gap 0.3-1.0; grey > 1.0.
     Legend in the panel. Deepest overlap anterior and posterior in mm, each against its limit (warn

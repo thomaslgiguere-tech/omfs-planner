@@ -102,6 +102,9 @@ OCC_PREPOSITION_GAP = 5.0       # mm between the arches after "flip and place ab
 SEG_CUT_OVERSHOOT = 1.0         # mm: an osteotomy line also cuts this far past each of its ends
 SEG_MIN_AREA = 5.0              # mm²: smaller pieces left by the lines (scan debris) are not segments
 SEG_MIDLINE_BAND = 8.0          # mm: a segment whose centre is this close to the midline is the anterior one
+SEG_NEIGHBOUR_RANGE = 2.0       # mm: overlap between two upper segments is searched this deep
+SEG_NEIGHBOUR_TOLERANCE = 0.1   # mm: overlap between two segments beyond this is flagged (sampling noise below)
+SEG_ANGLE_TIPS = 1.0            # mm: the segment's pivot = centre of its vertices this close to its most occlusal point
 
 # Object creator: Splint / Chape
 SPLINT_BUCCAL_MARGIN = 1.5      # mm beyond the most buccal crown surface (more for a segmental splint)

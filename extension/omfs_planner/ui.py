@@ -492,7 +492,7 @@ class OMFS_PT_occlusion(bpy.types.Panel):
     def draw_seating(self, context, box, props):
         scene = context.scene
         row = box.row(align=True)
-        row.label(text="Assise : le bas sur le haut fixe", icon='SNAP_FACE')
+        row.label(text="Assise : le haut sur le bas fixe", icon='SNAP_FACE')
         if occlusion_seating.occlusion_points(scene):   # one click: points, springs and anterior zone lines
             visible = occlusion_seating.points_visible(scene)
             row.operator("omfs.toggle_occlusion_points", text="Ressorts", icon='HIDE_OFF' if visible else 'HIDE_ON',
@@ -500,10 +500,11 @@ class OMFS_PT_occlusion(bpy.types.Panel):
         if props.upper.omfs_reg.rms < 0:
             warn = box.column()
             warn.alert = True
-            draw_text(warn, context, "Arcade du haut non recalée : elle est encore dans les coordonnées du "
-                                     "scanner, et le bas (avec son os) y sera assis.")
+            draw_text(warn, context, "Arcade du haut non recalée sur le CBCT : l'assise la pose sur le bas, mais "
+                                     "son déplacement n'est pas encore celui du maxillaire.")
         self.draw_segments(context, box, props)
-        box.label(text="1. Ressorts (3 paires ou plus)")
+        segmented = bool(occlusion_segments.segments(scene))
+        box.label(text="1. Ressorts (1 ou plus par segment)" if segmented else "1. Ressorts (3 paires ou plus)")
         pairs = occlusion_seating.point_pairs(scene)
         lengths = dict(zip((occlusion_seating.pair_key(up) for up, _low in pairs), occlusion_seating.spring_lengths(scene)))
         col = box.column(align=True)
@@ -539,24 +540,25 @@ class OMFS_PT_occlusion(bpy.types.Panel):
                                      "postérieure s'applique à toute l'arcade.")
         row = box.row(align=True)
         seat = row.row(align=True)
-        seat.enabled = len(occlusion_seating.point_pairs(scene)) >= 3
+        seat.enabled = segmented or len(occlusion_seating.point_pairs(scene)) >= 3
         seat.operator("omfs.seat_occlusion", icon='PLAY')
         row.operator("omfs.seat_occlusion", text="Reprendre d'ici", icon='FORWARD').from_here = True
-        block = occlusion.find_block(scene, 'LOWER')
-        summary = occlusion.movement_summary(scene, block)
-        if summary is None:
-            box.label(text="Arcade du bas : position de départ", icon='CHECKMARK')
-        else:
-            (x, y, z), angle, in_frame = summary
-            names = ("Gauche", "Avant", "Haut") if in_frame else ("X", "Y", "Z")
-            box.label(text="  ".join(f"{n} {v:+.1f}" for n, v in zip(names, (x, y, z))) + f" mm   {angle:.1f}°",
-                      icon='ORIENTATION_GLOBAL')
-        row = box.row(align=True)
-        row.operator("omfs.select_block", text="Ajuster le bas (G / R)", icon='RESTRICT_SELECT_OFF').arch = 'LOWER'
-        row.operator("omfs.block_preop", text="Départ", icon='LOOP_BACK').arch = 'LOWER'
-        shown = bool(occlusion.ghosts(block))
-        box.operator("omfs.toggle_ghost", text="Cacher le fantôme" if shown else "Fantôme de départ",
-                     icon='GHOST_ENABLED' if shown else 'GHOST_DISABLED').arch = 'LOWER'
+        block = occlusion.find_block(scene, 'UPPER')
+        if not segmented and block is not None:
+            summary = occlusion.movement_summary(scene, block)
+            if summary is None:
+                box.label(text="Arcade du haut : position de départ", icon='CHECKMARK')
+            else:
+                (x, y, z), angle, in_frame = summary
+                names = ("Gauche", "Avant", "Haut") if in_frame else ("X", "Y", "Z")
+                box.label(text="  ".join(f"{n} {v:+.1f}" for n, v in zip(names, (x, y, z))) + f" mm   {angle:.1f}°",
+                          icon='ORIENTATION_GLOBAL')
+            row = box.row(align=True)
+            row.operator("omfs.select_block", text="Ajuster le haut (G / R)", icon='RESTRICT_SELECT_OFF').arch = 'UPPER'
+            row.operator("omfs.block_preop", text="Départ", icon='LOOP_BACK').arch = 'UPPER'
+            shown = bool(occlusion.ghosts(block))
+            box.operator("omfs.toggle_ghost", text="Cacher le fantôme" if shown else "Fantôme de départ",
+                         icon='GHOST_ENABLED' if shown else 'GHOST_DISABLED').arch = 'UPPER'
 
         box.label(text="3. Chevauchement")
         box.operator("omfs.toggle_overlap_map", text="Cacher la carte" if props.show_map else "Carte de chevauchement",
@@ -582,6 +584,14 @@ class OMFS_PT_occlusion(bpy.types.Panel):
                 res.label(text=f"Plus de {params.OCC_OVERLAP_RARE:g} mm : au-delà du meulage habituel", icon='BLANK1')
             if overlap > 3.0:
                 res.label(text="Vérifier : normales inversées ou bords du scan ?", icon='BLANK1')
+            if segmented:
+                between = props.segment_overlap
+                clash = between > params.SEG_NEIGHBOUR_TOLERANCE
+                row = res.row()
+                row.alert = clash
+                row.label(text=(f"Entre segments : {between:.2f} mm ({props.segment_overlap_pair})" if clash
+                                else "Entre segments : aucun chevauchement"),
+                          icon='ERROR' if clash else 'CHECKMARK')
             col = box.column(align=True)
             col.label(text="Surface de contact (mm²)")
             row = col.row(align=True)
@@ -619,16 +629,31 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             split.enabled = bool(occlusion_segments.trait_ends(scene))
             split.operator("omfs.separate_segments", icon='MOD_EXPLODE')
             return
-        sub.prop(props, "reference_segment")
-        reference = occlusion_segments.reference(scene)
+        draw_text(sub, context, "Chaque segment s'assied sur le bas fixe. Réglez d'abord ses angles (tapez, ou "
+                                "anneaux dans la vue quand son bloc est sélectionné), autour de ses pointes : "
+                                "l'assise ne fait ensuite que le translater, sauf les axes « Affiner ».")
         for part in parts:
-            col = sub.column(align=True)
+            col = sub.box().column(align=True)
             row = col.row(align=True)
             landmark = part.omfs.landmark
-            row.label(text=part.name, icon='PINNED' if part is reference else 'MESH_DATA')
+            row.label(text=part.name, icon='MESH_DATA')
             row.operator("omfs.select_block", text="", icon='RESTRICT_SELECT_OFF').arch = landmark
             row.operator("omfs.block_preop", text="", icon='LOOP_BACK').arch = landmark
-            if part is not reference and occlusion_segments.moved(scene, part):
+            block = occlusion_segments.block_of(part)
+            if not occlusion_segments.has_angles(block):
+                col.label(text="Séparé avant les angles : réunissez puis séparez", icon='INFO')
+                continue
+            a = block.omfs_seg
+            anterior = a.side == 0
+            for name, label in (("torque", "Torque"), ("tip", "Cant" if anterior else "Tip"), ("rotation", "Rotation")):
+                row = col.row(align=True)
+                row.prop(a, name, text=label)
+                row.prop(a, "free_" + name, text="", icon='UNLOCKED' if getattr(a, "free_" + name) else 'LOCKED')
+            if anterior:
+                row = col.row(align=True)
+                row.prop(a, "midline", text="Milieu")
+                row.prop(a, "free_midline", text="", icon='UNLOCKED' if a.free_midline else 'LOCKED')
+            elif occlusion_segments.moved(scene, part):
                 col.label(text=f"Expansion {occlusion_segments.expansion(scene, part):+.1f} mm (centre du segment)",
                           icon='BLANK1')
         sub.operator("omfs.join_segments", icon='MOD_BOOLEAN')
