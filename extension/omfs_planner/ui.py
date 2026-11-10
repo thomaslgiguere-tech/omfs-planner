@@ -901,6 +901,7 @@ class OMFS_PT_model(bpy.types.Panel):
         col = layout.column(align=True)
         col.prop(settings, "teeth_band")
         col.prop(settings, "teeth_radius")
+        layout.prop(settings, "include_palate")
         col = layout.column(align=True)
         col.prop(settings, "use_bar")
         col.prop(settings, "bar_diameter")
@@ -914,7 +915,8 @@ class OMFS_PT_model(bpy.types.Panel):
             if report["palate"]:
                 col.label(text=f"Palais complet gardé: base à {report['height']:.1f} mm", icon='CHECKMARK')
             else:
-                col.label(text=f"Fer à cheval: base à {report['height']:.1f} mm"
+                col.label(text=("Palais retiré, fer à cheval" if report.get("palate_removed") else "Fer à cheval")
+                               + f": base à {report['height']:.1f} mm"
                                + (", barre de renfort" if report["bar"] else ", sans barre"),
                           icon='CHECKMARK' if report["bar"] else 'ERROR')
                 if report["bar"]:

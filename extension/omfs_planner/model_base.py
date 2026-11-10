@@ -10,7 +10,9 @@ What the surgeon did by hand on case1, automated:
    highest cusp. The base's outline is smoothed (only the new vertices move), so the wall is clean.
 
 Lower arch: the border runs buccal then lingual, so the base is a horseshoe. Upper arch: the border
-goes around the palate, so the base is a full plate.
+goes around the palate, so the base is a full plate, unless "Inclure le palais" is off (surgeon,
+2026-11-09): the palate is then removed (MODEL_PALATE_MARGIN of palatal gingiva kept) and the upper model
+is a horseshoe closed by the bar, like the lower one.
 
 The occlusal axis: the reference frame's up if there is one, else the direction in which the arch
 is thinnest, pointing away from the open border (towards the teeth). It can be flipped.
@@ -146,6 +148,41 @@ def full_palate(co, up, edges, keep, mesh):
     c = np.floor((centre - flat.min(0)) / cell).astype(np.int64)
     r = 2                                               # a 5 mm square around the middle
     return bool(grid[max(0, c[0] - r):c[0] + r + 1, max(0, c[1] - r):c[1] + r + 1].mean() > 0.5)
+
+
+def is_upper_scan(scan):
+    """The upper arch: chosen as such (here or in the occlusion panel), else its name says upper / haut."""
+    scene = bpy.context.scene
+    _bite, upper, _lower = bite_scans(scene)
+    return scan in (upper, scene.omfs_occlusion.upper)
+
+
+def palate_vertices(co, up, keep):
+    """Boolean per vertex: the palate, seen from above. Not within MODEL_PALATE_MARGIN of the teeth zone,
+    and reached from the middle of the arch without crossing the teeth (the vestibule lies beyond them)."""
+    u, v = plane_basis(up)
+    flat = np.stack((co @ u, co @ v), 1)
+    cell = 0.5
+    origin = flat.min(0) - 1.0
+    ij = np.floor((flat - origin) / cell).astype(np.int64)
+    teeth = np.zeros(ij.max(0) + 2, bool)
+    teeth[ij[keep, 0], ij[keep, 1]] = True
+    r = int(np.ceil(params.MODEL_PALATE_MARGIN / cell))
+    near = teeth.copy()
+    for di in range(-r, r + 1):                         # the teeth zone grown by the margin (a disc)
+        for dj in range(-r, r + 1):
+            if di * di + dj * dj <= r * r:
+                near |= np.roll(np.roll(teeth, di, 0), dj, 1)
+    candidate = np.flatnonzero(~near[ij[:, 0], ij[:, 1]])
+    centre = flat[keep].mean(0)                         # inside the U of the teeth
+    palate = np.zeros(len(co), bool)
+    steps = np.linspace(0.0, 1.0, 120)[:, None, None]
+    for chunk in np.array_split(candidate, max(1, len(candidate) // 20000)):
+        line = centre + steps * (flat[chunk] - centre)  # from the middle out to each vertex
+        cells = np.floor((line - origin) / cell).astype(np.int64)
+        np.clip(cells, 0, np.array(teeth.shape) - 1, out=cells)
+        palate[chunk] = ~teeth[cells[..., 0], cells[..., 1]].any(axis=0)
+    return palate
 
 
 # --- Build --------------------------------------------------------------------------------
@@ -299,6 +336,9 @@ def build(scan, settings):
     top = h.max()
     keep = teeth_zone(co, up, settings.teeth_band, settings.teeth_radius)
     palate = full_palate(co, up, edges, keep, mesh)
+    palate_removed = not settings.include_palate and (palate or is_upper_scan(scan))   # a partial palate too
+    if palate_removed:   # a horseshoe like the lower model: the palate's faces go, the bar closes it
+        palate = False
     height = settings.height
     if palate:   # the whole palate is kept: the base goes under its deepest point
         labels = components(len(co), edges[:, 0], edges[:, 1])
@@ -329,7 +369,10 @@ def build(scan, settings):
     np.logical_or.at(fringe, face_of_corner, fringe_vertex[corners])
     guarded = np.zeros(len(sizes), bool)
     np.logical_or.at(guarded, face_of_corner, keep[corners])
-    remove = (low | scrap | fringe) & ~guarded
+    roof = np.zeros(len(sizes), bool)
+    if palate_removed:
+        np.logical_or.at(roof, face_of_corner, palate_vertices(co, up, keep)[corners])
+    remove = (low | scrap | fringe | roof) & ~guarded
     remove = reattach(remove, fringe & ~low & ~scrap, keep, corners, sizes, len(co))
     protected = int(keep.sum())
     protected_at_start = keep.copy()
@@ -410,7 +453,7 @@ def build(scan, settings):
                                      for end in ends]
     report = {
         "kept": kept_vertices, "removed": len(co) - kept_vertices, "patched": patched, "palate": palate,
-        "bar": bar, "up_vector": [float(x) for x in up],
+        "palate_removed": bool(palate_removed), "bar": bar, "up_vector": [float(x) for x in up],
         "pinched": len(pinched_origins), "outline_extra_smooth": extra,
         "protected": protected, "protected_edge": int((lost & on_edge).sum()),
         "protected_removed": int((lost & ~on_edge).sum()), "cleaned": cleaned, "height": float(height),
@@ -858,13 +901,17 @@ class OMFS_ModelSettings(bpy.types.PropertyGroup):
     scrap_fraction: bpy.props.FloatProperty(
         name="Débris", default=params.MODEL_SCRAP_FRACTION, min=0.0, max=0.5, update=_rebuild,
         description="Morceaux détachés plus petits que cette fraction du scan: retirés")
+    include_palate: bpy.props.BoolProperty(
+        name="Inclure le palais", default=True, update=_rebuild,
+        description="Modèle du haut: garder tout le palais (base pleine). Décoché: le palais est retiré et le "
+                    "modèle est un fer à cheval fermé par la barre, comme le bas")
     use_bar: bpy.props.BoolProperty(
         name="Barre de renfort", default=True, update=_rebuild,
         description="Arcade en fer à cheval: un cylindre relie les deux bouts, au ras de la base, "
                     "pour que le modèle ne se déforme pas (pas de barre avec un palais complet)")
     bar_diameter: bpy.props.FloatProperty(
         name="Diamètre de la barre", subtype='DISTANCE', default=params.MODEL_BAR_DIAMETER, min=1.0,
-        soft_max=10.0, step=50, precision=1, update=_rebuild)
+        soft_max=15.0, step=50, precision=1, update=_rebuild)
     bite: bpy.props.PointerProperty(name="STL Bite", type=bpy.types.Object, poll=lambda _s, o: is_scan(o),
                                     description="Scan d'occlusion (mot « bite » dans le nom, par défaut): "
                                                 "une partie du haut et une partie du bas")

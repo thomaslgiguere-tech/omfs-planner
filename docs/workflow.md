@@ -600,7 +600,7 @@ closed into printable dental models. Most important: the teeth (the dental segme
   - full palate (upper arch): the whole palate is kept, the base goes 3 mm under its deepest point
     (MODEL_UNDER_PALATE) whatever the height asked; full flat plate;
   - horseshoe (lower arch): base at "Hauteur du modèle" under the cusp tips (default 20 mm; case1 by
-    hand: 15.9) and a bar across the opening (Ø 4 mm, at the base, Boolean union Manifold) so the
+    hand: 15.9) and a bar across the opening (Ø 8 mm since 2026-11-09, 4 mm was too thin; at the base, Boolean union Manifold) so the
     model does not flex. It runs parallel to the opening (the longest edge of the outline's convex
     hull), just inside it, and each end sits in the middle of one branch, where that line crosses it
     (moved further in until it crosses both): sunk into the solid on both sides (surgeon, 2026-11-03:
@@ -608,6 +608,13 @@ closed into printable dental models. Most important: the teeth (the dental segme
     Boolean solver (Manifold cut off a part pinched at one vertex). The report checks both ends are
     inside the model and the result is one piece; case1: heights 15.9 / 20 / 25 mm x bars 3 / 4 / 6 mm,
     all anchored, one piece.
+  - "Inclure le palais" (surgeon, 2026-11-09; on by default): off, the upper model is a horseshoe like
+    the lower one, open in the middle and closed by the bar. The palate is removed, whole or partial:
+    the scan's vertices more than MODEL_PALATE_MARGIN (3 mm) beyond the teeth zone (seen from above)
+    that are reached from the middle of the arch without crossing the teeth (the vestibule, beyond
+    the teeth, stays). Upper arch = the one chosen as upper (here or in the occlusion panel) or named
+    upper / haut; never applied to the lower. Test scans (partial palate): 3.9 s, one piece, closed,
+    no tooth vertex lost; the rugae right behind the incisors stay (inside the protected teeth zone).
 - Report in the panel: palate / horseshoe, scan vertices kept (identical), teeth zone and how many of
   its vertices were removed (must be 0), plus those at the very edge of the open border or in scraps
   already loose in the scan, holes patched, base outline crossings, closed (watertight).

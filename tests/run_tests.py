@@ -1641,6 +1641,58 @@ def test_model_base_keeps_the_palate():
         bpy.data.objects.remove(obj)
 
 
+def u_arch_scan(name):
+    """Open scan: a U-shaped ridge of teeth (top, h = 0), a palate 14 mm deep inside the U, the vestibule
+    dropping outside. Returns (scan, depth of each vertex below the ridge, inside the U)."""
+    bm = bmesh.new()
+    curve = np.array([(22 * np.cos(t), 20 * np.sin(t) - 2) for t in np.linspace(0, np.pi, 200)]
+                     + [(s * 22, y) for s in (-1, 1) for y in np.linspace(-2, -25, 50)])
+    for x in np.arange(-35, 35.01, 0.5):
+        for y in np.arange(-30, 30.01, 0.5):
+            d = np.min(np.hypot(curve[:, 0] - x, curve[:, 1] - y))
+            h = -0.2 * d if d <= 2 else -0.4 - 13.6 * min(1.0, (d - 2) / 6)
+            bm.verts.new((x, y, h))
+    bm.verts.ensure_lookup_table()
+    nx, ny = len(np.arange(-35, 35.01, 0.5)), len(np.arange(-30, 30.01, 0.5))
+    for i in range(nx - 1):
+        for j in range(ny - 1):
+            a = i * ny + j
+            bm.faces.new((bm.verts[a], bm.verts[a + ny], bm.verts[a + ny + 1], bm.verts[a + 1]))
+    return open_scan(name, bm)
+
+
+def test_model_base_upper_without_palate():
+    """"Inclure le palais" off: the palate goes, the upper model is a horseshoe closed by the bar (8 mm)."""
+    scene = bpy.context.scene
+    scan = u_arch_scan("U arch scan")
+    settings = scene.omfs_model
+    settings.scan, settings.flip = scan, False
+    assert abs(settings.bar_diameter - 8.0) < 1e-6 and params.MODEL_BAR_DIAMETER == 8.0, "bar doubled"
+    co = registration.vertex_coords(scan)
+    deep = (co[:, 2] < -12) & (np.abs(co[:, 0]) < 14) & (co[:, 1] > -20) & (co[:, 1] < 10)   # the palate's vault
+    ridge = co[:, 2] > -0.2                                                    # the teeth
+    reports = {}
+    for include in (True, False):
+        settings.include_palate = include
+        assert bpy.ops.omfs.make_model() == {'FINISHED'}
+        model = model_base.model_of(scene, scan)
+        reports[include] = report = model_base.last_report(model)
+        assert report["open_edges"] == 0, report
+        present = {tuple(np.round(p, 4)) for p in registration.vertex_coords(model)}
+        assert all(tuple(np.round(p, 4)) in present for p in co[ridge]), "every tooth vertex kept"
+        vault = sum(tuple(np.round(p, 4)) in present for p in co[deep])
+        if include:
+            assert report["palate"] and report["bar"] is None and vault == deep.sum(), (report, vault)
+        else:
+            assert not report["palate"] and report["palate_removed"], report
+            assert vault == 0, f"{vault} palate vertices left"
+            assert report["bar"] is not None, "closed by the bar, like the lower"
+            assert abs(report["height"] - settings.height) < 1e-6, "the base is the set height, not under a palate"
+    settings.include_palate = True
+    for obj in [o for o in bpy.data.objects if o.name.startswith("Barre —")] + [model_base.model_of(scene, scan), scan]:
+        bpy.data.objects.remove(obj)
+
+
 def test_bite_check():
     scene = bpy.context.scene
 
