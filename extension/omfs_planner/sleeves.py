@@ -234,14 +234,17 @@ def mega_boolean(context):
     guide.hide_set(False)
     crossed = subtract_from_cap(guide, cap) if cap is not None else []
     hollowed = hollow_for_males(context, guide)
-    report = [f"{guide.name}: {guide_workshop.apply_stack(context, guide)} opérations"]
+    skipped = []
+    report = [f"{guide.name}: {guide_workshop.apply_stack(context, guide, skipped)} opérations"]
     if hollowed:
         report.append("guide creusé pour le mâle de " + ", ".join(hollowed))
     if cap is not None and cap.modifiers:
         cap.hide_set(False)
-        report.append(f"{cap.name}: {guide_workshop.apply_stack(context, cap)} opérations")
+        report.append(f"{cap.name}: {guide_workshop.apply_stack(context, cap, skipped)} opérations")
     if crossed:
         report.append("soustraits aussi de la chape: " + ", ".join(crossed))
+    if skipped:
+        report.append("NON appliqués: " + "; ".join(skipped))
     return "; ".join(report), None
 
 
@@ -496,7 +499,7 @@ class OMFS_OT_mega_boolean(bpy.types.Operator):
         if error:
             self.report({'ERROR'}, error)
             return {'CANCELLED'}
-        self.report({'INFO'}, report)
+        self.report({'WARNING'} if "NON appliqués" in report else {'INFO'}, report)
         return {'FINISHED'}
 
 

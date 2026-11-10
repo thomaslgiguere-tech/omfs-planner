@@ -1359,6 +1359,27 @@ def test_irrigation_hole():
         bpy.data.objects.remove(obj)
 
 
+def test_apply_skips_disabled_modifiers():
+    """Mega Boolean / Apply: a Boolean whose cutter was deleted and one switched off in the view no longer
+    stop it halfway (surgeon, 2026-11-09: "Modifier is disabled, skipping apply")."""
+    scene = bpy.context.scene
+    guide = box_object("Skip guide", 'GUIDE', (0, 800, 0), (30, 10, 10))
+    gone = cylinders.add(bpy.context, 2.0, 20.0, "Skip gone", scene.collection, Matrix.Translation((5, 800, 0)))
+    off = cylinders.add(bpy.context, 2.0, 20.0, "Skip off", scene.collection, Matrix.Translation((-5, 800, 0)))
+    kept = cylinders.add(bpy.context, 2.0, 20.0, "Skip kept", scene.collection, Matrix.Translation((0, 800, 0)))
+    for cutter in (gone, off, kept):
+        sleeves.add_boolean(guide, cutter, 'DIFFERENCE')
+    bpy.data.objects.remove(gone)                                                # deleted by hand
+    guide.modifiers[f"Trou {off.name}"].show_viewport = False                    # eye closed
+    before = volume(guide)
+    skipped = []
+    assert guide_workshop.apply_stack(bpy.context, guide, skipped) == 1
+    assert len(skipped) == 2 and [m.name for m in guide.modifiers] == [f"Trou {off.name}"], skipped
+    assert volume(guide) < before - 25, "the live hole was dug (2 mm through 10 mm: about 31 mm3)"
+    for obj in (guide, off, kept):
+        bpy.data.objects.remove(obj)
+
+
 def test_applied_hole_wins_over_a_later_union():
     """Case 1 (2026-11-05): sleeve bore applied early, a pin boss united over it later filled the bore."""
     scene = bpy.context.scene

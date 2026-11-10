@@ -784,8 +784,9 @@ def apply_modifiers(context):
     obj, error = editable_active(context)
     if error:
         return error
-    apply_stack(context, obj)
-    return None
+    skipped = []
+    apply_stack(context, obj, skipped)
+    return ("Appliqué, sauf: " + "; ".join(skipped)) if skipped else None
 
 
 FITS_ON = {'BONE', 'SEGMENT', 'TEETH', 'SCAN'}   # surfaces a printed part fits on: its intrados faces them
@@ -1121,10 +1122,22 @@ def redo_differences(obj):
     return redone
 
 
-def apply_stack(context, obj):
+def operand(mod):
+    """What a Boolean modifier cuts or adds with (its object or collection), or None."""
+    return mod.collection if mod.operand_type == 'COLLECTION' else mod.object
+
+
+def apply_stack(context, obj, skipped=None):
     """Every modifier of obj applied in order (Booleans sorted first, earlier differences redone after the
-    new unions); the Boolean tools hidden, the cutters remembered. Returns the number of operations."""
+    new unions); the Boolean tools hidden, the cutters remembered. Returns the number of operations.
+    A modifier Blender will not apply is never a stop (surgeon, 2026-11-09: "Modifier is disabled" halted
+    the Mega Boolean halfway): a Boolean whose cutter was deleted is removed, one switched off in the view
+    (its eye closed) is left in the stack, untouched; their names go into `skipped`."""
+    skipped = [] if skipped is None else skipped
     make_active(context, obj)
+    for mod in [m for m in obj.modifiers if m.type == 'BOOLEAN' and operand(m) is None]:
+        skipped.append(f"{mod.name} (sans objet: retiré)")
+        obj.modifiers.remove(mod)
     redo_differences(obj)
     for mod in obj.modifiers:
         if mod.type == 'BOOLEAN':
@@ -1133,9 +1146,18 @@ def apply_stack(context, obj):
     tools = [m.object for m in obj.modifiers if m.type == 'BOOLEAN' and m.object is not None]
     dug = {m.object.name: m.name for m in obj.modifiers if m.type == 'BOOLEAN' and m.operation == 'DIFFERENCE'
            and m.object is not None and m.name != TRIM_MODIFIER}   # a trim is not a hole: never redone
-    count = len(obj.modifiers)
+    count = 0
     for mod in list(obj.modifiers):
-        bpy.ops.object.modifier_apply(modifier=mod.name)
+        if not mod.show_viewport:
+            skipped.append(f"{mod.name} (désactivé dans la vue: laissé)")
+            continue
+        try:
+            bpy.ops.object.modifier_apply(modifier=mod.name)
+            count += 1
+        except RuntimeError as error:             # e.g. a Boolean on an empty collection
+            skipped.append(f"{mod.name} ({str(error).strip().removeprefix('Error: ')}: laissé)")
+            if mod.type == 'BOOLEAN' and mod.object is not None:
+                dug.pop(mod.object.name, None)    # not dug: never to be redone
     obj[APPLIED_DIFFERENCES] = {**dict(obj.get(APPLIED_DIFFERENCES, {})), **dug}
     for tool_obj in tools:                # their job is done: out of the way, kept (Ctrl+Z, reuse)
         tool_obj.hide_set(True)
