@@ -16,3 +16,7 @@ cases/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Photos of real cases (engraved initials / IDs): never committed
+Exemples splint/
+Photos exemples/
