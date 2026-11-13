@@ -117,7 +117,16 @@ SPLINT_CAP_DEPTH = 0.8          # mm a cap (chape) reaches down onto the teeth f
 SPLINT_RESOLUTION = 0.1         # mm between the blank's vertices (the imprint is only as fine as this; scans: ~0.15)
 SPLINT_MEASURE_STEP = 1.0       # mm between the curve stations where the arch width is measured
 SPLINT_SMOOTH = 3.0             # mm: the outline is smoothed over this length along the arch
+SPLINT_BUCCAL_CLEARANCE = 0.5   # mm, splint (not the cap): beyond the most buccal crown surface (companies' splints, surgeon 2026-11-13)
+SPLINT_LINGUAL_CLEARANCE = 2.0  # mm, splint: beyond the most lingual crown surface
+SPLINT_OUTLINE_SMOOTH = 12.0    # mm, splint: the outline is an envelope smoothed over this length (round like the companies')
+SPLINT_SURFACE_SMOOTH = 6.0     # mm, splint: the top / bottom surfaces through the coverage points are smoothed over this length
+SPLINT_ARCH_BIN = 2.0           # deg: the automatic arch centre line is measured in sectors this wide, seen from the arch's middle
+SPLINT_ARCH_SMOOTH = 12.0       # deg: and smoothed over this angle
 SPLINT_CLEARANCE = 0.10         # mm between the imprint and the teeth, in every direction (walls too)
+SPLINT_END_BAND = 2.5           # mm: the splint ends at the last crown point this close to the bite (not the gingiva behind the molars)
+SPLINT_END_MARGIN = 0.5         # mm the splint's end goes past that point
+SPLINT_RIM_MIN = 0.1            # mm kept on the outline where the teeth meet: a contact hole never cuts the wall (closed mesh)
 SPLINT_EDGE_ROUND = 1.0         # mm radius of the rounded rim (top and bottom edges of the outline); 0 = sharp
 SPLINT_WIRE_HOLE_DIAMETER = 1.5 # mm: holes for the osteosynthesis wire, through the buccal flange
 SPLINT_WIRE_HOLE_TEETH_GAP = 0.5  # mm of material at least between a wire hole and the teeth (either arch)

@@ -513,7 +513,33 @@ Naming used below (matches the object roles in code):
 - Method (chosen over extracting tooth zones, which follows undercuts and makes one shell per arch):
   a blank swept along an arch curve, then the tooth imprints by projection along the insertion axis
   (no undercuts by construction, open scans are fine), 0.10 mm clearance.
-- Steps:
+- Splint (Intermédiaire / Finale), reworked (surgeon, 2026-11-13, from photos of companies' splints:
+  a smooth round U of nearly constant width, smooth walls, shallow imprints, 4.6 to 5 mm thick for a
+  final; "the chape tool is basically perfect" and stays as below):
+  1. Coverage points *(done)*: "Placer / glisser les points". One click on the **buccal surface** of the
+     teeth where the splint must stop covering them, upper and lower (a few per side, one in front);
+     click-drag a point to slide it on its tooth; Backspace removes the last. Each point is an Empty, child
+     of its arch (it follows the arch's movement). At least one upper and one lower.
+  2. Two smooth surfaces, no thickness: the top one through the upper points, the bottom one through the
+     lower points, interpolated along the arch (smoothed over 6 mm, flat past the end points), across
+     the arch perpendicular to the insertion axis (one buccal point per spot decides both sides).
+  3. Outline, automatic (no curve to click): the crowns between the two surfaces, seen along the
+     insertion axis, give a centre line (median distance in 2-degree sectors from the middle of the
+     crowns, smoothed, then moved station by station to the middle of the crowns across it, 3 passes).
+     It spans the crown points within 2.5 mm of the bite (not the gingiva behind the molars) + 0.5 mm.
+     Buccal / lingual: the crowns' envelope plus 0.5 mm buccal / 2.0 mm lingual (new defaults), a running
+     maximum then smoothing over 12 mm ("Rondeur du contour"): round like the companies', never inside
+     the clearances.
+  4. Then the block between the surfaces, the cusps hollowed out by the same imprint, rounded rim, solid,
+     wire holes and text as before. Where the teeth meet on the outline a 0.1 mm rim stays (a contact
+     hole never cuts the wall); only real holes are welded (a contact one vertex wide used to leave
+     edges shared by four faces).
+  - Test scans in their final occlusion, 7 + 7 points at 3.5 mm from the bite: blank 1.0 s, solid 0.5 s,
+    closed; width 9.4 to 15.7 mm, 124 mm long; contacts (holes) 116 mm². An end may pass the last upper
+    molar to cover a more distal lower molar.
+  - Later (surgeon): vertical grooves on the buccal wall at the segmental osteotomy lines ("espaces pour
+    segmentaire").
+- Chape (cap), unchanged. Steps:
   1. Arch curve *(done)*: type (Intermédiaire / Finale / Chape) and arches (default: those of the
      occlusion seating). "Cliquer les points": 5 to 7 clicks on the occlusal surfaces, from the last
      molar on one side to the other through the incisors; Backspace removes the last one. For a

@@ -88,13 +88,15 @@ class Flange:
 
     def __init__(self, scene, part, depsgraph):
         self.up = np.array(splint.up_axis(scene))
-        curve = splint.find_curve(scene)
-        self.points, _tangents, self.normals, _length = splint.stations(curve, depsgraph, 0.5, Vector(self.up))
-        self.depth_up, self.depth_low = splint.depths(scene)
+        line = splint.centreline(scene, depsgraph, 0.5)          # the cap's curve or the splint's automatic arch
+        if isinstance(line, str):
+            raise ValueError(line)
+        self.points, _tangents, self.normals, _length, self.above, self.below = line
+        self.depth_up, self.depth_low = float(self.above.max()), float(self.below.max())
         heights = self.points @ self.up
         verts = np.concatenate([splint.world_vertices(o) for o in splint.arches(scene)])
         h = verts @ self.up
-        band = (h > heights.min() - self.depth_low - 0.5) & (h < heights.max() + self.depth_up + 0.5)
+        band = (h > (heights - self.below).min() - 0.5) & (h < (heights + self.above).max() + 0.5)
         flat = self.flatten(verts[band])
         self.teeth = KDTree(len(flat))
         for i, v in enumerate(flat):
@@ -140,7 +142,7 @@ class Flange:
         if lateral <= 0:
             return None, "Côté lingual : les trous vont seulement dans le débord vestibulaire"
         # On the curve's height, between the splint's top and bottom faces.
-        q = p - self.up * ((p - c) @ self.up) + self.up * (self.depth_up - self.depth_low) / 2
+        q = p - self.up * ((p - c) @ self.up) + self.up * (self.above[i] - self.below[i]) / 2
         need = diameter / 2 + params.SPLINT_WIRE_HOLE_TEETH_GAP
         pushed = 0.0
         while self.teeth_distance(q) < need:
@@ -210,8 +212,9 @@ class OMFS_OT_add_wire_hole(bpy.types.Operator):
         if self.part is None:
             self.report({'ERROR'}, "Construisez d'abord la gouttière (bloc ou solide)")
             return {'CANCELLED'}
-        if splint.find_curve(context.scene) is None:
-            self.report({'ERROR'}, "La courbe d'arcade manque")
+        line = splint.centreline(context.scene, context.evaluated_depsgraph_get(), 0.5)
+        if isinstance(line, str):
+            self.report({'ERROR'}, line)
             return {'CANCELLED'}
         self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
             (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)

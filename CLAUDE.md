@@ -34,7 +34,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   occlusion_segments.py      segmental upper arch: osteotomy lines (drag, ends slid on the scan), segments
                              (copies of the scan's faces, own blocks), the surgeon's angles (torque, tip / cant,
                              rotation about the tips; typed or rings), then each only translated onto the lower
-  splint.py                  Object creator: Splint / Chape (arch curve, blank, imprints, solid, text)
+  splint.py                  Object creator: Splint (coverage points -> two surfaces, automatic round outline) /
+                             Chape (arch curve); blank, imprints, solid, text
   splint_holes.py            splint option: wire holes in the buccal flange (click, slide, click; one Boolean)
   cylinders.py               adjustable workshop cylinders (diameter, length) + their drag handles
   screws.py                  bicortical screws: two clicks on the bone (entry, exit), exact lengths,

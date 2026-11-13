@@ -1,6 +1,14 @@
 """Object creator: Splint / Chape. Intermediate or final occlusal splint, or a single-arch cap.
 
-Built in steps (docs/workflow.md, "Object creator"):
+Splint (surgeon, 2026-11-13, to look like the companies' splints): no curve to click. One point per spot
+on the buccal surface of the upper teeth marks how far up the splint covers them there, the same on
+the lower teeth; through those points run two smooth surfaces (top, bottom), interpolated along the arch,
+across it perpendicular to the insertion axis. The outline is computed: an automatic, smooth centre line
+of the crowns, and a buccal / lingual envelope of the crowns plus the clearances (0.5 / 2.0 mm), smoothed
+over a long stretch so the arch is round. The block between the surfaces then has its cusps hollowed out
+(the imprint, as before).
+
+Cap (chape), unchanged. Built in steps (docs/workflow.md, "Object creator"):
 1. Arch curve: points clicked on the arches, joined by a smooth curve (done).
 2. Parametric blank swept along the curve, as wide as the crowns plus margins, ending with the curve (done).
 3. Tooth imprints by projection onto the arches along the insertion axis, 0.10 mm clearance (done).
@@ -23,7 +31,7 @@ import numpy as np
 from bpy_extras import view3d_utils
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 from gpu_extras.batch import batch_for_shader
-from mathutils import Vector
+from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
 from . import landmarks, locking, params, reference_frame, text_labels
@@ -236,6 +244,197 @@ def curve_length(obj):
     return obj.data.splines[0].calc_length()
 
 
+# --- Splint: coverage points and the automatic arch --------------------------------------------
+
+POINT_TAG = "splint point"      # made_by of a coverage point (an Empty on its arch's buccal surface)
+POINT_SIZE = 0.6
+
+
+def coverage_points(scene, side=None):
+    """Coverage points, 'U' (upper teeth) and 'L' (lower teeth), in the order placed."""
+    found = [o for o in scene.objects if o.omfs.made_by == POINT_TAG and (side is None or o.omfs.landmark[4] == side)]
+    return sorted(found, key=lambda o: int(o.omfs.landmark[5:]))
+
+
+def add_coverage_point(scene, arch, location, side):
+    """A point on the buccal surface of an arch's teeth: the splint covers them up to there. It moves
+    with its arch (child of the scan), never on its own."""
+    number = max((int(o.omfs.landmark[5:]) for o in coverage_points(scene)), default=0) + 1
+    obj = bpy.data.objects.new(f"Couverture {'haut' if side == 'U' else 'bas'} {number}", None)
+    splint_collection(scene).objects.link(obj)
+    obj.empty_display_type = 'SPHERE'
+    obj.empty_display_size = POINT_SIZE
+    obj.show_in_front = True
+    obj.omfs.role = 'MARKER'
+    obj.omfs.made_by = POINT_TAG
+    obj.omfs.landmark = f"SPL_{side}{number}"
+    obj.parent = arch
+    obj.matrix_parent_inverse = arch.matrix_world.inverted()
+    obj.matrix_world = Matrix.Translation(location)
+    locking.set_locked(obj, True)
+    return obj
+
+
+def plane_axes(up):
+    """Two unit vectors across the insertion axis."""
+    u = Vector(up).orthogonal().normalized()
+    return np.array(u), np.array(Vector(up).cross(u).normalized())
+
+
+def gaussian(values, sigma):
+    """Gaussian smoothing of a 1D array (edges held), sigma in samples."""
+    if sigma < 0.5 or len(values) < 3:
+        return values
+    half = int(3 * sigma)
+    kernel = np.exp(-0.5 * (np.arange(-half, half + 1) / sigma) ** 2)
+    kernel /= kernel.sum()
+    return np.convolve(np.pad(values, half, mode='edge'), kernel, mode='valid')
+
+
+def resample(line, step):
+    """2D polyline resampled every `step` mm."""
+    s = np.concatenate(([0.0], np.cumsum(np.linalg.norm(np.diff(line, axis=0), axis=1))))
+    at = np.linspace(0.0, s[-1], max(3, int(round(s[-1] / step)) + 1))
+    return np.stack([np.interp(at, s, line[:, i]) for i in range(2)], axis=1)
+
+
+def centre_on_crowns(line, flat, tips, step, rounds=3):
+    """2D centre line moved, station by station, to the middle of the crowns across it (seen from above),
+    smoothed, then cut or carried along its end tangents to span the crown points near the bite (`tips`)."""
+    line = resample(line, step)
+    for _ in range(rounds):
+        tangents = np.gradient(line, axis=0)
+        tangents /= np.linalg.norm(tangents, axis=1)[:, None]
+        normals = np.stack((-tangents[:, 1], tangents[:, 0]), 1)
+        nearest = np.empty(len(flat), int)
+        sq = (line ** 2).sum(1)
+        for chunk in np.array_split(np.arange(len(flat)), max(1, len(flat) // 20000)):
+            nearest[chunk] = np.argmin((flat[chunk] ** 2).sum(1)[:, None] - 2 * flat[chunk] @ line.T + sq[None, :], axis=1)
+        rel = flat - line[nearest]
+        lateral = np.einsum('ij,ij->i', rel, normals[nearest])
+        low, high = np.full(len(line), np.inf), np.full(len(line), -np.inf)
+        np.minimum.at(low, nearest, lateral)
+        np.maximum.at(high, nearest, lateral)
+        seen = np.isfinite(low)
+        shift = np.where(seen, (low + high) / 2, np.nan)
+        shift = np.interp(np.arange(len(line)), np.flatnonzero(seen), shift[seen]) if seen.any() else np.zeros(len(line))
+        line = line + normals * gaussian(shift, 3.0)[:, None]
+        line = resample(line, step)
+    # The ends: from the first to the last crown point near the bite (the teeth, not the gingiva behind
+    # the last molar, lower down), plus a small margin; the line is carried along its end tangents.
+    t0, t1 = line[0] - line[1], line[-1] - line[-2]
+    t0, t1 = t0 / np.linalg.norm(t0), t1 / np.linalg.norm(t1)
+    reach = 30.0
+    longer = resample(np.vstack((line[0] + t0 * reach, line, line[-1] + t1 * reach)), step / 2)
+    arc = np.concatenate(([0.0], np.cumsum(np.linalg.norm(np.diff(longer, axis=0), axis=1))))
+    tangents = np.gradient(longer, axis=0)
+    tangents /= np.linalg.norm(tangents, axis=1)[:, None]
+    sq = (longer ** 2).sum(1)
+    near = np.argmin((tips ** 2).sum(1)[:, None] - 2 * tips @ longer.T + sq[None, :], axis=1)
+    where = arc[near] + np.einsum('ij,ij->i', tips - longer[near], tangents[near])
+    start, stop = where.min() - params.SPLINT_END_MARGIN, where.max() + params.SPLINT_END_MARGIN
+    at = np.linspace(start, stop, max(3, int(round((stop - start) / step)) + 1))
+    line = np.stack([np.interp(at, arc, longer[:, i]) for i in range(2)], axis=1)
+    return resample(line, step)
+
+
+_auto = {}
+
+
+def auto_centreline(scene, step):
+    """The splint's centre line and its two surfaces, from the coverage points: (points at mid-height,
+    tangents, buccal normals, length, depth above, depth below per station), or an error message.
+    Seen along the insertion axis from the middle of the crowns, the crowns between the two surfaces are
+    measured in sectors (median distance), smoothed: a round arch, from one end of the teeth to the other."""
+    upper, lower = upper_arch(scene), lower_arch(scene)
+    tops, bottoms = coverage_points(scene, 'U'), coverage_points(scene, 'L')
+    if upper is None or lower is None:
+        return "Choisissez les deux arcades"
+    if not tops or not bottoms:
+        return "Placez au moins un point de couverture sur les dents du haut et un sur celles du bas"
+    up = np.array(up_axis(scene))
+    top_at = np.array([tuple(o.matrix_world.translation) for o in tops])
+    bottom_at = np.array([tuple(o.matrix_world.translation) for o in bottoms])
+    key = (repr(np.round(top_at, 4).tolist()), repr(np.round(bottom_at, 4).tolist()), upper.name, lower.name,
+           repr([tuple(map(tuple, o.matrix_world)) for o in (upper, lower)]), step, tuple(np.round(up, 6)))
+    if key in _auto:
+        return _auto[key]
+    hi, lo = (top_at @ up).max(), (bottom_at @ up).min()
+    if hi <= lo:
+        return "Les points du haut doivent être plus hauts que ceux du bas"
+    verts = np.concatenate([world_vertices(upper), world_vertices(lower)])
+    h = verts @ up
+    crowns = verts[(h > lo) & (h < hi)]
+    if len(crowns) < 50:
+        return "Aucune dent entre les points du haut et du bas"
+    u, v = plane_axes(up)
+    flat = np.stack((crowns @ u, crowns @ v), 1)
+    middle = flat.mean(0)
+    rel = flat - middle
+    theta, r = np.arctan2(rel[:, 1], rel[:, 0]), np.linalg.norm(rel, axis=1)
+    order = np.sort(theta)
+    gaps = np.diff(np.concatenate((order, [order[0] + 2 * np.pi])))
+    start = order[(np.argmax(gaps) + 1) % len(order)]        # the arch's opening is the widest empty sector
+    t = (theta - start) % (2 * np.pi)
+    span = t.max()
+    width = np.radians(params.SPLINT_ARCH_BIN)
+    bins = max(3, int(np.ceil(span / width)) + 1)
+    index = np.minimum((t / span * (bins - 1)).round().astype(int), bins - 1)
+    radius = np.full(bins, np.nan)
+    for b in np.unique(index):
+        radius[b] = np.median(r[index == b])
+    known = ~np.isnan(radius)
+    radius = np.interp(np.arange(bins), np.flatnonzero(known), radius[known])
+    radius = gaussian(radius, params.SPLINT_ARCH_SMOOTH / params.SPLINT_ARCH_BIN)
+    angles = start + np.linspace(0.0, span, bins)
+    line2 = middle + radius[:, None] * np.stack((np.cos(angles), np.sin(angles)), 1)
+    bite = crowns @ up
+    near_bite = np.abs(bite - (hi + lo) / 2) < params.SPLINT_END_BAND     # crowns at the occlusal level
+    line2 = centre_on_crowns(line2, flat, flat[near_bite] if near_bite.sum() > 10 else flat, step)
+    line = np.outer(line2[:, 0], u) + np.outer(line2[:, 1], v)          # on the plane through the origin
+    s = np.concatenate(([0.0], np.cumsum(np.linalg.norm(np.diff(line, axis=0), axis=1))))
+    length = s[-1]
+    at = np.linspace(0.0, length, max(2, int(round(length / step)) + 1))
+    points = np.stack([np.interp(at, s, line[:, i]) for i in range(3)], axis=1)
+    tangents = np.gradient(points, axis=0)
+    tangents /= np.linalg.norm(tangents, axis=1)[:, None]
+    normals = np.cross(tangents, up)
+    if np.mean(np.einsum('ij,ij->i', normals, points - points.mean(axis=0))) < 0:
+        normals = -normals                                  # buccal = away from the inside of the arch
+
+    def surface(at_points):
+        """Height of a surface through the points, at each station (smooth along the arch, flat past the ends)."""
+        flat_points = at_points - np.outer(at_points @ up, up)
+        where = np.array([at[np.argmin(np.linalg.norm(points - p, axis=1))] for p in flat_points])
+        heights = at_points @ up
+        order = np.argsort(where)
+        line_h = np.interp(at, where[order], heights[order])
+        return gaussian(line_h, params.SPLINT_SURFACE_SMOOTH / step / 2)
+
+    top, bottom = surface(top_at), surface(bottom_at)
+    if (top <= bottom).any():
+        return "Les surfaces se croisent: les points du haut doivent rester au-dessus de ceux du bas"
+    mid = (top + bottom) / 2
+    result = (points + np.outer(mid, up), tangents, normals, length, top - mid, mid - bottom)
+    _auto.clear()
+    _auto[key] = result
+    return result
+
+
+def centreline(scene, depsgraph, step):
+    """(points, tangents, buccal normals, length, depth above, depth below per station) of the blank, or an
+    error message: the splint's automatic arch, or the cap's clicked curve with its constant depths."""
+    if scene.omfs_splint.kind != 'CHAPE':
+        return auto_centreline(scene, step)
+    curve = find_curve(scene)
+    if curve is None or len(curve_points(curve)) < 2:
+        return "Cliquez d'abord la courbe d'arcade (2 points au moins)"
+    up = up_axis(scene)
+    points, tangents, normals, length = stations(curve, depsgraph, step, up)
+    depth_up, depth_low = depths(scene)
+    return points, tangents, normals, length, np.full(len(points), depth_up), np.full(len(points), depth_low)
+
+
 # --- Blank ----------------------------------------------------------------------------------
 #
 # The blank is a closed slab following the arch curve: as wide as the crowns at each station
@@ -303,9 +502,10 @@ def measure(scene, points, tangents, normals, up, depth_up, depth_low, step):
     """Crown extents at each station: (lingual, buccal) in mm from the curve. Only the crown band the
     splint will cover is measured (no palate, no gingiva below it)."""
     up = np.array(up)
+    depth_up, depth_low = np.broadcast_to(depth_up, len(points)), np.broadcast_to(depth_low, len(points))
     verts = np.concatenate([world_vertices(o) for o in arches(scene)])
     heights = verts @ up
-    band = (heights > (points @ up).min() - depth_low) & (heights < (points @ up).max() + depth_up)
+    band = (heights > (points @ up - depth_low).min()) & (heights < (points @ up + depth_up).max())
     verts = verts[band]
     lingual = np.full(len(points), np.nan)
     buccal = np.full(len(points), np.nan)
@@ -318,7 +518,7 @@ def measure(scene, points, tangents, normals, up, depth_up, depth_low, step):
         along = np.einsum('ij,ij->i', rel, tangents[nearest])
         h = rel @ up
         lat = np.einsum('ij,ij->i', rel, normals[nearest])
-        ok = (np.abs(along) <= 0.75 * step) & (h <= depth_up) & (h >= -depth_low)
+        ok = (np.abs(along) <= 0.75 * step) & (h <= depth_up[nearest]) & (h >= -depth_low[nearest])
         idx, l = nearest[ok], lat[ok]
         b_now = np.full(len(points), -np.inf)
         l_now = np.full(len(points), -np.inf)
@@ -414,12 +614,12 @@ def dilate(heights, gap, radius, row_step, col_steps):
 def imprint(scene, base, up, depth_up, depth_low, depsgraph, row_step, col_steps):
     """Heights of the top and bottom faces above each base point (rows x cols grid on the curve's
     surface), pressed onto the teeth with the clearance, and the mask of the points where the two
-    arches leave no room (holes)."""
+    arches leave no room (holes). depth_up / depth_low: per base point (the splint's surfaces vary)."""
     props = scene.omfs_splint
     rows, cols = len(col_steps), len(base) // len(col_steps)
     radius = max(props.clearance, props.resolution)     # a step off a wall lands at least one column out
-    top = np.full(len(base), depth_up)
-    bottom = np.full(len(base), -depth_low)
+    top = np.array(depth_up, float)
+    bottom = -np.array(depth_low, float)
     for arch, face in imprint_faces(scene):
         side = 1.0 if face == 'TOP' else -1.0          # the upper arch is met going up
         dist = first_hits(arch, base - side * CENTRE_REACH * up, side * up, depsgraph)
@@ -440,7 +640,7 @@ def round_edges(top, bottom, contact, depth_up, depth_low, radius, rows_s, f, wi
     """Rounded rim: near the outline (lingual and buccal sides, both ends) the flat top comes down and
     the flat bottom comes up along a quarter circle of this radius, meeting the vertical wall
     tangentially. Imprints deeper than that are kept. The radius is capped below half the thickness."""
-    radius = min(radius, 0.45 * (depth_up + depth_low))
+    radius = np.minimum(radius, 0.45 * (depth_up + depth_low))     # per point (the splint's thickness varies)
     across = np.minimum(f[None, :], 1.0 - f[None, :]) * widths[:, None]        # mm to the nearer side wall
     along = np.minimum(rows_s, rows_s[-1] - rows_s)[:, None]                    # mm to the nearer end
     u = np.minimum(across, along).ravel()
@@ -457,34 +657,41 @@ def curve_key(obj):
 
 
 def blank_key(scene):
-    return repr((curve_key(find_curve(scene)), [o.name for o in arches(scene)],
-                 [tuple(map(tuple, o.matrix_world)) for o in arches(scene)],
-                 [round(d, 3) for d in depths(scene)]))
+    if scene.omfs_splint.kind != 'CHAPE':   # the splint: its coverage points (they move with their arch)
+        where = [tuple(round(c, 4) for c in o.matrix_world.translation) for o in coverage_points(scene)]
+    else:
+        where = [curve_key(find_curve(scene)), [round(d, 3) for d in depths(scene)]]
+    return repr((scene.omfs_splint.kind == 'CHAPE', where, [o.name for o in arches(scene)],
+                 [tuple(map(tuple, o.matrix_world)) for o in arches(scene)]))
 
 
 def blank_data(scene, depsgraph):
     """Vertices, faces, and the top / bottom vertex indices of the blank, or an error message."""
     props = scene.omfs_splint
-    curve = find_curve(scene)
-    if curve is None or len(curve_points(curve)) < 2:
-        return "Cliquez d'abord la courbe d'arcade (2 points au moins)"
     if not arches(scene):
         return "Choisissez les arcades"
     up = up_axis(scene)
     step = params.SPLINT_MEASURE_STEP
-    points, tangents, normals, length = stations(curve, depsgraph, step, up)
-    depth_up, depth_low = depths(scene)
+    line = centreline(scene, depsgraph, step)
+    if isinstance(line, str):
+        return line
+    points, tangents, normals, length, depth_up, depth_low = line
     key = blank_key(scene)
     if key not in _measures:
         _measures.clear()
         _measures[key] = measure(scene, points, tangents, normals, up, depth_up, depth_low, step)
     measured = _measures[key]
     if measured is None:
-        return "Aucune dent trouvée le long de la courbe: vérifiez les arcades et la profondeur"
+        return "Aucune dent trouvée le long de l'arcade: vérifiez les arcades et les points"
     lingual, buccal = measured
-    window = int(round(params.SPLINT_SMOOTH / step))
-    lingual = smooth(lingual, window) + props.lingual_margin
-    buccal = smooth(buccal, window) + props.buccal_margin
+    if props.kind == 'CHAPE':
+        window = int(round(params.SPLINT_SMOOTH / step))
+        lingual = smooth(lingual, window) + props.lingual_margin
+        buccal = smooth(buccal, window) + props.buccal_margin
+    else:   # a round envelope: never inside the clearance, smoothed over a long stretch
+        window = int(round(props.outline_smooth / step))
+        lingual = gaussian(smooth(lingual, window), window / 4) + props.splint_lingual_margin
+        buccal = gaussian(smooth(buccal, window), window / 4) + props.splint_buccal_margin
 
     # Rows every `resolution` mm, from one end of the curve to the other.
     res = props.resolution
@@ -495,6 +702,8 @@ def blank_data(scene, depsgraph):
     n /= np.linalg.norm(n, axis=1)[:, None]
     lin = np.interp(rows_s, station_s, lingual)
     buc = np.interp(rows_s, station_s, buccal)
+    above = np.interp(rows_s, station_s, depth_up)
+    below = np.interp(rows_s, station_s, depth_low)
 
     cols = int(np.ceil((lin + buc).max() / res))
     f = np.linspace(0.0, 1.0, cols + 1)
@@ -503,18 +712,25 @@ def blank_data(scene, depsgraph):
     grid = left[:, None, :] + (right - left)[:, None, :] * f[None, :, None]   # rows x cols x 3
     up = np.array(up)
     base = grid.reshape(-1, 3)
-    top_h = np.full(len(base), depth_up)
-    bottom_h = np.full(len(base), -depth_low)
+    above, below = np.repeat(above, cols + 1), np.repeat(below, cols + 1)   # per base point
+    top_h, bottom_h = above.copy(), -below
     contact = np.zeros(len(base), bool)
     if props.imprint:
-        top_h, bottom_h, contact = imprint(scene, base, up, depth_up, depth_low, depsgraph,
+        top_h, bottom_h, contact = imprint(scene, base, up, above, below, depsgraph,
                                            length / (len(rows_s) - 1), (lin + buc) / cols)
     if props.edge_round > 0:
-        top_h, bottom_h, contact = round_edges(top_h, bottom_h, contact, depth_up, depth_low, props.edge_round,
+        top_h, bottom_h, contact = round_edges(top_h, bottom_h, contact, above, below, props.edge_round,
                                                rows_s, f, lin + buc)
+    rows, w = len(rows_s), cols + 1
+    rim = np.zeros((rows, w), bool)                              # the outline: walls and end caps
+    rim[[0, -1], :] = rim[:, [0, -1]] = True
+    rim = rim.ravel() & contact                                  # teeth meeting on the outline: a thin rim
+    middle = (top_h + bottom_h) / 2                              # stays, so the hole never opens the wall
+    top_h = np.where(rim, middle + params.SPLINT_RIM_MIN / 2, top_h)
+    bottom_h = np.where(rim, middle - params.SPLINT_RIM_MIN / 2, bottom_h)
+    contact = contact & ~rim
     verts = np.concatenate([base + up * top_h[:, None], base + up * bottom_h[:, None]])
 
-    rows, w = len(rows_s), cols + 1
     idx = np.arange(rows * w).reshape(rows, w)
     bot = idx + rows * w
     a, b, cc, d = idx[:-1, :-1], idx[:-1, 1:], idx[1:, 1:], idx[1:, :-1]
@@ -615,9 +831,13 @@ def contact_holes(mesh):
     bm.verts.ensure_lookup_table()
     inside = [f for f in bm.faces if all(touch[v.index % n] for v in f.verts)
               and len({v.index < n for v in f.verts}) == 1]          # top or bottom grid, not a wall
+    # Only the rims of real holes are welded: a contact one vertex wide (no face of it fully touching) is
+    # left as two coincident vertices, or welding would join four faces on one edge.
+    rims = {v.index % n for f in inside for v in f.verts}
     bmesh.ops.delete(bm, geom=inside, context='FACES_ONLY')
-    weld = {bm.verts[i + n]: bm.verts[i] for i in np.nonzero(touch)[0]}
+    weld = {bm.verts[i + n]: bm.verts[i] for i in sorted(rims)}
     bmesh.ops.weld_verts(bm, targetmap=weld)
+    bmesh.ops.delete(bm, geom=[e for e in bm.edges if not e.link_faces], context='EDGES')
     loose = [v for v in bm.verts if not v.link_faces]
     bmesh.ops.delete(bm, geom=loose, context='VERTS')
     bm.to_mesh(mesh)
@@ -645,7 +865,7 @@ def solidify(scene):
     if blank is None:
         return "Construisez d'abord le bloc"
     if blank_stale(scene, blank):
-        return "La courbe ou les arcades ont changé: mettez le bloc à jour d'abord"
+        return "Les points, la courbe ou les arcades ont changé: mettez le bloc à jour d'abord"
     label = dict((k, name) for k, name, _d in KINDS)[scene.omfs_splint.kind]
     obj = blank.copy()                  # copies the modifiers too (text put on the blank)
     obj.data = blank.data.copy()
@@ -713,6 +933,19 @@ class OMFS_SplintProperties(bpy.types.PropertyGroup):
     lingual_margin: bpy.props.FloatProperty(
         name="Lingual", subtype='DISTANCE', default=params.SPLINT_LINGUAL_MARGIN, min=0.0, soft_max=10.0,
         step=10, update=_on_blank_param, description="Débord au-delà de la face linguale / palatine des couronnes")
+    splint_buccal_margin: bpy.props.FloatProperty(
+        name="Vestibulaire", subtype='DISTANCE', default=params.SPLINT_BUCCAL_CLEARANCE, min=0.0, soft_max=10.0,
+        step=10, update=_on_blank_param,
+        description="Gouttière: débord au-delà de la face vestibulaire des couronnes (enveloppe lissée)")
+    splint_lingual_margin: bpy.props.FloatProperty(
+        name="Lingual", subtype='DISTANCE', default=params.SPLINT_LINGUAL_CLEARANCE, min=0.0, soft_max=10.0,
+        step=10, update=_on_blank_param,
+        description="Gouttière: débord au-delà de la face linguale / palatine des couronnes (enveloppe lissée)")
+    outline_smooth: bpy.props.FloatProperty(
+        name="Rondeur du contour", subtype='DISTANCE', default=params.SPLINT_OUTLINE_SMOOTH, min=1.0, soft_max=30.0,
+        step=100, precision=0, update=_on_blank_param,
+        description="Le contour enveloppe les couronnes, lissé sur cette longueur d'arcade: plus long = plus rond "
+                    "(jamais à l'intérieur des débords)")
     depth_up: bpy.props.FloatProperty(
         name="Haut", subtype='DISTANCE', default=params.SPLINT_DEPTH, min=0.5, soft_max=8.0, step=10,
         update=_on_blank_param,
@@ -748,6 +981,122 @@ class OMFS_SplintProperties(bpy.types.PropertyGroup):
     centre: bpy.props.BoolProperty(
         name="Centrer entre les arcades", default=True,
         description="Chaque point cliqué est placé à mi-hauteur entre les faces occlusales du haut et du bas")
+
+
+def arch_under_mouse(context, region, mouse):
+    """(arch, side 'U' / 'L', world point) of the nearest of the two arches under the mouse, or None."""
+    scene = context.scene
+    origin = view3d_utils.region_2d_to_origin_3d(region, region.data, mouse)
+    direction = view3d_utils.region_2d_to_vector_3d(region, region.data, mouse)
+    depsgraph = context.evaluated_depsgraph_get()
+    hits = [(arch, side, ray_hit(arch, origin, direction, depsgraph))
+            for arch, side in ((upper_arch(scene), 'U'), (lower_arch(scene), 'L')) if arch is not None]
+    hits = [h for h in hits if h[2] is not None]
+    return min(hits, key=lambda h: (h[2] - origin).length) if hits else None
+
+
+class OMFS_OT_splint_points(bpy.types.Operator):
+    """Click on the buccal surface of the teeth where the splint must stop covering them, upper and lower
+    (a few per side and one in front). Click and drag an existing point to slide it on its tooth.
+    Backspace: remove the last one. Right-click or Enter: done"""
+    bl_idname = "omfs.splint_points"
+    bl_label = "Placer / glisser les points"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def invoke(self, context, event):
+        scene = context.scene
+        if upper_arch(scene) is None or lower_arch(scene) is None:
+            self.report({'ERROR'}, "Choisissez d'abord les deux arcades")
+            return {'CANCELLED'}
+        self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
+            (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
+        if self.area is None:
+            return {'CANCELLED'}
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        self.dragging = None
+        self.header(context)
+        context.window.cursor_modal_set('CROSSHAIR')
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def header(self, context):
+        up, low = len(coverage_points(context.scene, 'U')), len(coverage_points(context.scene, 'L'))
+        self.area.header_text_set(f"Couverture: cliquez sur la face vestibulaire des dents, jusqu'où la gouttière "
+                                  f"les recouvre (haut {up}, bas {low}); cliquez-glissez un point pour l'ajuster   |   "
+                                  "Retour arrière: retirer le dernier   |   Clic droit / Entrée: terminer")
+
+    def finish(self, context):
+        self.area.header_text_set(None)
+        context.window.cursor_modal_restore()
+        return {'FINISHED'}
+
+    def rebuild(self, context):
+        if find_blank(context.scene) is not None:
+            build_blank(context.scene, context.evaluated_depsgraph_get())
+
+    def nearest_point(self, context, region, mouse):
+        best, best_d = None, 20.0                           # pixels
+        for obj in coverage_points(context.scene):
+            p = location_3d_to_region_2d(region, region.data, obj.matrix_world.translation)
+            if p is not None and (p - Vector(mouse)).length < best_d:
+                best, best_d = obj, (p - Vector(mouse)).length
+        return best
+
+    def modal(self, context, event):
+        scene = context.scene
+        if event.value == 'PRESS' and event.type in {'RIGHTMOUSE', 'RET', 'NUMPAD_ENTER', 'ESC'}:
+            return self.finish(context)
+        if event.value == 'PRESS' and event.type == 'BACK_SPACE':
+            placed = coverage_points(scene)
+            if placed:
+                bpy.data.objects.remove(max(placed, key=lambda o: int(o.omfs.landmark[5:])))
+                self.rebuild(context)
+            self.header(context)
+            return {'RUNNING_MODAL'}
+        under_mouse = landmarks.viewport_region_under_mouse(self.area, event)
+        if event.type == 'MOUSEMOVE' and self.dragging is not None and under_mouse is not None:
+            hit = arch_under_mouse(context, *under_mouse)
+            if hit is not None and hit[0] is self.dragging.parent:   # slides on its own arch
+                self.dragging.matrix_world = Matrix.Translation(hit[2])
+                self.area.tag_redraw()
+            return {'RUNNING_MODAL'}
+        if event.type == 'LEFTMOUSE' and event.value == 'RELEASE' and self.dragging is not None:
+            self.dragging = None
+            self.rebuild(context)
+            return {'RUNNING_MODAL'}
+        if event.type != 'LEFTMOUSE' or event.value != 'PRESS' or under_mouse is None:
+            return {'PASS_THROUGH'}   # orbit, pan and zoom keep working
+        self.dragging = self.nearest_point(context, *under_mouse)
+        if self.dragging is not None:
+            return {'RUNNING_MODAL'}
+        hit = arch_under_mouse(context, *under_mouse)
+        if hit is None:
+            self.report({'WARNING'}, "Cliquez sur une arcade")
+            return {'RUNNING_MODAL'}
+        arch, side, location = hit
+        add_coverage_point(scene, arch, location, side)
+        self.rebuild(context)
+        self.header(context)
+        self.area.tag_redraw()
+        return {'RUNNING_MODAL'}
+
+
+class OMFS_OT_remove_splint_point(bpy.types.Operator):
+    """Remove this coverage point (empty name: all of them)"""
+    bl_idname = "omfs.remove_splint_point"
+    bl_label = "Retirer le point"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        for obj in coverage_points(context.scene):
+            if not self.name or obj.name == self.name:
+                bpy.data.objects.remove(obj)
+        if find_blank(context.scene) is not None and coverage_points(context.scene):
+            build_blank(context.scene, context.evaluated_depsgraph_get())
+        return {'FINISHED'}
 
 
 class OMFS_OT_arch_curve_click(bpy.types.Operator):
@@ -809,8 +1158,8 @@ class OMFS_OT_arch_curve_click(bpy.types.Operator):
 
 
 class OMFS_OT_build_blank(bpy.types.Operator):
-    """Build (or update) the splint blank along the arch curve: crown width plus the margins,
-    from the depth above to the depth below the middle of the bite"""
+    """Build (or update) the blank: a splint between the surfaces through its coverage points, a cap along
+    its arch curve; crown width plus the margins"""
     bl_idname = "omfs.build_splint_blank"
     bl_label = "Construire le bloc"
     bl_options = {'REGISTER', 'UNDO'}
@@ -980,7 +1329,7 @@ def _draw_numbers():
 
 _draw_handles = []
 
-classes = (OMFS_SplintProperties, OMFS_OT_arch_curve_click, OMFS_OT_arch_curve_undo,
+classes = (OMFS_SplintProperties, OMFS_OT_splint_points, OMFS_OT_remove_splint_point, OMFS_OT_arch_curve_click, OMFS_OT_arch_curve_undo,
            OMFS_OT_arch_curve_clear, OMFS_OT_arch_curve_edit, OMFS_OT_build_blank, OMFS_OT_solidify_splint,
            OMFS_OT_show_blank, OMFS_OT_check_splint)
 

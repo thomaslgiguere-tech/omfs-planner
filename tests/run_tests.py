@@ -1840,20 +1840,31 @@ def tube_scan(name, z):
     return obj
 
 
+def cover(scene, upper, lower, top=12.0, bottom=6.0, angles=(20, 90, 160)):
+    """Splint coverage points on the tubes' buccal side: the top surface at `top`, the bottom at `bottom`."""
+    for obj in splint.coverage_points(scene):
+        bpy.data.objects.remove(obj)
+    for a in angles:
+        u = radians(a)
+        for arch, z, side in ((upper, top, 'U'), (lower, bottom, 'L')):
+            splint.add_coverage_point(scene, arch, Vector((50 * np.cos(u), 500 + 50 * np.sin(u), z)), side)
+    bpy.context.view_layer.update()
+
+
 def test_splint_blank():
     scene = bpy.context.scene
     reference_frame.build(scene, FRAME_POINTS)       # up = world Z
     lower, upper = tube_scan("Lower tube", 0), tube_scan("Upper tube", 18)   # 2 mm gap: bite at z = 9
     bpy.context.view_layer.update()
     props = scene.omfs_splint
-    props.kind, props.upper, props.lower, props.centre = 'FINAL', upper, lower, True
+    props.kind, props.upper, props.lower = 'FINAL', upper, lower
     props.edge_round = 0.0                           # sharp: flat faces measured exactly (rim tested below)
     bpy.ops.omfs.arch_curve_clear()
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    for a in (10, 50, 90, 130, 170):
-        u = radians(a)
-        splint.add_point(scene, Vector((45 * np.cos(u), 500 + 45 * np.sin(u), 8)), depsgraph)
-    assert all(abs(p.z - 9) < 1e-3 for p in splint.curve_points(splint.find_curve(scene)))
+    assert "point" in splint.build_blank(scene, depsgraph), "no coverage point yet: refused"
+    cover(scene, upper, lower)                       # covers the upper teeth up to z 12, the lower down to 6
+    points = splint.coverage_points(scene)
+    assert len(points) == 6 and points[0].parent is upper and all(p.omfs.role == 'MARKER' for p in points)
 
     blank = splint.build_blank(scene, depsgraph)
     assert not isinstance(blank, str), blank
@@ -1862,22 +1873,35 @@ def test_splint_blank():
     bm.from_mesh(mesh)
     assert all(e.is_manifold for e in bm.edges) and bm.calc_volume() > 0, "closed, outward normals"
     bm.free()
-    # Crown band: 3 mm on each side of the bite (z 6 to 12). The 16-sided tubes have a vertex ring at
-    # 67.5 degrees in that band (z 7.4), 5 * cos(67.5) = 1.91 mm off their axis: plus the 1.5 mm margins.
+    # Crown band z 6 to 12. The 16-sided tubes have a vertex ring at 67.5 degrees in that band (z 7.4),
+    # 5 * cos(67.5) = 1.91 mm off their axis: plus the splint's clearances, 0.5 buccal and 2.0 lingual.
     info = splint.blank_info(blank)
-    expected = 2 * (5 * np.cos(radians(67.5)) + 1.5)
-    assert abs(info["width_max"] - expected) < 0.4 and abs(info["width_min"] - expected) < 0.6, info
-    top = [v.co.z for v in mesh.vertices if v.index in set(range(len(mesh.vertices) // 2))]
-    assert abs(min(top) - 12) < 1e-3 and abs(max(top) - 12) < 1e-3, "top = bite + 3 mm"
-    curve_length = splint.curve_length(splint.find_curve(scene))
-    assert abs(info["length"] - curve_length) < 0.5, "the blank stops at the ends of the curve"
+    expected = 2 * 5 * np.cos(radians(67.5)) + params.SPLINT_BUCCAL_CLEARANCE + params.SPLINT_LINGUAL_CLEARANCE
+    assert abs(info["width_min"] - expected) < 0.3 and info["width_max"] < expected + 0.8, (info, expected)   # max: the tube's open ends
+    n = len(mesh.vertices) // 2
+    z = np.array([v.co.z for v in mesh.vertices])
+    assert np.allclose(z[:n], 12, atol=1e-3) and np.allclose(z[n:], 6, atol=1e-3), "the surfaces through the points"
+    assert 125 < info["length"] < 150, f"an automatic arch, end to end of the half torus (141 mm): {info['length']}"
+    line = splint.centreline(scene, depsgraph, 1.0)
+    r = np.hypot(line[0][:, 0], line[0][:, 1] - 500)
+    assert np.abs(r[5:-5] - 45).max() < 1.5, "the centre line runs in the middle of the crowns"
 
-    props.buccal_margin = 4.0                        # segmental: only the buccal side grows, live
-    assert abs(splint.blank_info(blank)["width_max"] - (expected + 2.5)) < 0.4
+    props.splint_buccal_margin = 4.0                 # only the buccal side grows, live
+    assert abs(splint.blank_info(blank)["width_min"] - (expected + 3.5)) < 0.3
     assert not splint.blank_stale(scene, blank)
-    splint.add_point(scene, Vector((45, 500, 8)), depsgraph)
-    assert splint.blank_stale(scene, blank), "a changed curve asks for an update"
-    props.kind, props.cap_arch = 'CHAPE', lower      # a cap: points on the lower occlusal surface (z = 8)
+    up = splint.coverage_points(scene, 'U')[1]       # the front upper point raised 2 mm: a surface, not a slab
+    up.matrix_world = Matrix.Translation(up.matrix_world.translation + Vector((0, 0, 2)))
+    bpy.context.view_layer.update()
+    assert splint.blank_stale(scene, blank), "a moved point asks for an update"
+    splint.build_blank(scene, depsgraph)
+    co = np.array([tuple(v.co) for v in blank.data.vertices])[:n if len(blank.data.vertices) // 2 == n else None]
+    top = np.array([tuple(v.co) for v in blank.data.vertices])[:len(blank.data.vertices) // 2]
+    front = top[top[:, 1] > 540][:, 2].max()
+    side = top[top[:, 1] < 510][:, 2].max()
+    assert front > 13.5 and abs(side - 12) < 0.3, (front, side)
+    props.splint_buccal_margin = params.SPLINT_BUCCAL_CLEARANCE
+
+    props.kind, props.cap_arch = 'CHAPE', lower      # a cap: unchanged, on its clicked curve
     bpy.ops.omfs.arch_curve_clear()
     for a in (10, 50, 90, 130, 170):
         u = radians(a)
@@ -1886,6 +1910,10 @@ def test_splint_blank():
     z = [v.co.z for v in blank.data.vertices]
     assert abs(min(z) - (8 - params.SPLINT_CAP_DEPTH)) < 1e-3 and abs(max(z) - 11) < 1e-3, \
         "0.8 mm down onto the teeth, 3 mm above"
+    curve_length = splint.curve_length(splint.find_curve(scene))
+    assert abs(splint.blank_info(blank)["length"] - curve_length) < 0.5, "the cap stops at the ends of its curve"
+    bpy.ops.omfs.remove_splint_point(name="")
+    assert not splint.coverage_points(scene)
     for obj in (lower, upper, blank):
         bpy.data.objects.remove(obj)
     bpy.ops.omfs.arch_curve_clear()
@@ -1897,7 +1925,7 @@ def test_splint_imprint():
     lower, upper = tube_scan("Lower tube", 0), tube_scan("Upper tube", 18)   # lower top z 8, upper bottom z 10
     bpy.context.view_layer.update()
     props = scene.omfs_splint
-    props.kind, props.upper, props.lower, props.centre = 'FINAL', upper, lower, True
+    props.kind, props.upper, props.lower = 'FINAL', upper, lower
     props.edge_round = 0.0
     bpy.ops.omfs.arch_curve_clear()
     depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -1912,7 +1940,7 @@ def test_splint_imprint():
         z = np.array([v.co.z for v in blank.data.vertices])
         return z[:n], z[n:]
 
-    click(9)
+    cover(scene, upper, lower)
     props.imprint = True
     blank = splint.build_blank(scene, depsgraph)
     top, bottom = faces(blank)
@@ -1943,9 +1971,9 @@ def test_splint_imprint():
     assert bm.calc_volume() > 0
     bm.free()
     count = len(solid.data.vertices)
-    props.buccal_margin = 3.0                        # the settings no longer touch the solid
+    props.splint_buccal_margin = 3.0                 # the settings no longer touch the solid
     assert len(solid.data.vertices) == count and len(blank.data.vertices) != count
-    props.buccal_margin = params.SPLINT_BUCCAL_MARGIN
+    props.splint_buccal_margin = params.SPLINT_BUCCAL_CLEARANCE
     bpy.data.objects.remove(solid)
     blank.hide_set(False)
 
@@ -1967,6 +1995,7 @@ def test_splint_imprint():
     out = splint.dilate(step, 0.1, 0.1, 0.05, np.full(5, 0.05))[2]
     assert np.allclose(out[:10], 1.1) and abs(out[10] - (1 + 0.1 * np.sqrt(0.75))) < 1e-9
     assert abs(out[11] - 1.0) < 1e-9 and np.isneginf(out[12])
+    bpy.ops.omfs.remove_splint_point(name="")
     for obj in (lower, upper, blank):
         bpy.data.objects.remove(obj)
     bpy.ops.omfs.arch_curve_clear()
@@ -1979,13 +2008,11 @@ def test_splint_rounded_rim_and_wire_holes():
     lower, upper = tube_scan("Lower tube", 0), tube_scan("Upper tube", 18)   # bite at z = 9
     bpy.context.view_layer.update()
     props = scene.omfs_splint
-    props.kind, props.upper, props.lower, props.centre = 'FINAL', upper, lower, True
-    props.edge_round, props.buccal_margin, props.imprint = 1.0, 6.0, True
+    props.kind, props.upper, props.lower = 'FINAL', upper, lower
+    props.edge_round, props.splint_buccal_margin, props.imprint = 1.0, 6.0, True
     bpy.ops.omfs.arch_curve_clear()
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    for a in (10, 50, 90, 130, 170):
-        u = radians(a)
-        splint.add_point(scene, Vector((45 * np.cos(u), 500 + 45 * np.sin(u), 8)), depsgraph)
+    cover(scene, upper, lower)
     blank = splint.build_blank(scene, depsgraph)
     n = len(blank.data.vertices) // 2
     z = np.array([v.co.z for v in blank.data.vertices])
@@ -2027,14 +2054,15 @@ def test_splint_rounded_rim_and_wire_holes():
     props.wire_hole_diameter = 2.0                    # every hole follows
     assert all(abs(max(v.co.x for v in h.data.vertices) - 1.0) < 1e-4 for h in splint_holes.holes(scene))
 
-    props.buccal_margin = 1.0                         # flange too narrow: refused, never on the teeth
+    props.splint_buccal_margin = 1.0                  # flange too narrow: refused, never on the teeth
     blank = splint.build_blank(scene, depsgraph)
     _c, error = splint_holes.Flange(scene, blank, depsgraph).place(Vector((0, 546, 9)), 1.5)
     assert error and "bord" in error, error
     bpy.ops.omfs.remove_wire_hole()
     assert not splint_holes.holes(scene)
     props.wire_hole_diameter = params.SPLINT_WIRE_HOLE_DIAMETER
-    props.buccal_margin, props.imprint, props.edge_round = params.SPLINT_BUCCAL_MARGIN, False, params.SPLINT_EDGE_ROUND
+    props.splint_buccal_margin, props.imprint, props.edge_round = params.SPLINT_BUCCAL_CLEARANCE, False, params.SPLINT_EDGE_ROUND
+    bpy.ops.omfs.remove_splint_point(name="")
     for obj in (lower, upper, blank):
         bpy.data.objects.remove(obj)
     bpy.ops.omfs.arch_curve_clear()
@@ -2046,12 +2074,10 @@ def test_splint_text_and_checks():
     lower, upper = tube_scan("Lower tube", 0), tube_scan("Upper tube", 18)
     bpy.context.view_layer.update()
     props = scene.omfs_splint
-    props.kind, props.upper, props.lower, props.centre, props.imprint = 'FINAL', upper, lower, True, False
+    props.kind, props.upper, props.lower, props.imprint = 'FINAL', upper, lower, False
     bpy.ops.omfs.arch_curve_clear()
     depsgraph = bpy.context.evaluated_depsgraph_get()
-    for a in (10, 50, 90, 130, 170):
-        u = radians(a)
-        splint.add_point(scene, Vector((45 * np.cos(u), 500 + 45 * np.sin(u), 8)), depsgraph)
+    cover(scene, upper, lower)
     blank = splint.build_blank(scene, depsgraph)     # flat top at z 12, bottom at 6
 
     def volume(obj):
@@ -2065,8 +2091,8 @@ def test_splint_text_and_checks():
     before = volume(blank)
     settings = scene.omfs_text_next
     settings.text, settings.height, settings.depth, settings.mode = "AB 12", 3.0, 0.5, 'ENGRAVE'
-    # Two clicks on the top, at the front of the arch (y 545), reading along +x.
-    label, warning = text_labels.add_label(blank, Vector((-5, 545, 12)), Vector((5, 545, 12)), Vector((0, 0, 1)), settings)
+    # Two clicks on the top, at the front of the arch (y 544, the middle of the band), reading along +x.
+    label, warning = text_labels.add_label(blank, Vector((-5, 544, 12)), Vector((5, 544, 12)), Vector((0, 0, 1)), settings)
     assert warning is None, warning
     bm = bmesh.new()
     bm.from_mesh(label.data)
@@ -2084,7 +2110,7 @@ def test_splint_text_and_checks():
 
     label.omfs_text.mode = 'EMBOSS'                  # live: the same letters now stand out
     assert volume(blank) > before and blank.modifiers[0].operation == 'UNION'
-    props.buccal_margin = 2.0                        # rebuilt blank: the text follows
+    props.splint_buccal_margin = 2.0                 # rebuilt blank: the text follows
     assert abs(max(v.co.z for v in label.data.vertices) - 12.5) < 1e-3 and volume(blank) > before
 
     solid = splint.solidify(scene)                   # text placed before solidifying comes along
@@ -2096,7 +2122,8 @@ def test_splint_text_and_checks():
 
     text_labels.remove_label(label)
     assert not blank.modifiers and not solid.modifiers
-    props.buccal_margin = params.SPLINT_BUCCAL_MARGIN
+    props.splint_buccal_margin = params.SPLINT_BUCCAL_CLEARANCE
+    bpy.ops.omfs.remove_splint_point(name="")
     for obj in (lower, upper, blank, solid):
         bpy.data.objects.remove(obj)
     bpy.ops.omfs.arch_curve_clear()

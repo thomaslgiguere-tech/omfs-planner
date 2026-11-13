@@ -700,39 +700,55 @@ class OMFS_PT_splint(bpy.types.Panel):
             draw_text(layout, context, f"Placez d'abord les arcades: {hint} Trous permis aux points de contact.")
 
         box = layout.box()
-        box.label(text="1. Courbe d'arcade", icon='CURVE_BEZCURVE')
-        draw_text(box, context, "Cliquez 5 à 7 points sur les faces occlusales, d'une dernière molaire à "
-                                "l'autre en passant par les incisives. La courbe passe par chaque point.")
-        if props.kind != 'CHAPE':
-            box.prop(props, "centre")
-        curve = splint.find_curve(scene)
-        n = len(splint.curve_points(curve))
-        box.operator("omfs.arch_curve_click", text="Ajouter des points" if n else "Cliquer les points",
-                     icon='RESTRICT_SELECT_OFF')
-        if n:
-            box.label(text=f"{n} points, {splint.curve_length(curve):.0f} mm", icon='CHECKMARK' if n >= 5 else 'INFO')
-            row = box.row(align=True)
-            row.operator("omfs.arch_curve_undo", text="Dernier", icon='BACK')
-            row.operator("omfs.arch_curve_edit", text="Modifier", icon='EDITMODE_HLT')
-            row.operator("omfs.arch_curve_clear", text="", icon='TRASH')
-            if curve.mode == 'EDIT':
-                draw_text(box, context, "G: déplacer (aimanté aux surfaces), X: supprimer. Tab pour terminer.")
+        if props.kind == 'CHAPE':
+            box.label(text="1. Courbe d'arcade", icon='CURVE_BEZCURVE')
+            draw_text(box, context, "Cliquez 5 à 7 points sur les faces occlusales, d'une dernière molaire à "
+                                    "l'autre en passant par les incisives. La courbe passe par chaque point.")
+            curve = splint.find_curve(scene)
+            n = len(splint.curve_points(curve))
+            box.operator("omfs.arch_curve_click", text="Ajouter des points" if n else "Cliquer les points",
+                         icon='RESTRICT_SELECT_OFF')
+            if n:
+                box.label(text=f"{n} points, {splint.curve_length(curve):.0f} mm", icon='CHECKMARK' if n >= 5 else 'INFO')
+                row = box.row(align=True)
+                row.operator("omfs.arch_curve_undo", text="Dernier", icon='BACK')
+                row.operator("omfs.arch_curve_edit", text="Modifier", icon='EDITMODE_HLT')
+                row.operator("omfs.arch_curve_clear", text="", icon='TRASH')
+                if curve.mode == 'EDIT':
+                    draw_text(box, context, "G: déplacer (aimanté aux surfaces), X: supprimer. Tab pour terminer.")
+            ready = n >= 2
+        else:
+            box.label(text="1. Points de couverture", icon='EMPTY_SINGLE_ARROW')
+            draw_text(box, context, "Sur la face vestibulaire des dents, cliquez jusqu'où la gouttière les "
+                                    "recouvre: quelques points par côté et un en avant, en haut et en bas. "
+                                    "Cliquez-glissez un point pour l'ajuster: deux surfaces lisses passent par eux.")
+            box.operator("omfs.splint_points", icon='RESTRICT_SELECT_OFF')
+            for side, label in (('U', "Haut"), ('L', "Bas")):
+                placed = splint.coverage_points(scene, side)
+                row = box.row(align=True)
+                row.label(text=f"{label}: {len(placed)} point(s)", icon='CHECKMARK' if placed else 'ERROR')
+                for obj in placed:
+                    row.operator("omfs.remove_splint_point", text="", icon='X').name = obj.name
+            if splint.coverage_points(scene):
+                box.operator("omfs.remove_splint_point", text="Effacer tous les points", icon='TRASH').name = ""
+            ready = bool(splint.coverage_points(scene, 'U')) and bool(splint.coverage_points(scene, 'L'))
 
         box = layout.box()
         box.label(text="2. Bloc paramétrique", icon='MESH_CUBE')
-        box.enabled = n >= 2
+        box.enabled = ready
         col = box.column(align=True)
         col.label(text="Débord au-delà des couronnes")
-        col.prop(props, "buccal_margin")
-        col.prop(props, "lingual_margin")
-        col = box.column(align=True)
-        col.label(text="Profondeur sur les dents (depuis le milieu de l'occlusion)")
         if props.kind == 'CHAPE':
+            col.prop(props, "buccal_margin")
+            col.prop(props, "lingual_margin")
+            col = box.column(align=True)
+            col.label(text="Profondeur sur les dents (depuis la courbe)")
             col.prop(props, "depth_up", text="Au-dessous" if splint.cap_on_upper(scene) else "Au-dessus")
             col.prop(props, "cap_depth")
         else:
-            col.prop(props, "depth_up")
-            col.prop(props, "depth_low")
+            col.prop(props, "splint_buccal_margin")
+            col.prop(props, "splint_lingual_margin")
+            box.prop(props, "outline_smooth")
         box.prop(props, "resolution")
         box.prop(props, "edge_round")
         blank = splint.find_blank(scene)
@@ -740,7 +756,7 @@ class OMFS_PT_splint(bpy.types.Panel):
             box.operator("omfs.build_splint_blank", icon='MESH_CUBE')
         else:
             stale = splint.blank_stale(scene, blank)
-            box.operator("omfs.build_splint_blank", text="Courbe ou arcades modifiées: mettre à jour" if stale
+            box.operator("omfs.build_splint_blank", text="Points, courbe ou arcades modifiés: mettre à jour" if stale
                          else "Reconstruire le bloc", icon='ERROR' if stale else 'FILE_REFRESH')
         info = splint.blank_info(blank) if blank else {}
         if info:
