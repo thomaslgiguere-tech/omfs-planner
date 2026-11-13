@@ -300,7 +300,9 @@ def resample(line, step):
 
 def centre_on_crowns(line, flat, tips, step, rounds=3):
     """2D centre line moved, station by station, to the middle of the crowns across it (seen from above),
-    smoothed, then cut or carried along its end tangents to span the crown points near the bite (`tips`)."""
+    smoothed, then cut or carried along its end tangents. Each end stops flush with the last tooth of the
+    shorter arch on that side (`tips`: per arch, its crown points near the bite): never past a tooth, so no
+    flange over the gingiva behind the other arch's last molar (surgeon, 2026-11-13: shorter is fine)."""
     line = resample(line, step)
     for _ in range(rounds):
         tangents = np.gradient(line, axis=0)
@@ -330,9 +332,13 @@ def centre_on_crowns(line, flat, tips, step, rounds=3):
     tangents = np.gradient(longer, axis=0)
     tangents /= np.linalg.norm(tangents, axis=1)[:, None]
     sq = (longer ** 2).sum(1)
-    near = np.argmin((tips ** 2).sum(1)[:, None] - 2 * tips @ longer.T + sq[None, :], axis=1)
-    where = arc[near] + np.einsum('ij,ij->i', tips - longer[near], tangents[near])
-    start, stop = where.min() - params.SPLINT_END_MARGIN, where.max() + params.SPLINT_END_MARGIN
+    starts, stops = [], []
+    for points in tips:
+        near = np.argmin((points ** 2).sum(1)[:, None] - 2 * points @ longer.T + sq[None, :], axis=1)
+        where = arc[near] + np.einsum('ij,ij->i', points - longer[near], tangents[near])
+        starts.append(where.min())
+        stops.append(where.max())
+    start, stop = max(starts) - params.SPLINT_END_MARGIN, min(stops) + params.SPLINT_END_MARGIN
     at = np.linspace(start, stop, max(3, int(round((stop - start) / step)) + 1))
     line = np.stack([np.interp(at, arc, longer[:, i]) for i in range(2)], axis=1)
     return resample(line, step)
@@ -362,9 +368,12 @@ def auto_centreline(scene, step):
     hi, lo = (top_at @ up).max(), (bottom_at @ up).min()
     if hi <= lo:
         return "Les points du haut doivent être plus hauts que ceux du bas"
-    verts = np.concatenate([world_vertices(upper), world_vertices(lower)])
+    upper_verts, lower_verts = world_vertices(upper), world_vertices(lower)
+    verts = np.concatenate([upper_verts, lower_verts])
     h = verts @ up
-    crowns = verts[(h > lo) & (h < hi)]
+    inside = (h > lo) & (h < hi)
+    crowns = verts[inside]
+    from_upper = np.arange(len(verts))[inside] < len(upper_verts)
     if len(crowns) < 50:
         return "Aucune dent entre les points du haut et du bas"
     u, v = plane_axes(up)
@@ -388,9 +397,10 @@ def auto_centreline(scene, step):
     radius = gaussian(radius, params.SPLINT_ARCH_SMOOTH / params.SPLINT_ARCH_BIN)
     angles = start + np.linspace(0.0, span, bins)
     line2 = middle + radius[:, None] * np.stack((np.cos(angles), np.sin(angles)), 1)
-    bite = crowns @ up
-    near_bite = np.abs(bite - (hi + lo) / 2) < params.SPLINT_END_BAND     # crowns at the occlusal level
-    line2 = centre_on_crowns(line2, flat, flat[near_bite] if near_bite.sum() > 10 else flat, step)
+    near_bite = np.abs(crowns @ up - (hi + lo) / 2) < params.SPLINT_END_BAND   # crowns at the occlusal level
+    tips = [flat[near_bite & side] for side in (from_upper, ~from_upper)]   # per arch
+    tips = [t for t in tips if len(t) > 10] or [flat]
+    line2 = centre_on_crowns(line2, flat, tips, step)
     line = np.outer(line2[:, 0], u) + np.outer(line2[:, 1], v)          # on the plane through the origin
     s = np.concatenate(([0.0], np.cumsum(np.linalg.norm(np.diff(line, axis=0), axis=1))))
     length = s[-1]
@@ -718,8 +728,9 @@ def blank_data(scene, depsgraph):
     if props.imprint:
         top_h, bottom_h, contact = imprint(scene, base, up, above, below, depsgraph,
                                            length / (len(rows_s) - 1), (lin + buc) / cols)
-    if props.edge_round > 0:
-        top_h, bottom_h, contact = round_edges(top_h, bottom_h, contact, above, below, props.edge_round,
+    rounding = props.edge_round if props.kind == 'CHAPE' else props.splint_edge_round
+    if rounding > 0:
+        top_h, bottom_h, contact = round_edges(top_h, bottom_h, contact, above, below, rounding,
                                                rows_s, f, lin + buc)
     rows, w = len(rows_s), cols + 1
     rim = np.zeros((rows, w), bool)                              # the outline: walls and end caps
@@ -818,7 +829,11 @@ SOLID_COLOUR = (0.95, 0.70, 0.30, 1.0)
 def contact_holes(mesh):
     """Open the patches where the blank's top and bottom meet (zero thickness): their faces are removed
     and the meeting top / bottom vertices welded, so the rim of each hole closes the slab. The mesh
-    must still be the blank's (top grid, then bottom grid). Returns the number of vertices welded."""
+    must still be the blank's (top grid, then bottom grid). Returns the number of vertices welded.
+    Only the rims of real holes are welded (a contact one vertex wide is left as two coincident
+    vertices). Where two holes come within one edge of each other, welding would join four faces on that
+    edge: those vertices are kept apart (zero thickness there, no hole) and the holes are opened again,
+    until the mesh is closed."""
     n = len(mesh.vertices) // 2
     co = np.empty(len(mesh.vertices) * 3)
     mesh.vertices.foreach_get("co", co)
@@ -826,20 +841,27 @@ def contact_holes(mesh):
     touch = np.linalg.norm(co[:n] - co[n:], axis=1) < 1e-4
     if not touch.any():
         return 0
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
-    bm.verts.ensure_lookup_table()
-    inside = [f for f in bm.faces if all(touch[v.index % n] for v in f.verts)
-              and len({v.index < n for v in f.verts}) == 1]          # top or bottom grid, not a wall
-    # Only the rims of real holes are welded: a contact one vertex wide (no face of it fully touching) is
-    # left as two coincident vertices, or welding would join four faces on one edge.
-    rims = {v.index % n for f in inside for v in f.verts}
-    bmesh.ops.delete(bm, geom=inside, context='FACES_ONLY')
-    weld = {bm.verts[i + n]: bm.verts[i] for i in sorted(rims)}
-    bmesh.ops.weld_verts(bm, targetmap=weld)
-    bmesh.ops.delete(bm, geom=[e for e in bm.edges if not e.link_faces], context='EDGES')
-    loose = [v for v in bm.verts if not v.link_faces]
-    bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    for _attempt in range(20):
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bm.verts.ensure_lookup_table()
+        origin = bm.verts.layers.int.new("origin")       # the blank's index: welding renumbers the vertices
+        for v in bm.verts:
+            v[origin] = v.index
+        inside = [f for f in bm.faces if all(touch[v.index % n] for v in f.verts)
+                  and len({v.index < n for v in f.verts}) == 1]      # top or bottom grid, not a wall
+        rims = {v.index % n for f in inside for v in f.verts}
+        bmesh.ops.delete(bm, geom=inside, context='FACES_ONLY')
+        weld = {bm.verts[i + n]: bm.verts[i] for i in sorted(rims)}
+        bmesh.ops.weld_verts(bm, targetmap=weld)
+        bmesh.ops.delete(bm, geom=[e for e in bm.edges if not e.link_faces], context='EDGES')
+        bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+        pinched = {v[origin] % n for e in bm.edges if len(e.link_faces) > 2 for v in e.verts}
+        if not pinched:
+            break
+        touch[list(pinched)] = False            # keep those apart and open the holes again
+        bm.free()
+    bm.verts.layers.int.remove(origin)
     bm.to_mesh(mesh)
     bm.free()
     mesh.update()
@@ -962,6 +984,10 @@ class OMFS_SplintProperties(bpy.types.PropertyGroup):
         step=1, precision=2, update=_on_blank_param,
         description="Distance entre les sommets du bloc: l'empreinte des dents ne sera pas plus fine que ça. "
                     "Les scans intraoraux ont environ 0,15 mm entre leurs sommets: sous 0,05 mm, rien de plus à copier")
+    splint_edge_round: bpy.props.FloatProperty(
+        name="Arrondi des bords", subtype='DISTANCE', default=params.SPLINT_SPLINT_EDGE_ROUND, min=0.0, soft_max=3.0,
+        step=10, precision=2, update=_on_blank_param,
+        description="Gouttière: rayon des rebords arrondis (tout le pourtour). 0 = bords vifs")
     edge_round: bpy.props.FloatProperty(
         name="Arrondi des bords", subtype='DISTANCE', default=params.SPLINT_EDGE_ROUND, min=0.0, soft_max=3.0,
         step=10, precision=2, update=_on_blank_param,

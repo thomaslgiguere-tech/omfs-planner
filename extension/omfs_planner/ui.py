@@ -750,7 +750,7 @@ class OMFS_PT_splint(bpy.types.Panel):
             col.prop(props, "splint_lingual_margin")
             box.prop(props, "outline_smooth")
         box.prop(props, "resolution")
-        box.prop(props, "edge_round")
+        box.prop(props, "edge_round" if props.kind == 'CHAPE' else "splint_edge_round")
         blank = splint.find_blank(scene)
         if blank is None:
             box.operator("omfs.build_splint_blank", icon='MESH_CUBE')

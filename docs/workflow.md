@@ -526,17 +526,21 @@ Naming used below (matches the object roles in code):
   3. Outline, automatic (no curve to click): the crowns between the two surfaces, seen along the
      insertion axis, give a centre line (median distance in 2-degree sectors from the middle of the
      crowns, smoothed, then moved station by station to the middle of the crowns across it, 3 passes).
-     It spans the crown points within 2.5 mm of the bite (not the gingiva behind the molars) + 0.5 mm.
-     Buccal / lingual: the crowns' envelope plus 0.5 mm buccal / 2.0 mm lingual (new defaults), a running
-     maximum then smoothing over 12 mm ("Rondeur du contour"): round like the companies', never inside
-     the clearances.
+     Ends (surgeon, 2026-11-13: "très flush avec la dernière surface dentaire, pas grave si c'est plus
+     court"): each end stops flush with the last tooth of the shorter arch on that side, its crown
+     points within 1.0 mm of the bite (wider bands took the tuberosity / retromolar gingiva: a flange
+     past the last upper molar). It may trim a little of that molar's distal surface.
+     Buccal / lingual: the crowns' envelope plus 0.9 mm buccal / 3.7 mm lingual (surgeon's defaults,
+     2026-11-13; more buccal for a segmental splint, later), a running maximum then smoothing over 9 mm
+     ("Rondeur du contour"): round like the companies', never inside the clearances. Rounded rim 0.4 mm
+     (its own setting; the cap keeps 1 mm).
   4. Then the block between the surfaces, the cusps hollowed out by the same imprint, rounded rim, solid,
      wire holes and text as before. Where the teeth meet on the outline a 0.1 mm rim stays (a contact
      hole never cuts the wall); only real holes are welded (a contact one vertex wide used to leave
-     edges shared by four faces).
-  - Test scans in their final occlusion, 7 + 7 points at 3.5 mm from the bite: blank 1.0 s, solid 0.5 s,
-    closed; width 9.4 to 15.7 mm, 124 mm long; contacts (holes) 116 mm². An end may pass the last upper
-    molar to cover a more distal lower molar.
+     edges shared by four faces), and where two holes come within one edge of each other the vertices
+     there are kept apart and the holes opened again, until the mesh is closed.
+  - Test scans in their final occlusion, 7 + 7 points at 3.5 mm from the bite, new defaults: blank 1.0 s,
+    solid 1.3 s, closed; width 11.4 to 17.9 mm, 111 mm long, ends flush; contacts (holes) 116 mm².
   - Later (surgeon): vertical grooves on the buccal wall at the segmental osteotomy lines ("espaces pour
     segmentaire").
 - Chape (cap), unchanged. Steps:

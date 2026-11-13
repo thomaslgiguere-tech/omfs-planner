@@ -1858,7 +1858,7 @@ def test_splint_blank():
     bpy.context.view_layer.update()
     props = scene.omfs_splint
     props.kind, props.upper, props.lower = 'FINAL', upper, lower
-    props.edge_round = 0.0                           # sharp: flat faces measured exactly (rim tested below)
+    props.edge_round = props.splint_edge_round = 0.0   # sharp: flat faces measured exactly (rim tested below)
     bpy.ops.omfs.arch_curve_clear()
     depsgraph = bpy.context.evaluated_depsgraph_get()
     assert "point" in splint.build_blank(scene, depsgraph), "no coverage point yet: refused"
@@ -1887,7 +1887,7 @@ def test_splint_blank():
     assert np.abs(r[5:-5] - 45).max() < 1.5, "the centre line runs in the middle of the crowns"
 
     props.splint_buccal_margin = 4.0                 # only the buccal side grows, live
-    assert abs(splint.blank_info(blank)["width_min"] - (expected + 3.5)) < 0.3
+    assert abs(splint.blank_info(blank)["width_min"] - (expected + 4.0 - params.SPLINT_BUCCAL_CLEARANCE)) < 0.3
     assert not splint.blank_stale(scene, blank)
     up = splint.coverage_points(scene, 'U')[1]       # the front upper point raised 2 mm: a surface, not a slab
     up.matrix_world = Matrix.Translation(up.matrix_world.translation + Vector((0, 0, 2)))
@@ -1926,7 +1926,7 @@ def test_splint_imprint():
     bpy.context.view_layer.update()
     props = scene.omfs_splint
     props.kind, props.upper, props.lower = 'FINAL', upper, lower
-    props.edge_round = 0.0
+    props.edge_round = props.splint_edge_round = 0.0
     bpy.ops.omfs.arch_curve_clear()
     depsgraph = bpy.context.evaluated_depsgraph_get()
 
@@ -2009,7 +2009,7 @@ def test_splint_rounded_rim_and_wire_holes():
     bpy.context.view_layer.update()
     props = scene.omfs_splint
     props.kind, props.upper, props.lower = 'FINAL', upper, lower
-    props.edge_round, props.splint_buccal_margin, props.imprint = 1.0, 6.0, True
+    props.splint_edge_round, props.splint_buccal_margin, props.imprint = 1.0, 6.0, True
     bpy.ops.omfs.arch_curve_clear()
     depsgraph = bpy.context.evaluated_depsgraph_get()
     cover(scene, upper, lower)
@@ -2061,7 +2061,8 @@ def test_splint_rounded_rim_and_wire_holes():
     bpy.ops.omfs.remove_wire_hole()
     assert not splint_holes.holes(scene)
     props.wire_hole_diameter = params.SPLINT_WIRE_HOLE_DIAMETER
-    props.splint_buccal_margin, props.imprint, props.edge_round = params.SPLINT_BUCCAL_CLEARANCE, False, params.SPLINT_EDGE_ROUND
+    props.splint_buccal_margin, props.imprint = params.SPLINT_BUCCAL_CLEARANCE, False
+    props.edge_round, props.splint_edge_round = params.SPLINT_EDGE_ROUND, params.SPLINT_SPLINT_EDGE_ROUND
     bpy.ops.omfs.remove_splint_point(name="")
     for obj in (lower, upper, blank):
         bpy.data.objects.remove(obj)
