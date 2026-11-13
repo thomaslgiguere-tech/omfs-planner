@@ -20,3 +20,13 @@ __pycache__/
 # Photos of real cases (engraved initials / IDs): never committed
 Exemples splint/
 Photos exemples/
+
+# Segmentation: model weights (large, third-party licence) and imaging volumes (patient data)
+segmentation/model/
+*.nrrd
+*.nii
+*.nii.gz
+*.mha
+*.mhd
+*.pth
+segmentation/DentalSeg.app/

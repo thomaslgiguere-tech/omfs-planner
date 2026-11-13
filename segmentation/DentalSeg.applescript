@@ -1,0 +1,30 @@
+-- DentalSeg : glisse un dossier DICOM (ou un .dcm, .nrrd, .nii.gz) sur l'icône.
+property pythonPath : "~/miniconda3/envs/dentalseg/bin/python"
+property scriptPath : "~/Projects/omfs-planner/segmentation/segment.py"
+
+on open droppedItems
+	set args to ""
+	repeat with anItem in droppedItems
+		set args to args & " " & quoted form of POSIX path of anItem
+	end repeat
+	runSegmentation(args)
+end open
+
+on run
+	set choice to button returned of (display dialog "Glisse un dossier DICOM ou un fichier de scan sur l'icône DentalSeg, ou choisis-le ici." buttons {"Annuler", "Fichier…", "Dossier DICOM…"} default button 3 with title "DentalSeg")
+	if choice is "Dossier DICOM…" then
+		set picked to choose folder with prompt "Dossier DICOM à segmenter :"
+	else if choice is "Fichier…" then
+		set picked to choose file with prompt "Scan à segmenter (.dcm, .nrrd, .nii.gz) :"
+	else
+		return
+	end if
+	runSegmentation(" " & quoted form of POSIX path of picked)
+end run
+
+on runSegmentation(args)
+	tell application "Terminal"
+		activate
+		do script "clear; " & pythonPath & " " & scriptPath & args & "; echo; echo 'Tu peux fermer cette fenêtre.'"
+	end tell
+end runSegmentation
