@@ -6,7 +6,8 @@ Moved here from `~/DentalSegApp` on 2026-11-13, so the tool lives in one place w
 
 | File | Role |
 |---|---|
-| `segment.py` | CBCT / CT (DICOM folder, `.dcm`, `.nrrd`, `.nii(.gz)`, `.mha`) → DentalSegmentator (nnU-Net, `Dataset111_453CT`, fold 0, no TTA) on the Apple GPU (MPS) → `<name>_segmentation.seg.nrrd` next to the input, readable by 3D Slicer. Removes islands < 60 mm³ (except the canal), like the Slicer extension. |
+| `segment.py` | CBCT / CT (DICOM folder, `.dcm`, `.nrrd`, `.nii(.gz)`, `.mha`) → DentalSegmentator (nnU-Net, `Dataset111_453CT`, fold 0) on the Apple GPU (MPS) → `<name>_segmentation.seg.nrrd` (next to the input, or `--sortie`), readable by 3D Slicer, plus the probabilities in precise mode. Removes islands < 60 mm³ (except the canal), like the Slicer extension. |
+| `surfaces.py` | Step 3: labels or probabilities → closed STL surfaces per structure (patient coordinates, LPS); `--comparer A.stl B.stl` gives the distance between two surfaces. |
 | `DentalSeg.applescript` | Drop-on-icon launcher: runs `segment.py` with the `dentalseg` conda env in Terminal. |
 | `DentalSeg.app` | Compiled launcher (not in git; rebuild with `osacompile -o segmentation/DentalSeg.app segmentation/DentalSeg.applescript`). |
 | `model/` | DentalSegmentator weights (236 MB; not in git: large, third-party licence, see the Zenodo record). |
@@ -49,5 +50,29 @@ all defaults in one parameter module, the original volume never modified.
   mean absolute deviation Relu 0.10 mm, Diagnocat 0.10 mm, DentalSegmentator ~0.13 mm. On impacted teeth,
   DentalSegmentator and Diagnocat beat Relu (Relu left 6 % of teeth unsegmented, DentalSegmentator 0.1 %).
 
-Possible upgrades, in order: test-time augmentation (drop `--disable_tta`, slower, slightly better); an nnU-Net
-trained on ToothFairy2/3 for individual teeth and pulp; nnInteractive for corrections.
+## Precise mode and sub-voxel surfaces (done, 2026-11-13)
+
+`segment.py` now runs in **precise mode by default**: test-time augmentation (8 mirrored passes, probabilities
+averaged), sliding windows overlapping more (step 0.35 instead of 0.5), and the probabilities kept
+(`<name>_probabilites.nrrd`, 4D uint8). `--rapide` gives the former setting. `surfaces.py` turns either the
+labels (staircase) or the probabilities (iso-surface at 50 %, between voxels; only around the cleaned structure,
+so no lost islands come back) into closed STL surfaces in patient coordinates (LPS, like 3D Slicer).
+
+Measured on one real CBCT (512 x 613 x 280, 0.377 x 0.377 x 0.6 mm), M5 Pro 64 GB:
+
+| | Fast | Precise |
+|---|---|---|
+| Time | 2 min 34 s | 32 min 35 s |
+| Peak memory (nnU-Net process) | 9.4 GB | 9.4 GB |
+| Reproducible (2 runs) | | identical voxels |
+
+- Fast vs precise labels: Dice mandible 0.946, maxilla 0.974, upper teeth 0.949, lower teeth 0.980, canal 0.918.
+  Surfaces: mandible mean 0.27 mm, 95 % under 0.92 mm. The largest disagreement: one bone split between
+  "mandible" and "maxilla" in fast mode, labelled as one structure in precise mode (behind the last molars).
+- Probability surfaces vs staircase (precise): mean 0.06 to 0.09 mm, 95 % under 0.22 mm (the half voxel); no
+  non-manifold edge (staircase: 9 on the mandible, 21 on the maxilla, bone voxels touching only by an edge).
+  Surfaces: about 4 s (labels) to 10 s (probabilities) for the 5 structures.
+- Not measured: accuracy against a reference (manual segmentation or physical specimen). Precise mode is more
+  consistent; whether it is closer to the truth needs a reference.
+
+Still possible: an nnU-Net trained on ToothFairy2/3 for individual teeth and pulp; nnInteractive for corrections.
