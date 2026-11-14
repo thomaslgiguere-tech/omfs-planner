@@ -76,4 +76,18 @@ Measured on one real CBCT (512 x 613 x 280, 0.377 x 0.377 x 0.6 mm), M5 Pro 64 G
 - Not measured: accuracy against a reference (manual segmentation or physical specimen). Precise mode is more
   consistent; whether it is closer to the truth needs a reference.
 
+Second CBCT (2026-11-14; 601 x 601 x 534, 0.3 mm isotropic), same machine:
+
+| | Fast | Precise |
+|---|---|---|
+| Time | 4 min 46 s | 25 min 51 s |
+| Peak memory | 14.7 GB | 14.5 GB |
+
+- Fast vs precise: 99.91 % identical voxels, Dice maxilla 0.982, mandible 0.993, upper teeth 0.994, lower teeth
+  0.994, canal 0.959; no voxel swapped between maxilla and mandible. Probability surfaces: mandible mean 0.030 mm
+  (95 % under 0.10 mm), lower teeth 0.025 mm, canal 0.070 mm (95 % under 0.20 mm).
+- Reading of the two cases: on a fine isotropic scan the two modes agree to a few hundredths of a mm; on the
+  coarser, anisotropic first scan (0.6 mm slices) they differ by 0.27 mm on average and fast mode split one bone.
+  Precise mode matters most when the scan is coarse. Still not measured against a reference.
+
 Still possible: an nnU-Net trained on ToothFairy2/3 for individual teeth and pulp; nnInteractive for corrections.
