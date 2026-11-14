@@ -85,21 +85,27 @@ OCC_OVERLAP_RARE = 0.4          # mm: usual grinding stays around 0.3 - 0.4 mm: 
 OCC_OVERLAP_MAX = 0.75          # mm: grinding rarely goes beyond this: alert above
 OCC_GAP_FAR = 1.0               # mm: gaps beyond this are grey (no contact)
 OCC_OVERLAP_MIN_AREA = 0.1      # mm²: max overlap is the depth reached over at least this area (ignores lone spikes)
-OCC_SEARCH_DISTANCE = 5.0       # mm: farther surfaces are ignored by the contact search
+OCC_SEARCH_DISTANCE = 4.0       # mm: farther surfaces are ignored by the contact search (= depth of the distance grid)
+OCC_GRID_CELL = 0.75            # mm: cell of the distance grid built once per arch (read in one go, not point by point)
+OCC_EXACT_BAND = 0.75           # mm: closer than this to the other arch, a distance is recomputed exactly (contacts, limits)
 OCC_SAMPLES = 4000              # vertices per arch used by the spring solver
-OCC_SPRING_STEP = 0.25          # fraction of the spring length closed per iteration (animation)
 OCC_CANINE_WEIGHT = 3.0         # a canine spring pulls this many times harder than another spring
 OCC_SPRING_SHARE = 70.0         # %: springs' share of the guidance; the rest is the magnet (closing the gaps)
 OCC_SPRING_RELEASE = 3.0        # mm: a spring shorter than this pulls less and less, its share going to the magnet (= magnet range)
                                 # (springs bring the arches "macro", the intercuspation finishes it; surgeon 2026-11-09)
 OCC_SPRING_RESIDUAL = 0.1       # share of its pull a released spring keeps at length 0 (so nothing floats away)
 OCC_MAGNET_RANGE = 3.0          # mm: gaps wider than this are not pulled by the magnet
-OCC_MAGNET_STEP = 0.25          # fraction of each gap closed per iteration
 OCC_TRIPOD_MIN_AREA = 1.0       # mm²: contact area right, anterior and left for a stable "tripod"
-OCC_MAX_ITERATIONS = 300
+OCC_MAX_ITERATIONS = 100        # full steps (each aims at the equilibrium, shortened only if it does not improve)
+OCC_MAX_STEP = 2.0              # mm and degrees: longest step, so the linearised contacts stay valid
+OCC_LINE_SEARCH = 4             # times a step may be halved before the seating is considered settled
 OCC_SETTLED = 0.1               # mm and degrees per iteration: below this the position is stable
-OCC_FINISH_ITERATIONS = 40      # last iterations, on every vertex near the contacts
-OCC_FINISH_BAND = 1.0           # mm: vertices this close to the other arch are checked one by one at the end
+OCC_FINISH_ITERATIONS = 30      # last iterations, on every vertex near the contacts
+OCC_FINISH_BAND = 1.0           # mm: at the end, every vertex this close to the other arch is also held at its overlap limit
+OCC_FINISH_SPACING = 0.2        # mm: one vertex per cube this size is enough for the overlap limits
+OCC_PLAYBACK_FPS = 60           # the seating is computed first, then played back at this frame rate
+OCC_PLAYBACK_MM = 0.1           # mm per frame (and OCC_PLAYBACK_DEG degrees): even speed of the playback
+OCC_PLAYBACK_DEG = 0.2
 OCC_ANTERIOR_HALF_WIDTH = 15.0  # mm each side of the midline: anterior contacts, beyond = left / right
 OCC_PREPOSITION_GAP = 5.0       # mm between the arches after "flip and place above the lower arch"
 SEG_CUT_OVERSHOOT = 1.0         # mm: an osteotomy line also cuts this far past each of its ends

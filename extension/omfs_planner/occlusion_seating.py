@@ -4,10 +4,15 @@ Like IPS CaseDesigner's virtual occlusion: the surgeon clicks corresponding poin
 (e.g. a cusp tip on the upper arch and the fossa it goes into on the lower arch). Each pair is a
 spring. The lower arch never moves (surgeon, 2026-11-09: always the upper onto the lower, it is
 more visual). The solver moves the upper block, or each upper segment on its own (segmental
-surgery: its angles are the surgeon's, the seating only translates it, occlusion_segments.py), step
-by step (shown as an animation), so the springs shorten, while the teeth stop at an overlap limit: one limit canine to canine (the two canine
+surgery: its angles are the surgeon's, the seating only translates it, occlusion_segments.py) so the
+springs shorten, while the teeth stop at an overlap limit: one limit canine to canine (the two canine
 springs mark that zone), another on the premolars and molars. Only the block's transform changes:
 rigid, nothing touches the mesh data.
+
+Speed (2026-11-14): each step aims straight at the equilibrium (Gauss-Newton) and is shortened only if
+it does not lower the energy (line search), so a seating takes a handful of steps; distances are read
+from a grid built once per arch (exact again near the contacts); the operator computes the whole
+seating first, then plays it back at an even speed.
 
 Contact is tested both ways (lower vertices against the upper surface and upper vertices against
 the lower surface), with signed distances from the face normals: negative = overlap. Faces on the
@@ -35,10 +40,9 @@ MADE_BY = "Occlusion"
 POINT_SIZE = 0.6        # mm, radius of the point spheres
 SPRING_COILS = 8
 SPRING_RADIUS = 0.4     # mm, zig-zag amplitude of the drawn springs
-MAX_STEP = 1.0          # mm and degrees per iteration, so the animation stays smooth
-CONVERGED = 1e-3        # mm per iteration
+CONVERGED = 1e-3        # mm and degrees: a step this small ends the seating
 SIGN_MIN_COS = 0.3      # inside only if the point is this clearly behind the closest face
-FIT_FRAMES = 40         # animation frames of the first phase (pure point fit)
+FIT_FRAMES = 40         # playback: at most this many frames per stretch (the point fit glide)
 MIN_SPREAD = 3.0        # mm: lower points closer than this to a single line are refused
 
 # Colour bands, deepest overlap first (see the legend in the panel and params.py).
@@ -104,27 +108,132 @@ def surface(obj):
     return _surfaces[key]
 
 
-def signed_distances(points, target, max_distance):
-    """For world points: signed distance to the target surface (negative = inside, i.e. overlap),
-    the closest world point and the face normal there. NaN where nothing is within reach or the
-    closest face is on the open border."""
+def nearest_signed(target, local, max_distance):
+    """Exact, point by point (BVH): for points in the target's local coordinates, (signed distance,
+    closest point, face normal), local. NaN where nothing is within reach or the closest face is on
+    the open border."""
     bvh, border = surface(target)
-    m = target.matrix_world
-    inv, rot = m.inverted(), m.to_3x3()
-    n = len(points)
+    n = len(local)
     d = np.full(n, np.nan)
     closest = np.full((n, 3), np.nan)
     normals = np.full((n, 3), np.nan)
-    for i, p in enumerate(points):
+    find = bvh.find_nearest
+    for i, p in enumerate(local):
         p = Vector(p)
-        loc, nor, index, dist = bvh.find_nearest(inv @ p, max_distance)
+        loc, nor, index, dist = find(p, max_distance)
         if loc is None or border[index]:
             continue
-        loc, nor = m @ loc, (rot @ nor).normalized()
         # Inside only if clearly behind the face. When the closest point is on an edge, the face
         # normal says nothing about the sign (the point looks along the face): count it as outside.
         d[i] = -dist if dist > 1e-9 and (p - loc).dot(nor) < -SIGN_MIN_COS * dist else dist
         closest[i], normals[i] = loc, nor
+    return d, closest, normals
+
+
+def dilate(mask, steps):
+    """Grow a 3D boolean grid by steps cells (6-neighbourhood)."""
+    for _ in range(steps):
+        grown = mask.copy()
+        for axis in range(3):
+            lead = (slice(None),) * axis + (slice(1, None),)
+            lag = (slice(None),) * axis + (slice(None, -1),)
+            grown[lead] |= mask[lag]
+            grown[lag] |= mask[lead]
+        mask = grown
+    return mask
+
+
+def surface_points(co, tris, spacing):
+    """The vertices plus points spread over the triangles longer than spacing, so no part of the
+    surface is missed (large faces of a coarse mesh)."""
+    a, b, c = co[tris[:, 0]], co[tris[:, 1]], co[tris[:, 2]]
+    longest = np.max([np.linalg.norm(b - a, axis=1), np.linalg.norm(c - b, axis=1),
+                      np.linalg.norm(a - c, axis=1)], axis=0)
+    count = np.ceil(longest / spacing).astype(int)
+    found = [co]
+    for k in np.unique(count[count > 1]):
+        i, j = np.meshgrid(np.arange(k + 1), np.arange(k + 1), indexing='ij')
+        keep = i + j <= k
+        u, v = i[keep] / k, j[keep] / k
+        sel = count == k
+        found.append((a[sel, None] + u[:, None] * (b - a)[sel, None] + v[:, None] * (c - a)[sel, None]).reshape(-1, 3))
+    return np.concatenate(found)
+
+
+_grids = {}
+
+
+def distance_grid(obj):
+    """(distance, normal, closest, origin, cell): at the nodes of a regular grid (the object's local
+    coordinates, float32), what nearest_signed gives there (signed distance, face normal, closest point),
+    built once per mesh within OCC_SEARCH_DISTANCE of the surface (NaN farther, and where the closest face
+    is on the open border). Then thousands of points are read in one go, by interpolation, instead of being
+    searched point by point. In Blender terms: a signed distance field, what Mesh to Volume / Volume to
+    Mesh use internally; Meshmixer has no equivalent."""
+    mesh = obj.data
+    key = (mesh.name, len(mesh.vertices), len(mesh.polygons))
+    if key not in _grids:
+        cell, reach = params.OCC_GRID_CELL, params.OCC_SEARCH_DISTANCE
+        co = registration.vertex_coords(obj, world=False)
+        origin = co.min(axis=0) - reach - 2 * cell
+        shape = tuple(np.ceil((co.max(axis=0) + reach + 2 * cell - origin) / cell).astype(int) + 1)
+        near = np.zeros(shape, dtype=bool)
+        points = surface_points(co, registration.triangles(mesh), cell)
+        near[tuple(np.rint((points - origin) / cell).astype(int).T)] = True
+        nodes = tuple(np.argwhere(dilate(near, int(np.ceil(reach / cell)) + 1)).T)
+        d, closest, normals = nearest_signed(obj, np.stack(nodes, axis=1) * cell + origin, reach + cell)
+        grids = (np.full(shape, np.nan, dtype=np.float32), np.full(shape + (3,), np.nan, dtype=np.float32),
+                 np.full(shape + (3,), np.nan, dtype=np.float32))
+        for grid, values in zip(grids, (d, normals, closest)):
+            grid[nodes] = values
+        _grids[key] = grids + (origin, cell)
+    return _grids[key]
+
+
+def grid_lookup(obj, local):
+    """(signed distance, face normal, closest point) at local points, by trilinear interpolation of the
+    distance grid. NaN outside the grid or next to a NaN node."""
+    distance, normal, closest, origin, cell = distance_grid(obj)
+    f = (local - origin) / cell
+    i = np.floor(f).astype(np.int64)
+    outside = np.any((i < 0) | (i >= np.array(distance.shape) - 1), axis=1)
+    i = np.clip(i, 0, np.array(distance.shape) - 2)
+    t = f - i
+    d, n, c = np.zeros(len(local)), np.zeros((len(local), 3)), np.zeros((len(local), 3))
+    for corner in np.ndindex(2, 2, 2):
+        at = (i[:, 0] + corner[0], i[:, 1] + corner[1], i[:, 2] + corner[2])
+        w = np.prod([t[:, k] if corner[k] else 1 - t[:, k] for k in range(3)], axis=0)
+        d += w * distance[at]
+        n += w[:, None] * normal[at]
+        c += w[:, None] * closest[at]
+    d[outside] = np.nan
+    return d, n, c
+
+
+def signed_distances(points, target, max_distance, matrix=None):
+    """For world points: signed distance to the target surface (negative = inside, i.e. overlap),
+    the closest world point and the face normal there. NaN where nothing is within reach or the
+    closest face is on the open border. matrix: the target's world matrix if not where it is now
+    (a trial position of the solver).
+    Read from the distance grid, and recomputed exactly (point by point) closer than OCC_EXACT_BAND,
+    where the contacts and the overlap limits are decided; beyond the grid's depth, all exact."""
+    m = np.array(target.matrix_world) if matrix is None else np.asarray(matrix)
+    inv = np.linalg.inv(m)
+    local = points @ inv[:3, :3].T + inv[:3, 3]
+    if max_distance > params.OCC_SEARCH_DISTANCE:
+        d, closest, normals = nearest_signed(target, local, max_distance)
+    else:
+        d, normals, closest = grid_lookup(target, local)
+        with np.errstate(invalid='ignore'):
+            exact = np.abs(d) < params.OCC_EXACT_BAND
+            far = ~(np.abs(d) <= max_distance)
+        if exact.any():
+            d[exact], closest[exact], normals[exact] = nearest_signed(target, local[exact], max_distance)
+        d[far & ~exact], closest[far & ~exact], normals[far & ~exact] = np.nan, np.nan, np.nan
+    closest = closest @ m[:3, :3].T + m[:3, 3]
+    normals = normals @ m[:3, :3].T
+    with np.errstate(invalid='ignore'):
+        normals /= np.maximum(np.linalg.norm(normals, axis=1), 1e-12)[:, None]   # interpolated: unit again
     return d, closest, normals
 
 
@@ -148,12 +257,20 @@ def samples(obj):
 
 
 def contact_vertices(job):
-    """(mobile, fixed) local coordinates of every vertex near the other arch: random samples can miss
-    the tip of a cusp, which is exactly what sets the overlap."""
+    """(mobile, fixed) local coordinates of every vertex near the other arch (read from the distance grid,
+    which is precise enough to choose them): random samples can miss the tip of a cusp, which is exactly
+    what sets the overlap."""
     found = []
     for obj, other in ((job.mobile, job.fixed), (job.fixed, job.mobile)):
-        d = signed_distances(registration.vertex_coords(obj), other, params.OCC_FINISH_BAND)[0]
-        found.append(registration.vertex_coords(obj, world=False)[~np.isnan(d)])
+        local = registration.vertex_coords(obj, world=False)
+        m = np.linalg.inv(np.array(other.matrix_world)) @ np.array(obj.matrix_world)
+        d = grid_lookup(other, local @ m[:3, :3].T + m[:3, 3])[0]
+        with np.errstate(invalid='ignore'):
+            near = local[np.abs(d) < params.OCC_FINISH_BAND]
+        # one vertex per OCC_FINISH_SPACING cube: a scan has several per 0.1 mm, and a cusp tip missed by
+        # 0.15 mm sits about 0.01 mm lower
+        cells = np.floor(near / params.OCC_FINISH_SPACING).astype(np.int64)
+        found.append(near[np.unique(cells, axis=0, return_index=True)[1]])
     return found
 
 
@@ -401,95 +518,147 @@ def spring_fade(scene, pairs, spring_share):
     return r + (1 - r) * np.clip(lengths / release, 0.0, 1.0)
 
 
-def seat_step(scene, job, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_weight=params.OCC_CANINE_WEIGHT,
-              vertices=None, free=None):
-    """One iteration: a small rigid motion of the mobile block (the upper arch, or an upper segment).
-    Two guides, solved together:
-    - springs pull each mobile point a fraction of the way towards its fixed point;
-    - the magnet closes the gaps between the arches (within range), like pushing the models together.
-    Springs and magnet share the guidance (spring_share vs 1 - spring_share); each group is weighted
-    as a whole, so a thousand magnet points don't drown three springs. Within the springs, each
-    canine spring counts canine_weight times an ordinary one. Springs are for the "macro": one shorter
-    than the release distance (spring_release) pulls less and less, down to OCC_SPRING_RESIDUAL at 0,
-    and what the springs lose goes to the magnet, so the intercuspation sets the final position
-    (none of that with springs only, spring_share 100 %).
-    The teeth are not a third guide but a limit: no point goes deeper than the overlap limit of its
-    zone, limits = (anterior, posterior), whatever the guides want.
-    vertices = (mobile, fixed) local points to test, random samples by default.
-    free: 6 x k basis of the motions allowed (see motions), exactly: the solver only searches those.
-    None: every motion.
-    Returns (translation mm, rotation deg) applied."""
-    upper, lower, block = job.fixed, job.mobile, job.block   # "upper" = fixed side, "lower" = mobile side
-    centre = np.array(block.matrix_world.translation)
-    groups = []   # (rows, rhs, total weight of the group)
+# Where both arches are, for the test points: (mobile points, d1, c1, n1, fixed points, d2, c2, n2), world.
+# d1: mobile points against the fixed surface; d2: fixed points against the mobile surface. magnet1 / magnet2:
+# the points the magnet pulls (the samples); the others (every vertex near the contacts) only check the limits.
+Contacts = namedtuple("Contacts", "mobile_points d1 c1 n1 fixed_points d2 c2 n2 magnet1 magnet2")
 
-    pairs = job.pairs
-    pull = 0.0                                               # the springs' share, after their release
-    if pairs:
-        rows, rhs = [], []
-        fade = spring_fade(scene, pairs, spring_share)
-        weights = pair_weights(pairs, canine_weight) * fade
-        pull = spring_share * float(fade.mean())
-        for (fixed, moving), w in zip(pairs, np.sqrt(weights / weights.mean())):
-            p, q = np.array(moving.matrix_world.translation), np.array(fixed.matrix_world.translation)
-            rows.append(w * np.hstack((-skew(p - centre), np.eye(3))))
-            rhs.append(w * (q - p) * params.OCC_SPRING_STEP)
-        groups.append((np.vstack(rows), np.concatenate(rhs), pull))
 
-    # Lower vertices against the upper surface (move along the upper normal), and upper vertices
-    # against the lower surface (move the lower surface against its own normal: signs flipped).
-    upper_plane, lower_plane = job.fixed_plane, job.mobile_plane
-    lower_local, upper_local = vertices or (samples(lower), samples(upper))
-    lp = world_points(lower, lower_local)
-    d1, c1, n1 = signed_distances(lp, upper, params.OCC_SEARCH_DISTANCE)
-    up_ = world_points(upper, upper_local)
-    d2, c2, n2 = signed_distances(up_, lower, params.OCC_SEARCH_DISTANCE)
-    rows1, rows2 = rigid_rows(lp, n1, centre), rigid_rows(c2, n2, centre)
-    with np.errstate(invalid='ignore'):
-        near1 = (d1 > 0) & (d1 < params.OCC_MAGNET_RANGE)
-        near2 = (d2 > 0) & (d2 < params.OCC_MAGNET_RANGE)
+def test_points(job, extra=None):
+    """(mobile local points, fixed local points, magnet mask mobile, magnet mask fixed): the random samples,
+    plus extra = (mobile, fixed) points that only check the overlap limits."""
+    mobile, fixed = samples(job.mobile), samples(job.fixed)
+    extra = extra or (np.zeros((0, 3)), np.zeros((0, 3)))
+    return (np.vstack((mobile, extra[0])), np.vstack((fixed, extra[1])),
+            np.arange(len(mobile) + len(extra[0])) < len(mobile), np.arange(len(fixed) + len(extra[1])) < len(fixed))
 
-    magnet_rows = np.vstack((rows1[near1], rows2[near2]))
-    magnet_rhs = np.concatenate((-d1[near1], d2[near2])) * params.OCC_MAGNET_STEP   # close the gap
-    groups.append((magnet_rows, magnet_rhs, 1.0 - (pull if pairs else spring_share)))
 
-    a, b = [1e-3 * np.eye(6)], [np.zeros(6)]
-    for rows, rhs, weight in groups:
-        if len(rows) and weight > 0:
-            w = np.sqrt(weight / len(rows))
-            a.append(w * rows)
-            b.append(w * rhs)
+def measure(job, vertices, motion=None):
+    """Contacts with the mobile block moved by motion (4 x 4, world) from where it is now (None: here)."""
+    mobile_local, fixed_local, magnet1, magnet2 = vertices
+    mobile = np.array(job.mobile.matrix_world)
+    if motion is not None:
+        mobile = motion @ mobile
+    mp = mobile_local @ mobile[:3, :3].T + mobile[:3, 3]
+    d1, c1, n1 = signed_distances(mp, job.fixed, params.OCC_SEARCH_DISTANCE)
+    fp = world_points(job.fixed, fixed_local)
+    d2, c2, n2 = signed_distances(fp, job.mobile, params.OCC_SEARCH_DISTANCE, mobile)
+    return Contacts(mp, d1, c1, n1, fp, d2, c2, n2, magnet1, magnet2)
 
-    anterior, posterior = limits
-    limit1 = np.where(anterior_contacts(lower_plane, upper_plane, lp, c1), anterior, posterior)
-    limit2 = np.where(anterior_contacts(upper_plane, lower_plane, up_, c2), anterior, posterior)
-    held1, rhs1 = held_points(rows1, d1, limit1)
-    held2, rhs2 = held_points(-rows2, d2, limit2)
-    free = np.eye(6) if free is None else free
-    x = free @ solve_step(np.vstack(a) @ free, np.concatenate(b), np.vstack((held1, held2)) @ free,
-                          np.concatenate((rhs1, rhs2)))
 
+def rigid_motion(x, centre):
+    """4 x 4 world matrix of the motion x = (rotation vector, translation) about centre."""
     omega, t = Vector(x[:3]), Vector(x[3:])
-    scale = min(1.0, MAX_STEP / max(t.length, 1e-12), np.radians(MAX_STEP) / max(omega.length, 1e-12))
-    omega, t = omega * scale, t * scale   # together, so the motion keeps its direction
     angle = omega.length
     rotation = Matrix.Rotation(angle, 4, omega.normalized()) if angle > 1e-12 else Matrix()
     c = Vector(centre)
-    motion = Matrix.Translation(c + t) @ rotation @ Matrix.Translation(-c)
-    block.matrix_world = registration.as_rigid(motion @ block.matrix_world)
-    bpy.context.view_layer.update()   # so the arch and its points report their new position
-    return t.length, np.degrees(angle)
+    return np.array(Matrix.Translation(c + t) @ rotation @ Matrix.Translation(-c))
 
 
-def converged(step):
-    shift, angle = step
-    return shift < CONVERGED and angle < CONVERGED
+# The guides at one position, with their weights frozen there, so a trial position is judged by the same rules.
+Guides = namedtuple("Guides", "spring_weights magnet_weight limit1 limit2")
 
 
-def settled(step):
-    """The last step is too small to matter clinically (it may still vibrate between two contacts)."""
-    shift, angle = step
-    return shift < params.OCC_SETTLED and angle < params.OCC_SETTLED
+def guides_here(scene, job, limits, spring_share, canine_weight, contacts):
+    """Weights of the two guides, which share the guidance (spring_share vs 1 - spring_share); each group is
+    weighted as a whole, so a thousand magnet points don't drown three springs. Within the springs, each
+    canine spring counts canine_weight times an ordinary one. A spring shorter than the release distance
+    (spring_release) pulls less and less, down to OCC_SPRING_RESIDUAL at 0, and what the springs lose goes
+    to the magnet, so the intercuspation sets the final position (none of that with springs only, 100 %).
+    The limits: each point's overlap limit, anterior or posterior by its zone."""
+    pairs = job.pairs
+    pull, spring_weights = 0.0, np.zeros(0)
+    if pairs:
+        fade = spring_fade(scene, pairs, spring_share)
+        weights = pair_weights(pairs, canine_weight) * fade
+        pull = spring_share * float(fade.mean())
+        spring_weights = weights / weights.mean() * pull / len(pairs)
+    c = contacts
+    with np.errstate(invalid='ignore'):
+        near = int((c.magnet1 & (c.d1 > 0) & (c.d1 < params.OCC_MAGNET_RANGE)).sum()
+                   + (c.magnet2 & (c.d2 > 0) & (c.d2 < params.OCC_MAGNET_RANGE)).sum())
+    magnet = 1.0 - (pull if pairs else spring_share)
+    anterior, posterior = limits
+    limit1 = np.where(anterior_contacts(job.mobile_plane, job.fixed_plane, c.mobile_points, c.c1), anterior, posterior)
+    limit2 = np.where(anterior_contacts(job.fixed_plane, job.mobile_plane, c.fixed_points, c.c2), anterior, posterior)
+    return Guides(spring_weights, magnet / near if near else 0.0, limit1, limit2)
+
+
+def energy(job, guides, contacts, motion=None):
+    """What the seating minimises: springs (weighted squared lengths) + magnet (squared gaps, each up to the
+    magnet range) + a stiff penalty beyond each point's overlap limit. motion: a trial position of the
+    mobile block (its spring points moved with it)."""
+    total = 0.0
+    if job.pairs:
+        moving, fixed = pair_arrays(job)
+        if motion is not None:
+            moving = moving @ motion[:3, :3].T + motion[:3, 3]
+        total += float(guides.spring_weights @ ((fixed - moving) ** 2).sum(axis=1))
+    reach = params.OCC_MAGNET_RANGE
+    for d, limit, magnet in ((contacts.d1, guides.limit1, contacts.magnet1), (contacts.d2, guides.limit2, contacts.magnet2)):
+        gap = np.clip(np.nan_to_num(d[magnet], nan=reach), 0.0, reach)
+        excess = np.clip(np.nan_to_num(-limit - d, nan=0.0), 0.0, None)
+        total += guides.magnet_weight * float(gap @ gap) + params.OCC_LIMIT_STIFFNESS * float(excess @ excess)
+    return total
+
+
+def full_step(job, guides, contacts, centre, free):
+    """The linearised motion (rotation vector, translation) towards the equilibrium, in one step (Gauss-Newton):
+    the springs close their whole length, the magnet its whole gaps (within range), and the points near their
+    overlap limit are held at it (solve_step), whatever the guides want."""
+    a, b = [1e-3 * np.eye(6)], [np.zeros(6)]
+    if job.pairs:
+        moving, fixed = pair_arrays(job)
+        for (p, q), w in zip(zip(moving, fixed), np.sqrt(guides.spring_weights)):
+            a.append(w * np.hstack((-skew(p - centre), np.eye(3))))
+            b.append(w * (q - p))
+    c = contacts
+    rows1, rows2 = rigid_rows(c.mobile_points, c.n1, centre), rigid_rows(c.c2, c.n2, centre)
+    with np.errstate(invalid='ignore'):
+        near1 = c.magnet1 & (c.d1 > 0) & (c.d1 < params.OCC_MAGNET_RANGE)
+        near2 = c.magnet2 & (c.d2 > 0) & (c.d2 < params.OCC_MAGNET_RANGE)
+    w = np.sqrt(guides.magnet_weight)
+    a += [w * rows1[near1], w * rows2[near2]]
+    b += [-w * c.d1[near1], w * c.d2[near2]]   # close the gaps
+    held1, rhs1 = held_points(rows1, c.d1, guides.limit1)
+    held2, rhs2 = held_points(-rows2, c.d2, guides.limit2)
+    free = np.eye(6) if free is None else free
+    x = free @ solve_step(np.vstack(a) @ free, np.concatenate(b), np.vstack((held1, held2)) @ free,
+                          np.concatenate((rhs1, rhs2)))
+    scale = min(1.0, params.OCC_MAX_STEP / max(np.linalg.norm(x[3:]), 1e-12),
+                np.radians(params.OCC_MAX_STEP) / max(np.linalg.norm(x[:3]), 1e-12))
+    return x * scale   # rotation and translation together, so the motion keeps its direction
+
+
+def solve(scene, job, limits, spring_share, canine_weight, vertices, free, max_iterations, path=None):
+    """Seat the mobile block with the given test points: full steps (full_step), each tried whole, then halved
+    while it does not lower the energy (line search, up to OCC_LINE_SEARCH times), so the solver can't swing
+    between two contacts. Stops when no step helps any more, or below CONVERGED. Only the block's transform
+    changes. path: the block's world matrix is added after each step (to play the seating back).
+    Returns (iterations, True if it settled)."""
+    block = job.block
+    contacts = measure(job, vertices)
+    for i in range(1, max_iterations + 1):
+        guides = guides_here(scene, job, limits, spring_share, canine_weight, contacts)
+        now = energy(job, guides, contacts)
+        x = full_step(job, guides, contacts, np.array(block.matrix_world.translation), free)
+        for _halving in range(params.OCC_LINE_SEARCH + 1):
+            motion = rigid_motion(x, np.array(block.matrix_world.translation))
+            trial = measure(job, vertices, motion)
+            if energy(job, guides, trial, motion) < now:
+                break
+            x = x / 2
+        else:
+            return i, True          # no step lowers the energy: this is the equilibrium
+        block.matrix_world = registration.as_rigid(Matrix(motion.tolist()) @ block.matrix_world)
+        bpy.context.view_layer.update()   # so the arch and its points report their new position
+        contacts = trial
+        if path is not None:
+            path.append(block.matrix_world.copy())
+        shift, angle = np.linalg.norm(x[3:]), np.degrees(np.linalg.norm(x[:3]))
+        if shift < CONVERGED and angle < CONVERGED:
+            return i, True
+    return max_iterations, shift < params.OCC_SETTLED and angle < params.OCC_SETTLED
 
 
 def pair_arrays(job):
@@ -556,32 +725,38 @@ def fit_target(scene, job, from_here, canine_weight=params.OCC_CANINE_WEIGHT):
 
 
 def seat_one(scene, job, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_weight=params.OCC_CANINE_WEIGHT,
-             max_iterations=params.OCC_MAX_ITERATIONS, from_here=False):
-    """Run one seating to the end (no animation): first fit (see fit_target), then springs and magnet up
-    to the overlap limits, with the motions allowed (see motions). Returns (contact iterations, True if
-    it settled)."""
+             max_iterations=params.OCC_MAX_ITERATIONS, from_here=False, path=None):
+    """Run one seating to the end: first fit (see fit_target), then springs and magnet up to the overlap
+    limits, with the motions allowed (see motions): on random samples, then again with every vertex near
+    the contacts also held at its limit (samples can miss the tip of a cusp, which is exactly what sets the
+    overlap; the magnet stays on the samples, so both phases aim at the same equilibrium).
+    path: the block's world matrices along the way (start, fit, each step), to play it back.
+    Returns (iterations, True if it settled)."""
+    if path is not None:
+        path.append(job.block.matrix_world.copy())
     target = fit_target(scene, job, from_here, canine_weight)
     if target is not None:
         job.block.matrix_world = target
         bpy.context.view_layer.update()
+        if path is not None:
+            path.append(target.copy())
     free = motions(scene, job, from_here)
-    for i in range(1, max_iterations + 1):
-        if converged(seat_step(scene, job, limits, spring_share, canine_weight, free=free)):
-            break
-    vertices = contact_vertices(job)
-    for _i in range(params.OCC_FINISH_ITERATIONS):
-        step = seat_step(scene, job, limits, spring_share, canine_weight, vertices, free)
-        if converged(step):
-            break
-    return i, settled(step)
+    args = (scene, job, limits, spring_share, canine_weight)
+    first, _ok = solve(*args, test_points(job), free, max_iterations, path)
+    last, ok = solve(*args, test_points(job, contact_vertices(job)), free, params.OCC_FINISH_ITERATIONS, path)
+    return first + last, ok
 
 
 def seat(scene, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_weight=params.OCC_CANINE_WEIGHT,
-         max_iterations=params.OCC_MAX_ITERATIONS, from_here=False):
-    """Every seating in order (see seatings). Returns (total iterations, True if all settled)."""
+         max_iterations=params.OCC_MAX_ITERATIONS, from_here=False, paths=None):
+    """Every seating in order (see seatings). paths: a list that gets (block, its world matrices along the
+    way) per seating. Returns (total iterations, True if all settled)."""
     total, all_settled = 0, True
     for job in seatings(scene):
-        iterations, ok = seat_one(scene, job, limits, spring_share, canine_weight, max_iterations, from_here)
+        path = [] if paths is not None else None
+        iterations, ok = seat_one(scene, job, limits, spring_share, canine_weight, max_iterations, from_here, path)
+        if paths is not None:
+            paths.append((job.block, path))
         total += iterations
         all_settled &= ok
     return total, all_settled
@@ -843,6 +1018,23 @@ _draw_handle = None
 
 # --- Operators -----------------------------------------------------------------------
 
+def playback_frames(path, eased=True):
+    """One world matrix per frame along the recorded poses, at an even speed (OCC_PLAYBACK_MM mm or
+    OCC_PLAYBACK_DEG degrees per frame, whichever needs more frames); the first glide (the point fit) eased
+    in and out, and at most FIT_FRAMES frames per stretch."""
+    frames = [path[0]]
+    for k, (a, b) in enumerate(zip(path, path[1:])):
+        shift = (b.translation - a.translation).length
+        angle = np.degrees(a.to_quaternion().rotation_difference(b.to_quaternion()).angle)
+        n = int(min(FIT_FRAMES, max(1, np.ceil(max(shift / params.OCC_PLAYBACK_MM, angle / params.OCC_PLAYBACK_DEG)))))
+        for f in range(1, n + 1):
+            t = f / n
+            if eased and k == 0:
+                t = t * t * (3 - 2 * t)
+            frames.append(a.lerp(b, t))
+    return frames
+
+
 def guided(scene, job):
     """Something can move the mobile block: an active spring, or the magnet with the arches in range."""
     props = scene.omfs_occlusion
@@ -978,7 +1170,7 @@ class OMFS_OT_toggle_occlusion_points(bpy.types.Operator):
 class OMFS_OT_seat_occlusion(bpy.types.Operator):
     """L'arcade du haut (ou chaque segment) vient s'asseoir sur l'arcade du bas fixe : les ressorts guident (part réglable),
     l'aimant rapproche les arcades jusqu'aux contacts stables, et les dents s'arrêtent au chevauchement
-    permis de chaque zone. Animé dans la vue ; Échap : annuler et revenir au départ"""
+    permis de chaque zone. Calculé d'abord, puis animé dans la vue ; Échap : annuler et revenir au départ"""
     bl_idname = "omfs.seat_occlusion"
     bl_label = "Asseoir l'occlusion"
     bl_options = {'REGISTER', 'UNDO'}
@@ -1034,44 +1226,48 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
         return {'FINISHED'}
 
     def invoke(self, context, event):
+        """Computed first (a few seconds, the cursor waits), then played back at OCC_PLAYBACK_FPS: the animation
+        stays fluid whatever the time of one iteration. Every segment moves at the same time."""
         global _seating
         if not self.ready(context):
             return {'CANCELLED'}
-        self.jobs = seatings(context.scene)
-        self.starts = [(job.block, job.block.matrix_world.copy()) for job in self.jobs]   # Esc: back to these
-        self.all_settled = True
-        self.begin(context, 0)
+        self.starts = [(job.block, job.block.matrix_world.copy()) for job in seatings(context.scene)]   # Esc: back to these
+        self.frames = None
         _seating = True
         self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
             (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
-        self.timer = context.window_manager.event_timer_add(0.01, window=context.window)
+        if self.area:
+            self.area.header_text_set("Assise : calcul…")
+        context.window.cursor_set('WAIT')
+        self.timer = context.window_manager.event_timer_add(1 / params.OCC_PLAYBACK_FPS, window=context.window)
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
-    def begin(self, context, index):
-        """Start seating number index. Phase 1: glide to the first fit (see fit_target). Phase 2: guides
-        up to the limits, with the motions allowed."""
-        self.index = index
-        job = self.jobs[index]
+    def compute(self, context):
         scene = context.scene
-        self.start = job.block.matrix_world.copy()
-        target = fit_target(scene, job, self.from_here, scene.omfs_occlusion.canine_weight)
-        self.frame = 0 if target is not None else FIT_FRAMES
-        self.fit = target if target is not None else self.start
-        self.free = motions(scene, job, self.from_here)
-        self.iteration = 0
-        self.vertices = None
+        props = scene.omfs_occlusion
+        start = time.monotonic()
+        paths = []
+        iterations, self.all_settled = seat(scene, limits_of(props), props.spring_share / 100, props.canine_weight,
+                                            from_here=self.from_here, paths=paths)
+        self.report({'INFO'}, f"Assise : {iterations} itérations, {time.monotonic() - start:.1f} s de calcul")
+        for block, matrix in self.starts:
+            block.matrix_world = matrix
+        self.frames = [(block, playback_frames(path, eased=not self.from_here)) for block, path in paths]
+        self.frame = 0
+        context.window.cursor_set('DEFAULT')
+        if self.area:
+            self.area.header_text_set("Assise   |   Échap : annuler")
 
     def finish(self, context):
         global _seating
         _seating = False
         context.window_manager.event_timer_remove(self.timer)
+        context.window.cursor_set('DEFAULT')
         if self.area:
             self.area.header_text_set(None)
 
     def modal(self, context, event):
-        scene = context.scene
-        job = self.jobs[self.index]
         if event.type == 'ESC' and event.value == 'PRESS':
             for block, matrix in self.starts:
                 block.matrix_world = matrix
@@ -1079,37 +1275,20 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
             return {'CANCELLED'}
         if event.type != 'TIMER':
             return {'PASS_THROUGH'}
-        if self.frame < FIT_FRAMES:
-            self.frame += 1
-            f = self.frame / FIT_FRAMES
-            job.block.matrix_world = self.start.lerp(self.fit, f * f * (3 - 2 * f))   # ease in / out
-            if self.area:
-                self.area.tag_redraw()
+        if self.frames is None:
+            self.compute(context)
             return {'RUNNING_MODAL'}
-        self.iteration += 1
-        props = scene.omfs_occlusion
-        step = seat_step(scene, job, limits_of(props), props.spring_share / 100, props.canine_weight, self.vertices,
-                         self.free)
-        longest = max(spring_lengths(scene), default=0.0)
+        self.frame += 1
+        for block, frames in self.frames:
+            block.matrix_world = frames[min(self.frame, len(frames) - 1)]
         if self.area:
-            what = f"{job.mobile.name} sur {job.fixed.name}, " if len(self.jobs) > 1 else ""
-            self.area.header_text_set(f"Assise : {what}itération {self.iteration}, ressort le plus long "
-                                      f"{longest:.2f} mm   |   Échap : annuler")
             self.area.tag_redraw()
-        if self.vertices is None and (converged(step) or self.iteration >= params.OCC_MAX_ITERATIONS):
-            self.vertices = contact_vertices(job)   # last iterations: every vertex near the contacts
-            self.last_iteration = self.iteration + params.OCC_FINISH_ITERATIONS
+        if self.frame < max(len(frames) for _block, frames in self.frames):
             return {'RUNNING_MODAL'}
-        if self.vertices is not None and (converged(step) or self.iteration >= self.last_iteration):
-            self.all_settled &= settled(step)
-            if self.index + 1 < len(self.jobs):
-                self.begin(context, self.index + 1)   # next segment
-                return {'RUNNING_MODAL'}
-            self.finish(context)
-            self.report_end(self.all_settled)
-            show_map(context, True)
-            return {'FINISHED'}
-        return {'RUNNING_MODAL'}
+        self.finish(context)
+        self.report_end(self.all_settled)
+        show_map(context, True)
+        return {'FINISHED'}
 
 
 class OMFS_OT_toggle_overlap_map(bpy.types.Operator):
