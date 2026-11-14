@@ -349,6 +349,7 @@ Naming used below (matches the object roles in code):
   - Mesh is closed and manifold (watertight), no holes or flipped faces, so it slices cleanly for printing.
   - All features are merged into each guide (drill-sleeve tubes, screw holes, engraved labels).
 - File names: case ID + guide type (e.g. CASE01_cutting_guide.stl). Avoid patient names in file names.
+- Print workspace (supports, slicing, .goo for the Elegoo printer): see docs/print_workspace.md (spec, not built yet).
 - Nuances: (add here)
 
 ## Orthognathic extension: occlusion seating
