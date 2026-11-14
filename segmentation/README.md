@@ -6,9 +6,9 @@ Moved here from `~/DentalSegApp` on 2026-11-13, so the tool lives in one place w
 
 | File | Role |
 |---|---|
-| `segment.py` | CBCT / CT (DICOM folder, `.dcm`, `.nrrd`, `.nii(.gz)`, `.mha`) → DentalSegmentator (nnU-Net, `Dataset111_453CT`, fold 0) on the Apple GPU (MPS) → `<name>_segmentation.seg.nrrd` (next to the input, or `--sortie`), readable by 3D Slicer, plus the probabilities in precise mode. Removes islands < 60 mm³ (except the canal), like the Slicer extension. |
+| `segment.py` | CBCT / CT (DICOM folder, `.dcm`, `.nrrd`, `.nii(.gz)`, `.mha`) → DentalSegmentator (nnU-Net, `Dataset111_453CT`, fold 0) on the Apple GPU (MPS) → `<name>_segmentation.seg.nrrd` (next to the input, or `--sortie`), readable by 3D Slicer, plus the probabilities (both modes). Removes islands < 60 mm³ (except the canal), like the Slicer extension. |
 | `surfaces.py` | Step 3: labels or probabilities → closed STL surfaces per structure (patient coordinates, LPS); `--comparer A.stl B.stl` gives the distance between two surfaces. |
-| `DentalSeg.applescript` | Drop-on-icon launcher: runs `segment.py` with the `dentalseg` conda env in Terminal. |
+| `DentalSeg.applescript` | Drop-on-icon launcher: asks Précis or Rapide, then runs `segment.py` with the `dentalseg` conda env in Terminal. |
 | `DentalSeg.app` | Compiled launcher (not in git; rebuild with `osacompile -o segmentation/DentalSeg.app segmentation/DentalSeg.applescript`). |
 | `model/` | DentalSegmentator weights (236 MB; not in git: large, third-party licence, see the Zenodo record). |
 
@@ -54,7 +54,8 @@ all defaults in one parameter module, the original volume never modified.
 
 `segment.py` now runs in **precise mode by default**: test-time augmentation (8 mirrored passes, probabilities
 averaged), sliding windows overlapping more (step 0.35 instead of 0.5), and the probabilities kept
-(`<name>_probabilites.nrrd`, 4D uint8). `--rapide` gives the former setting. `surfaces.py` turns either the
+(`<name>_probabilites.nrrd`, 4D uint8). `--rapide` gives the former setting (no augmentation, step 0.5), and
+keeps the probabilities too. The DentalSeg app asks for the mode at launch (Précis by default, or Rapide). `surfaces.py` turns either the
 labels (staircase) or the probabilities (iso-surface at 50 %, between voxels; only around the cleaned structure,
 so no lost islands come back) into closed STL surfaces in patient coordinates (LPS, like 3D Slicer).
 

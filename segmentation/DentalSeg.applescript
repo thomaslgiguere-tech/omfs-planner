@@ -23,6 +23,8 @@ on run
 end run
 
 on runSegmentation(args)
+	set mode to button returned of (display dialog "Mode de segmentation :" & return & return & "Précis : le volume vu 8 fois en miroir, environ 30 min." & return & "Rapide : un seul passage, environ 3 min." & return & return & "Les probabilités (surfaces sous le voxel) sont gardées dans les deux cas." buttons {"Annuler", "Rapide", "Précis"} default button 3 cancel button 1 with title "DentalSeg")
+	if mode is "Rapide" then set args to " --rapide" & args
 	tell application "Terminal"
 		activate
 		do script "clear; " & pythonPath & " " & scriptPath & args & "; echo; echo 'Tu peux fermer cette fenêtre.'"

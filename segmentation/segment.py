@@ -4,8 +4,9 @@ sur le GPU de la puce Apple (MPS), puis écrit un .seg.nrrd importable dans 3D S
 
 Mode précis (par défaut, plus long) : augmentation au moment de l'inférence (le volume vu 8 fois en
 miroir, probabilités moyennées), fenêtres glissantes plus chevauchées (step 0,35 au lieu de 0,5), et
-les probabilités de chaque structure gardées (<nom>_probabilites.nrrd) pour des surfaces sous le voxel
-(surfaces.py). Mode --rapide : l'ancien réglage (sans augmentation, step 0,5, sans probabilités).
+les probabilités de chaque structure gardées. Mode --rapide : l'ancien réglage (sans augmentation, step 0,5).
+Dans les deux modes, les probabilités sont écrites (<nom>_probabilites.nrrd) pour des surfaces sous le voxel
+(surfaces.py).
 
 Usage : python segment.py [--rapide] [--step 0.35] [--sortie DOSSIER] <dossier DICOM | .dcm | .nrrd | .nii(.gz) | .mha> [...]
 """
@@ -55,11 +56,19 @@ def read_input(path: Path):
 
     folder = path if path.is_dir() else path.parent
     reader = sitk.ImageSeriesReader()
-    series_ids = reader.GetGDCMSeriesIDs(str(folder)) or []
+    files_by_series = {}
+    # Le dossier puis ses sous-dossiers (ex. une scène 3D Slicer, DICOM dans un sous-dossier)
+    for sub in [folder] + sorted(p for p in folder.rglob("*") if p.is_dir()):
+        for sid in reader.GetGDCMSeriesIDs(str(sub)) or []:
+            files = reader.GetGDCMSeriesFileNames(str(sub), sid)
+            if len(files) > len(files_by_series.get(sid, ())):
+                files_by_series[sid] = files
+        if files_by_series and path.is_dir() and sub == folder:
+            break
+    series_ids = list(files_by_series)
     if not series_ids:
-        raise RuntimeError(f"Aucune série DICOM trouvée dans {folder}")
+        raise RuntimeError(f"Aucune série DICOM trouvée dans {folder} ni ses sous-dossiers")
 
-    files_by_series = {sid: reader.GetGDCMSeriesFileNames(str(folder), sid) for sid in series_ids}
     if path.is_file():
         # Fichier .dcm déposé : on prend la série qui le contient
         chosen = next((sid for sid, files in files_by_series.items()
@@ -173,7 +182,7 @@ def write_seg_nrrd(seg: sitk.Image, out_path: Path):
 
 def process(path: Path, fast: bool = False, step: float = PRECISE_STEP, out_dir: Path = None):
     start = time.time()
-    tta, probabilities = not fast, not fast
+    tta, probabilities = not fast, True
     step = 0.5 if fast else step
     log(f"Lecture de {path}")
     image, base, out_folder = read_input(path)
