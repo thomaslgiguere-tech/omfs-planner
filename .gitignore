@@ -30,3 +30,6 @@ segmentation/model/
 *.mhd
 *.pth
 segmentation/DentalSeg.app/
+
+# Print spike (tools/print_spike): generated files
+tools/print_spike/out/
