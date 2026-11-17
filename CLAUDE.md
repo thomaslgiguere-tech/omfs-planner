@@ -56,10 +56,18 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   analysis.py                exact intersection volume (Boolean overlay, live or snapshot)
   distance_map.py            distance map (Geometry Nodes modifier), closest-point marker
   snapshot.py                section caption + scale bar, PNG snapshot (offscreen render)
+  print_scene.py             Impression workspace: print scene (copies on a virtual build plate), bearing
+                             faces -> no-support slabs, live supports, raft, checks, export .goo, test piece
+  print_chain.py             the external tools behind it: 3MF, PrusaSlicer (supports, slicing), layers ->
+                             support preview, UVtools (.goo, islands); no Blender UI, runs in worker threads
+  print_profiles.py          printer and resin profiles as JSON (shipped in print_profiles/, the user's own
+                             in Blender's config folder)
+  print_ui.py                "Imprimer" panel (OMFS tab) and the "Impression" tab of the print scene
   ui.py                      sidebar tab "OMFS" in the 3D viewport
 app_template/omfs_planner/   Application Template: clean surgical UI + Developer mode
 tools/dev_link.sh            symlinks both into the Blender user dirs (development)
 tools/make_test_case.py      writes synthetic test meshes (never patient data)
+tools/print_spike/           Phase 0 spike of the print chain (scripts; report in docs/print_spike_report.md)
 tests/run_tests.py           headless tests: blender -b --factory-startup --python tests/run_tests.py
 docs/workflow.md             clinical workflow, step by step (the feature spec)
 docs/GLOSSARY.md             Blender term -> what it does -> Meshmixer equivalent

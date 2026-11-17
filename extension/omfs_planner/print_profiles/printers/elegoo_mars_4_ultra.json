@@ -1,0 +1,14 @@
+{
+ "name": "Elegoo Mars 4 Ultra",
+ "machine_name": "Elegoo Mars 4 Ultra",
+ "format": "goo",
+ "goo_version": 30,
+ "pixels_x": 8520,
+ "pixels_y": 4320,
+ "width": 153.36,
+ "height": 77.76,
+ "z": 165,
+ "mirror_x": true,
+ "mirror_y": false,
+ "source": "UVtools 7.1.2 machine list and the surgeon's Lychee .goo files (Goo v3, mirrored horizontally)"
+}

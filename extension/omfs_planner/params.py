@@ -190,3 +190,25 @@ BITE_SEARCH_SPOTS = 60          # start points of the global search, spread over
 BITE_NEIGHBOURHOOD = 8.0        # mm around a start point used for the arch's direction there
 PIN_STEM_DIAMETER = 5.0         # mm, models: the stem from a female to the lower model, flat on the base plane
 PIN_STEM_SINK = 1.5             # mm the stem goes into the lower model past its surface
+
+# Print workspace ("Impression", print_scene.py / print_chain.py; measured in docs/print_spike_report.md)
+PRINT_TOOL_TIMEOUT = 300.0      # s: an external tool (PrusaSlicer, UVtools) silent this long is stopped
+PRINT_PREVIEW_PIXEL = 0.144     # mm: pixel of the fast slicing that brings the supports back (8 x the printer's 18 um)
+PRINT_PREVIEW_ADAPTIVITY = 0.3  # 0 - 1: flat areas of the support preview are meshed with fewer faces
+PRINT_UPDATE_DELAY = 0.4        # s without moving before the supports of a part are regenerated
+PRINT_SUPPORT_LIFT = 5.0        # mm between the pad and the lowest point of a supported part
+PRINT_SUPPORT_DENSITY = 100     # %: PrusaSlicer's relative density of support points
+PRINT_SUPPORT_TIP = 0.4         # mm: diameter of a support tip where it touches the part, TO TEST (print)
+PRINT_SUPPORT_PENETRATION = 0.2 # mm a support tip goes into the part (PrusaSlicer's default)
+PRINT_SUPPORT_PAD = True        # a pad (raft) under the supports
+PRINT_BEARING_DISTANCE = 0.5    # mm: faces of a part this close to the bone, teeth or scan it fits are bearing surfaces
+PRINT_BLOCKER_HALF = 0.3        # mm each side of a bearing surface: the slab where no support may start
+PRINT_ISLAND_MIN_AREA = 1.0     # mm2: an unsupported island smaller than this on one layer is a rasterisation sliver
+PRINT_ISLAND_MIN_LAYERS = 5     # an island group counts when its volume exceeds that area over this many layers
+PRINT_PART_GAP = 3.0            # mm left between parts (and to the plate's edge) by "Disposer"
+PRINT_TILTS = (0, 30, 45, 90)   # degrees: the quick tilt presets
+PRINT_RAFT_THICKNESS = 1.2      # mm: the raft, one rigid plate under every part, cured against the build plate
+PRINT_RAFT_MARGIN = 2.0         # mm the raft extends past the parts and their supports
+PRINT_RAFT_LIP = 1.0            # mm: the raft's top edge overhangs its foot by this much (bevel: the scraper slides under)
+PRINT_TILT_DEFAULT = 30.0       # degrees: a part arrives bearing surface up and tilted (no flat face parallel to the plate)
+PRINT_TEST_PLATE = (30.0, 20.0, 2.5)   # mm: the synthetic test piece's plate (asymmetric: one corner cut)

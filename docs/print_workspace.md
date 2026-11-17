@@ -1,6 +1,8 @@
 # OMFS Planner: print workspace (spec, not built yet)
 
-Status: specification only. Do not code before the Phase 0 spike below has been run and reported.
+Status (2026-11-16): Phase 0 done (docs/print_spike_report.md); first version built in the extension
+(print_scene.py, print_chain.py, print_profiles.py, print_ui.py), see "What is built" at the end.
+Not yet validated by a print: one test print of the synthetic test piece is the remaining step.
 This document extends Step 9 (Export) of docs/workflow.md. CLAUDE.md still wins on architecture,
 units, parameters and patient-data safety.
 
@@ -127,3 +129,39 @@ If a step is impossible, propose the closest alternative instead of working arou
 
 Add to docs/GLOSSARY.md: Scene (Blender) vs Meshmixer's single workspace; evaluated mesh; build volume;
 SLA support tree, island, pad; exposure / bottom layers; .sl1 and .goo formats.
+
+## What is built (2026-11-16)
+
+- **Choose the parts**: "Imprimer" panel in the OMFS tab; ticked parts are copied (evaluated meshes) into
+  the scene "Impression". The planning objects are never modified. "Mettre à jour la pièce" re-copies one
+  part and keeps its place and orientation.
+- **Plate**: build plate, build volume (wire box), "Avant" arrow. Parts are moved with the usual handles
+  (arrows and rings shown on the selected part), G / R, or typed values; the height is automatic (locked).
+  Tilt presets (0 / 30 / 45 / 90 degrees, sideways, flip), "Disposer". A part out of the volume turns red.
+- **Bearing surfaces**: faces within PRINT_BEARING_DISTANCE of the bone / segment / teeth / scan the part fits
+  on, and facing it. They arrive turned up and tilted 30 degrees, and a thin slab over them is given to
+  PrusaSlicer as a support blocker (drawn translucent on the part).
+- **Live supports**: 0.4 s after a part stops moving, PrusaSlicer runs in the background at preview
+  resolution and the supports come back as a simplified mesh (about 2 s). Moving again cancels the run.
+- **Base**: "Radeau" (surgeon, 2026-11-16): one rigid plate under every part, cured against the build plate,
+  its top edge overhanging its foot (bevel) so a scraper slides under it; thickness, margin and bevel are
+  settings. Or PrusaSlicer's pad per part, or none.
+- **Resin**: profiles as JSON; the two the surgeon prints with are shipped (read from their Lychee .goo
+  headers), the favourite selected by default; the panel lists the values; "Modifier / nouvelle résine".
+- **Checks and export**: closed parts, inside the volume, supports up to date, tools found. Export slices at
+  the printer's resolution, converts to .goo v3, then checks the file: every setting of the profiles is in it
+  (39 settings identical to the surgeon's Lychee files), and nothing floats (UVtools islands over 1 mm2; the
+  Lychee files have none over 0.2 mm2). The file is kept only if all is green; a .json record is written next
+  to it (date, resin, supports, each part's position and rotation).
+- **Test piece** ("Pièce test"): one synthetic part for the one validating print: cut corner + raised "R"
+  (which way round it prints), 30 x 20 mm plate and 1.0 / 1.5 / 2.0 / 2.5 mm steps (scale), drill-sleeve bore,
+  fixation hole, underside as bearing surface (no support on it).
+
+Learned while building:
+- A flat face parallel to the plate that starts on support tips is flagged as floating; tilting clears it.
+  Hence the default tilt and the message.
+- PrusaSlicer's per-material overrides (material_ow_...) win over the plain settings: set both.
+- The raft is a part of the plate with supports off (per-object setting in the 3MF), or it gets lifted too.
+
+Not built yet: painting extra no-support areas; precision features (sleeve bores, pin females) as blockers;
+minimum wall thickness check; sending to the printer over the network; saved plate layouts.

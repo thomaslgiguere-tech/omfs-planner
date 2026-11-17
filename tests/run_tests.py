@@ -23,7 +23,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene  # noqa: E402
 
 omfs_planner.register()
 
@@ -2494,6 +2494,148 @@ def test_empty_folder_is_an_error():
             assert "No STL, OBJ or PLY" in str(error)
         else:
             raise AssertionError("expected an error for an empty folder")
+
+
+def remove_print_scene():
+    scene = print_scene.print_scene()
+    if scene is not None:
+        for part in print_scene.parts(scene):
+            print_scene.remove_part(scene, part)
+        for obj in list(scene.objects):
+            bpy.data.objects.remove(obj)
+        bpy.data.scenes.remove(scene)
+
+
+def test_print_profiles_and_settings():
+    """Printer and resin profiles are data; the PrusaSlicer settings and the expected .goo values come from them."""
+    printers, resins = print_profiles.profiles("printers"), print_profiles.profiles("resins")
+    printer = printers["elegoo_mars_4_ultra"]
+    assert (printer["pixels_x"], printer["pixels_y"], printer["goo_version"]) == (8520, 4320, 30) and printer["mirror_x"]
+    assert len(resins) >= 2 and resins[print_profiles.favourite_resin()]["favourite"]
+    resin = resins["elegoo_abs_like_v3_translucent"]
+    supports = {"enable": True, "pad": False, "lift": 5.0, "density": 120, "tip": 0.5}
+    config = print_chain.slicer_config(printer, resin, supports)
+    assert config["display_pixels_x"] == 8520 and config["layer_height"] == 0.03 and config["pad_enable"] == 0
+    assert config["material_ow_faded_layers"] == 6 and config["material_ow_support_points_density_relative"] == 120, \
+        "the per-material overrides must be set too, or PrusaSlicer keeps its defaults"
+    assert "FILEFORMAT_GOO" in config["printer_notes"] and "LiftHeight2_4" in config["printer_notes"]
+    preview = print_chain.slicer_config(printer, resin, supports, preview=True)
+    assert preview["display_pixels_x"] == 1065 and preview["display_width"] == config["display_width"], "same plate, coarse pixels"
+    expected = print_chain.expected_goo(printer, resin)
+    assert expected["Version"] == 30 and expected["BottomExposureTime"] == 40 and expected["RetractSpeed2"] == 60
+    assert print_chain.settings_differences({k: str(v) for k, v in expected.items()}, expected) == []
+    assert print_chain.settings_differences(dict({k: str(v) for k, v in expected.items()}, ExposureTime="9"), expected)[0][0] == "ExposureTime"
+    assert 60 < print_chain.print_time(800, resin) / 60 < 300
+
+
+def test_print_3mf_shares_vertices():
+    """The 3MF given to PrusaSlicer: welded vertices (a triangle soup crashed it), blockers and per-object options."""
+    import zipfile
+    soup = np.array([(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], float)     # 2 triangles, 6 vertices
+    tris = np.arange(6).reshape(2, 3)
+    parts = [print_chain.Part("a", soup, tris, [(soup + (0, 0, 1), tris)], (30.0, 20.0)),
+             print_chain.Part("raft", soup, tris, [], (50.0, 20.0), {"supports_enable": 0})]
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "plate.3mf"
+        print_chain.write_3mf(path, parts)
+        with zipfile.ZipFile(path) as z:
+            model, config = z.read("3D/3dmodel.model").decode(), z.read("Metadata/Slic3r_PE_model.config").decode()
+    assert model.count("<vertex ") == 4 + 4 + 4, "4 shared vertices per volume, not 6"
+    assert model.count("<triangle ") == 6 and model.count("<item ") == 2 and "30.00000 20.00000" in model
+    assert config.count("SupportBlocker") == 1 and config.count("ModelPart") == 2 and 'key="supports_enable" value="0"' in config
+
+
+def test_print_scene_copies_and_checks():
+    """Parts are copied to the print scene (the plan is untouched); the face that fits the bone is a bearing
+    surface, turned up and tilted, with its no-support slab; raft, build volume and file name."""
+    scene = bpy.context.scene
+    bone = dense_box("Print bone", 'BONE', (0, 0, -5), (40, 30, 10))            # top at z = 0
+    guide = dense_box("Print guide", 'GUIDE', (0, 0, 1.25), (20, 12, 2.5))      # sits on the bone
+    locking.set_locked(bone, True)
+    before = (tuple(guide.matrix_world.translation), len(guide.data.vertices), volume(guide))
+    assert guide in print_scene.printable(scene) and bone not in print_scene.printable(scene)
+    guide.omfs_print.pick = True
+    bpy.ops.omfs.print_prepare()
+    assert (tuple(guide.matrix_world.translation), len(guide.data.vertices), volume(guide)) == before, "the plan is untouched"
+    plate = print_scene.print_scene()
+    assert plate is not None and plate is not scene and guide.name in scene.objects and guide.name not in plate.objects
+    part = print_scene.parts(plate)[0]
+    assert part.omfs_print.source == guide.name and part.data is not guide.data
+    flagged = print_scene.get_bearing(part.data)
+    normals = np.array([p.normal for p in part.data.polygons])
+    assert flagged.any() and (normals[flagged][:, 2] < -0.99).all(), "only the face on the bone"
+    assert abs(sum(p.area for p in part.data.polygons if flagged[p.index]) - 20 * 12) < 1.0
+    blockers = [c for c in part.children if c.omfs_print.kind == 'BLOCKER']
+    assert len(blockers) == 1 and print_scene.open_edges(blockers[0].data) == 0, "one closed slab"
+    up = print_scene.rotation_of(part) @ np.array((0.0, 0.0, -1.0))             # where the bearing normal points now
+    assert abs(up[2] - np.cos(np.radians(params.PRINT_TILT_DEFAULT))) < 1e-3, f"bearing up, tilted ({up})"
+    assert part.lock_location[2] and all(part.lock_scale)
+
+    plate.omfs_print.supports = False                                            # no external tool in this test
+    print_scene.update_all_now(plate)
+    low, _high = print_scene.world_box(part)
+    assert abs(low[2]) < 1e-4 and not part.omfs_print.outside, "without supports the part sits on the plate"
+    assert not print_scene.of_kind(plate, 'RAFT'), "the raft needs supports"
+    plate.omfs_print.supports = True
+    vertices, triangles = print_scene.raft_arrays(plate)
+    n = len(vertices) // 2
+    foot, top = vertices[:n], vertices[n:]
+    assert np.allclose(foot[:, 2], 0) and np.allclose(top[:, 2], plate.omfs_print.raft_thickness)
+    assert (np.linalg.norm(top[:, :2], axis=1) > np.linalg.norm(foot[:, :2], axis=1)).all(), "the top overhangs: bevelled edge"
+    edges = np.sort(np.vstack((triangles[:, (0, 1)], triangles[:, (1, 2)], triangles[:, (2, 0)])), axis=1)
+    assert (np.unique(edges, axis=0, return_counts=True)[1] == 2).all(), "raft closed"
+    plate.omfs_print.supports = False
+
+    part.location.x = 200.0                                                      # off the plate
+    print_scene.check_volume(plate)
+    assert part.omfs_print.outside and np.allclose(part.color, print_scene.OUTSIDE_COLOUR, atol=1e-3)
+    assert any(not ok and "Hors du volume" in text for ok, text in print_scene.checks(plate))
+    part.location.x = 0.0
+    print_scene.check_volume(plate)
+    assert not part.omfs_print.outside
+    name = print_scene.file_name(plate)
+    assert name.startswith("CAS01_Print_guide_") and name.endswith(".goo")
+
+    remove_print_scene()
+    guide.omfs_print.pick = False
+    for obj in (guide, bone):
+        bpy.data.objects.remove(obj)
+
+
+def test_print_test_piece_to_goo():
+    """Integration, only when PrusaSlicer and UVtools are installed: the synthetic test piece gets supports that
+    stay off its bearing face, and exports to a .goo whose settings match the profiles, with nothing floating."""
+    mesh = print_scene.test_piece_mesh()
+    assert print_scene.open_edges(mesh) == 0 and 1300 < print_scene.mesh_volume(mesh) < 1700
+    flagged = print_scene.get_bearing(mesh)
+    assert flagged.any() and all(p.normal.z < -0.9 for p in mesh.polygons if flagged[p.index])
+    bpy.data.meshes.remove(mesh)
+    try:
+        print_scene.tools()
+    except print_chain.ToolMissing:
+        print("  (PrusaSlicer / UVtools not installed: export not tested)")
+        return
+    bpy.ops.omfs.print_test_piece()
+    plate = print_scene.print_scene()
+    part = print_scene.parts(plate)[0]
+    print_scene.update_all_now(plate)
+    supports = part.omfs_print.supports
+    assert part.omfs_print.state == 'OK' and supports is not None and len(supports.data.vertices) > 1000
+    assert 4.0 < part.omfs_print.lift < 6.0 and abs(print_scene.world_box(part)[0][2] - part.omfs_print.lift) < 1e-3
+    # no support above the bearing face (it is on top): nothing of the preview reaches the part's upper half
+    low, high = print_scene.world_box(part)
+    assert print_scene.world_box(supports)[1][2] < high[2] - 1.0, "supports stay under the part"
+    assert all(ok for ok, _text in print_scene.checks(plate)), print_scene.checks(plate)
+    assert len(print_scene.of_kind(plate, 'RAFT')) == 1
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / print_scene.file_name(plate)
+        result = print_scene.export_now(plate, path)
+        assert result.problems == [], result.problems
+        assert path.exists() and path.with_suffix(".json").exists()
+        found = print_chain.goo_properties(path, print_scene.tools()[1])
+        assert found["Version"] == "30" and found["MachineName"] == "Elegoo Mars 4 Ultra" and found["LayerHeight"] == "0.03"
+        assert abs(result.layers - print_scene.estimates(plate)["layers"]) < 30, "the estimate before export is close"
+    remove_print_scene()
 
 
 # Set aside for now (surgeon, 2026-11-14: whole-arch seating first, segmental later). With the new solver
