@@ -45,10 +45,11 @@ Ultra`, which UVtools writes as the .goo's machine name.
 ```sh
 P=/Applications/PrusaSlicer.app/Contents/MacOS/PrusaSlicer
 A="/Applications/UVtools.app/Contents/MacOS/Assets/PrusaSlicer/printer/Elegoo Mars 4 Ultra.ini"
-NOTES=$'PRINTER_VENDOR_ELEGOO\nPRINTER_MODEL_MARS4_ULTRA\nFILEFORMAT_GOO\n\nSTART_CUSTOM_VALUES\nTransitionLayerCount_3\nBottomWaitTimeBeforeCure_3\nWaitTimeBeforeCure_2.5\nBottomWaitTimeAfterCure_3\nWaitTimeAfterCure_1\nBottomLiftHeight_7\nLiftHeight_5\nBottomLiftSpeed_80\nLiftSpeed_100\nRetractSpeed_150\nBottomLightPWM_255\nLightPWM_255\nEND_CUSTOM_VALUES'
+NOTES=$'PRINTER_VENDOR_ELEGOO\nPRINTER_MODEL_MARS4_ULTRA\nFILEFORMAT_GOO\n\nSTART_CUSTOM_VALUES\nTransitionLayerCount_5\nBottomLightOffDelay_1\nLightOffDelay_1\nBottomWaitTimeBeforeCure_1\nWaitTimeBeforeCure_0\nBottomWaitTimeAfterCure_0\nWaitTimeAfterCure_0\nBottomLiftHeight_3\nBottomLiftSpeed_60\nLiftHeight_3\nLiftSpeed_60\nBottomLiftHeight2_4\nBottomLiftSpeed2_180\nLiftHeight2_4\nLiftSpeed2_180\nBottomWaitTimeAfterLift_0\nWaitTimeAfterLift_0\nBottomRetractSpeed_180\nRetractSpeed_180\nBottomRetractHeight2_3\nBottomRetractSpeed2_60\nRetractHeight2_3\nRetractSpeed2_60\nBottomLightPWM_255\nLightPWM_255\nEND_CUSTOM_VALUES'
 $P --load "$A" --printer-technology SLA --printer-notes "$NOTES" \
-   --layer-height 0.05 --exposure-time 2.2 --initial-exposure-time 25 --faded-layers 4 --material-ow-faded-layers 4 \
+   --layer-height 0.03 --exposure-time 2.5 --initial-exposure-time 40 --faded-layers 6 --material-ow-faded-layers 6 \
    --supports-enable --pad-enable --support-object-elevation 5 --save elegoo_abs_like_v3_translucent.ini
+# then in the .ini: printer_settings_id = Elegoo Mars 4 Ultra   (the .goo machine name)
 ```
 
 The notes need real line breaks (`$'...'`). A literal `\n` breaks the keyword, and the conversion fails with
