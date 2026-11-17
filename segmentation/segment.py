@@ -8,15 +8,25 @@ les probabilités de chaque structure gardées. Mode --rapide : l'ancien réglag
 Dans les deux modes, les probabilités sont écrites (<nom>_probabilites.nrrd) pour des surfaces sous le voxel
 (surfaces.py).
 
-Usage : python segment.py [--rapide] [--step 0.35] [--sortie DOSSIER] <dossier DICOM | .dcm | .nrrd | .nii(.gz) | .mha> [...]
+Accélérations sur la puce Apple (2026-11-16), actives par défaut :
+  1. demi-précision (fp16) sur le GPU (MPS) : nnU-Net ne l'active que sur CUDA ;
+  2. les 8 versions en miroir d'une fenêtre passées au réseau en un seul lot, au lieu d'une à la fois ;
+  et le cumul des fenêtres gardé sur le GPU (nnU-Net le renvoie au CPU dès que ce n'est pas CUDA).
+--classique relance nnU-Net tel quel (l'ancien comportement, pour comparer) ; --fp32 garde le lot de miroirs
+mais coupe la demi-précision.
+
+Usage : python segment.py [--rapide] [--step 0.35] [--classique | --fp32] [--lot-miroirs 8] [--sortie DOSSIER]
+        <dossier DICOM | .dcm | .nrrd | .nii(.gz) | .mha> [...]
 """
 import argparse
+import itertools
 import os
 import sys
 import time
 import shutil
 import tempfile
 import subprocess
+from contextlib import nullcontext
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +37,13 @@ from scipy import ndimage
 APP_DIR = Path(__file__).resolve().parent
 MODEL_DIR = APP_DIR / "model"
 DATASET = "Dataset111_453CT"
+MODEL_FOLDER = MODEL_DIR / DATASET / "nnUNetTrainer__nnUNetPlans__3d_fullres"
+MIRROR_BATCH = 8  # versions en miroir passées ensemble au réseau (8 = toutes)
+
+# Avant tout import de torch / nnunetv2 (nnU-Net lit ses dossiers à l'import)
+for _var in ("nnUNet_results", "nnUNet_raw", "nnUNet_preprocessed"):
+    os.environ.setdefault(_var, str(MODEL_DIR))
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 MIN_ISLAND_MM3 = 60  # même seuil que DentalSegmentator dans Slicer
 PRECISE_STEP = 0.35  # chevauchement des fenêtres en mode précis (0,5 = réglage nnU-Net par défaut)
 
@@ -98,6 +115,76 @@ def run_nnunet(in_file: Path, out_dir: Path, tta: bool, step: float, probabiliti
     if probabilities:
         cmd.append("--save_probabilities")
     subprocess.run(cmd, env=env, check=True)
+
+
+def pick_device():
+    import torch
+    wanted = os.environ.get("DENTALSEG_DEVICE")  # pour les tests ; sinon le GPU Apple
+    if wanted:
+        return torch.device(wanted)
+    return torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+
+
+def make_fast_predictor(step: float, tta: bool, half: bool, mirror_batch: int):
+    """nnU-Net avec les accélérations pour la puce Apple. Mêmes poids, même découpage en fenêtres, même
+    pondération gaussienne, même moyenne des miroirs : seuls la précision du calcul (fp16) et l'ordre des
+    opérations changent."""
+    import torch
+    from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+
+    class FastPredictor(nnUNetPredictor):
+        def __init__(self, *args, half=True, mirror_batch=MIRROR_BATCH, **kwargs):
+            super().__init__(*args, **kwargs)
+            # nnU-Net coupe le travail sur le GPU hors CUDA ; la mémoire est partagée sur la puce Apple
+            if self.device.type == "mps":
+                self.perform_everything_on_device = True
+            self.half = half and self.device.type == "mps"
+            self.mirror_batch = max(1, int(mirror_batch))
+
+        def _forward(self, batch):
+            if self.half:
+                try:
+                    with torch.autocast("mps", dtype=torch.float16):
+                        return self.network(batch).float()
+                except RuntimeError as e:
+                    log(f"Demi-précision refusée par MPS ({e}) : retour en fp32")
+                    self.half = False
+            return self.network(batch).float()
+
+        @torch.inference_mode()
+        def _internal_maybe_mirror_and_predict(self, x):
+            flips = [()]
+            if self.use_mirroring and self.allowed_mirroring_axes is not None:
+                axes = [a + 2 for a in self.allowed_mirroring_axes]
+                flips += [c for i in range(len(axes)) for c in itertools.combinations(axes, i + 1)]
+            total = None
+            for start in range(0, len(flips), self.mirror_batch):
+                chunk = flips[start:start + self.mirror_batch]
+                out = self._forward(torch.cat([torch.flip(x, f) if f else x for f in chunk]))
+                for i, f in enumerate(chunk):
+                    o = out[i:i + 1]
+                    o = torch.flip(o, f) if f else o.clone()
+                    total = o if total is None else total.add_(o)
+            return total / len(flips)
+
+    device = pick_device()
+    predictor = FastPredictor(tile_step_size=step, use_gaussian=True, use_mirroring=tta,
+                              perform_everything_on_device=True, device=device, verbose=False,
+                              allow_tqdm=True, half=half, mirror_batch=mirror_batch)
+    predictor.initialize_from_trained_model_folder(str(MODEL_FOLDER), use_folds=(0,),
+                                                   checkpoint_name="checkpoint_final.pth")
+    log(f"Appareil {device.type}, {'fp16' if predictor.half else 'fp32'}, "
+        f"miroirs par lot : {min(predictor.mirror_batch, 8) if tta else '-'}, cumul sur le GPU : "
+        f"{predictor.perform_everything_on_device}")
+    return predictor
+
+
+def run_nnunet_fast(in_file: Path, out_dir: Path, tta: bool, step: float, probabilities: bool,
+                    half: bool, mirror_batch: int):
+    predictor = make_fast_predictor(step, tta, half, mirror_batch)
+    predictor.predict_from_files(str(in_file.parent), str(out_dir), save_probabilities=probabilities,
+                                 overwrite=True, num_processes_preprocessing=1,
+                                 num_processes_segmentation_export=1)
 
 
 def write_probabilities(npz: Path, reference: sitk.Image, out_path: Path):
@@ -180,7 +267,8 @@ def write_seg_nrrd(seg: sitk.Image, out_path: Path):
     return i
 
 
-def process(path: Path, fast: bool = False, step: float = PRECISE_STEP, out_dir: Path = None):
+def process(path: Path, fast: bool = False, step: float = PRECISE_STEP, out_dir: Path = None,
+            classic: bool = False, half: bool = True, mirror_batch: int = MIRROR_BATCH):
     start = time.time()
     tta, probabilities = not fast, True
     step = 0.5 if fast else step
@@ -196,8 +284,15 @@ def process(path: Path, fast: bool = False, step: float = PRECISE_STEP, out_dir:
         sitk.WriteImage(image, str(in_file))
 
         mode = "rapide" if fast else f"précis (augmentation x8, step {step})"
-        log(f"Segmentation nnUNet sur le GPU (MPS), mode {mode}…")
-        run_nnunet(in_file, work / "out", tta, step, probabilities)
+        engine = "nnU-Net classique" if classic else "accéléré"
+        log(f"Segmentation nnUNet sur le GPU (MPS), mode {mode}, {engine}…")
+        t0 = time.time()
+        if classic:
+            run_nnunet(in_file, work / "out", tta, step, probabilities)
+        else:
+            run_nnunet_fast(in_file, work / "out", tta, step, probabilities, half, mirror_batch)
+        minutes, seconds = divmod(int(time.time() - t0), 60)
+        log(f"nnU-Net : {minutes} min {seconds} s")
 
         seg = sitk.ReadImage(str(work / "out" / "volume.nii.gz"))
         out_path = out_folder / f"{base}_segmentation.seg.nrrd"
@@ -231,6 +326,11 @@ if __name__ == "__main__":
     parser.add_argument("--rapide", action="store_true", help="ancien réglage : sans augmentation, step 0,5")
     parser.add_argument("--step", type=float, default=PRECISE_STEP, help="chevauchement des fenêtres (mode précis)")
     parser.add_argument("--sortie", type=Path, default=None, help="dossier de sortie (par défaut : à côté du scan)")
+    parser.add_argument("--classique", action="store_true",
+                        help="nnU-Net tel quel (fp32, miroirs un par un, cumul sur le CPU), pour comparer")
+    parser.add_argument("--fp32", action="store_true", help="garder le lot de miroirs, sans demi-précision")
+    parser.add_argument("--lot-miroirs", type=int, default=MIRROR_BATCH,
+                        help="versions en miroir passées ensemble au réseau (1 à 8)")
     parser.add_argument("--sans-ouvrir", action="store_true", help="ne pas montrer le résultat dans le Finder")
     args = parser.parse_args()
     if not args.inputs:
@@ -240,7 +340,8 @@ if __name__ == "__main__":
     for arg in args.inputs:
         try:
             out = process(Path(arg).expanduser().resolve(), args.rapide, args.step,
-                          args.sortie.expanduser().resolve() if args.sortie else None)
+                          args.sortie.expanduser().resolve() if args.sortie else None,
+                          classic=args.classique, half=not args.fp32, mirror_batch=args.lot_miroirs)
             if not args.sans_ouvrir:
                 notify("DentalSeg", f"Segmentation prête : {out.name}")
                 subprocess.run(["open", "-R", str(out)], check=False)

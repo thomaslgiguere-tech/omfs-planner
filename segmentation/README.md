@@ -7,6 +7,7 @@ Moved here from `~/DentalSegApp` on 2026-11-13, so the tool lives in one place w
 | File | Role |
 |---|---|
 | `segment.py` | CBCT / CT (DICOM folder, `.dcm`, `.nrrd`, `.nii(.gz)`, `.mha`) → DentalSegmentator (nnU-Net, `Dataset111_453CT`, fold 0) on the Apple GPU (MPS) → `<name>_segmentation.seg.nrrd` (next to the input, or `--sortie`), readable by 3D Slicer, plus the probabilities (both modes). Removes islands < 60 mm³ (except the canal), like the Slicer extension. |
+| `comparer_segmentations.py` | Compares two segmentations of the same scan: identical voxels, Dice per structure, maxilla/mandible swaps, probability gap and voxels crossing the 50 % threshold. |
 | `surfaces.py` | Step 3: labels or probabilities → closed STL surfaces per structure (patient coordinates, LPS); `--comparer A.stl B.stl` gives the distance between two surfaces. |
 | `DentalSeg.applescript` | Drop-on-icon launcher: asks Précis or Rapide, then runs `segment.py` with the `dentalseg` conda env in Terminal. |
 | `DentalSeg.app` | Compiled launcher (not in git; rebuild with `osacompile -o segmentation/DentalSeg.app segmentation/DentalSeg.applescript`). |
@@ -91,3 +92,32 @@ Second CBCT (2026-11-14; 601 x 601 x 534, 0.3 mm isotropic), same machine:
   Precise mode matters most when the scan is coarse. Still not measured against a reference.
 
 Still possible: an nnU-Net trained on ToothFairy2/3 for individual teeth and pulp; nnInteractive for corrections.
+
+## Apple-chip speed-up (2026-11-16, measured)
+
+`segment.py` no longer calls `nnUNetv2_predict`; it runs nnU-Net in-process with a subclass of its predictor:
+
+1. **fp16 on MPS**: nnU-Net only enables autocast on CUDA; on the Mac everything ran in fp32.
+2. **Mirrors batched**: the 8 mirrored copies of a window go through the network as one batch of 8 instead of
+   one after the other (`--lot-miroirs N` to batch fewer if memory is short).
+3. Window accumulation kept on the GPU (nnU-Net sends it back to the CPU on anything other than CUDA).
+
+Same weights, windows, Gaussian weighting and mirror average. Checked on CPU with the real plans and random
+weights: identical to nnU-Net's own code up to float rounding (3e-8 on a window, 100 % identical labels).
+fp16 itself can only be checked on the Mac. `--classique` runs the old `nnUNetv2_predict` path, `--fp32` keeps
+the batching without fp16.
+
+Measured on the two CBCTs above (M5 Pro 64 GB), same session, classic = `--classique`:
+
+| | Scan 1 (0.377 x 0.6 mm) | Scan 2 (0.3 mm isotropic) |
+|---|---|---|
+| Precise, classic | 33 min 18 s | 25 min 23 s |
+| **Precise, accelerated** | **22 min 39 s (-32 %)** | **17 min 46 s (-30 %)** |
+| Fast, accelerated (fast before) | 3 min 11 s (2 min 34 s) | 4 min 14 s (4 min 46 s) |
+| Peak memory | 9.3 GB | 15.3 GB |
+
+- Same result: precise accelerated vs classic, 99.998 % and 99.999 % identical voxels, Dice 0.9998 to 1.0000 per
+  structure; probabilities differ by 0.002 percentage points on average (max 1.6); the voxels that change are
+  the ones sitting at the 50 % threshold (fp16 rounding). 21 voxels swapped maxilla/mandible on scan 1, 0 on scan 2.
+- Fast mode gains little or nothing: no mirrors to batch, so only fp16 is left.
+- Memory: no gain and no cost; the run is limited by the GPU, not by RAM.
