@@ -38,8 +38,9 @@ PixelSize=18x18(µm) Z=165mm") and the values in the spec.
 What makes UVtools write a .goo is the profile's `printer_notes`: the keyword `FILEFORMAT_GOO`, plus a block
 `START_CUSTOM_VALUES ... END_CUSTOM_VALUES` with the Elegoo-only settings (lift, waits, speeds).
 
-`tools/print_spike/mars4ultra_sla.ini` was built from that base. The resin values in it are **examples, not
-from a resin sheet**.
+`tools/print_spike/elegoo_abs_like_v3_translucent.ini` was built from that base, with the surgeon's resin settings
+as Lychee Slicer 8.0.0 writes them (see "Reference files" below). It also sets `printer_settings_id = Elegoo Mars 4
+Ultra`, which UVtools writes as the .goo's machine name.
 
 ```sh
 P=/Applications/PrusaSlicer.app/Contents/MacOS/PrusaSlicer
@@ -47,7 +48,7 @@ A="/Applications/UVtools.app/Contents/MacOS/Assets/PrusaSlicer/printer/Elegoo Ma
 NOTES=$'PRINTER_VENDOR_ELEGOO\nPRINTER_MODEL_MARS4_ULTRA\nFILEFORMAT_GOO\n\nSTART_CUSTOM_VALUES\nTransitionLayerCount_3\nBottomWaitTimeBeforeCure_3\nWaitTimeBeforeCure_2.5\nBottomWaitTimeAfterCure_3\nWaitTimeAfterCure_1\nBottomLiftHeight_7\nLiftHeight_5\nBottomLiftSpeed_80\nLiftSpeed_100\nRetractSpeed_150\nBottomLightPWM_255\nLightPWM_255\nEND_CUSTOM_VALUES'
 $P --load "$A" --printer-technology SLA --printer-notes "$NOTES" \
    --layer-height 0.05 --exposure-time 2.2 --initial-exposure-time 25 --faded-layers 4 --material-ow-faded-layers 4 \
-   --supports-enable --pad-enable --support-object-elevation 5 --save mars4ultra_sla.ini
+   --supports-enable --pad-enable --support-object-elevation 5 --save elegoo_abs_like_v3_translucent.ini
 ```
 
 The notes need real line breaks (`$'...'`). A literal `\n` breaks the keyword, and the conversion fails with
@@ -56,9 +57,9 @@ The notes need real line breaks (`$'...'`). A literal `\n` breaks the keyword, a
 ## 1. Supports and .sl1 from the CLI
 
 ```sh
-$P --load mars4ultra_sla.ini --export-sla -o out/part.sl1 out/part.3mf
+$P --load elegoo_abs_like_v3_translucent.ini --export-sla -o out/part.sl1 out/part.3mf
 # or, from an STL with the orientation given on the command line:
-$P --load mars4ultra_sla.ini --rotate-x -90 --center 76.68,38.88 --export-sla -o out/guide.sl1 out/guide.stl
+$P --load elegoo_abs_like_v3_translucent.ini --rotate-x -90 --center 76.68,38.88 --export-sla -o out/guide.sl1 out/guide.stl
 ```
 
 - One command generates the supports and the pad, slices, and writes the .sl1. On a 284k-triangle guide this
@@ -135,7 +136,7 @@ So the "no unsupported island" check must be our own. UVtools does it (section 4
 
 ```sh
 U=/Applications/UVtools.app/Contents/MacOS/UVtoolsCmd
-$U convert out/part.sl1 auto out/part.goo        # 0.5 to 1.8 s
+$U convert out/part.sl1 goo out/part.goo         # 0.5 to 1.8 s, Goo v3
 $U print-properties out/part.goo                 # check what was written
 ```
 
@@ -148,17 +149,17 @@ How each setting gets into the .goo:
 - All of these were checked one by one with `print-properties`: bottom layers 4, transition 3, bottom exposure
   25 s, exposure 2.2 s, lift 7/5 mm, lift speeds 80/100, retract 150, waits 2.5/1.
 - In the extension, each **resin profile** writes these values into the notes and the profile at export, so
-  nothing is hard-coded.
+  nothing is hard-coded. Two-stage lift and retract (`LiftHeight2`, `LiftSpeed2`, `RetractHeight2`,
+  `RetractSpeed2` and their `Bottom` versions) and `LightOffDelay` are accepted too.
 
 Pitfalls found:
-- **`auto` ignores the output name.** It writes `<input name>.goo` next to the .sl1. Rename afterwards.
+- **Use the explicit target `goo`, not `auto`:** `UVtoolsCmd convert part.sl1 goo part.goo` writes Goo **v3**
+  (version 30, what Lychee writes for this printer) with every custom value applied, under the requested name.
+  `auto` writes Goo v5 (51) and ignores the output name (it writes `<input name>.goo`).
 - **`set-properties` cannot save in this version.** Asked to change values afterwards on a .goo or a .sl1
   (with or without `-o`), it fails: "File was partial decoded, a full encode is not possible". The settings
   must therefore be fixed in PrusaSlicer before conversion.
-- **.goo version.** `auto` with `FILEFORMAT_GOO` writes **Goo v5 (version 51)**. `convert … goo` (without
-  auto) writes Goo v3. Mirror X is on in both, as in UVtools' Mars 4 Ultra profile. **Still to confirm on the
-  printer**: which version the Mars 4 Ultra firmware reads, and that the print is not mirrored. Compare with a
-  .goo exported for this printer by CHITUBOX or VoxelDance Tango, using `UVtoolsCmd print-properties`.
+- **.goo version and mirror: settled by the reference files** (below): v3, mirrored horizontally.
 
 Pre-export check: `$U print-issues out/part.goo --islands --group-islands`, 1.5 s.
 - It finds the floating part: one island of 2048 x 778 px, layers 135 to 319.
@@ -197,15 +198,32 @@ Dense synthetic guide, 284,160 triangles, with blocker:
   the surgeon to scroll through. I cannot see that window: the GUI check by eye is for the user to do.
   Points to look at: the tube end (thin supports) and the Goo version / mirroring on the printer itself.
 
+## Reference files (2026-11-16)
+
+Two .goo files that the surgeon printed, exported by **Lychee Slicer 8.0.0** for the Mars 4 Ultra. Only their headers
+were read (`UVtoolsCmd print-properties`), never their layers: they hold real cases and stay out of the repo.
+- **Format and geometry**: Goo **v3**, 8520 x 4320 px, 153.36 x 77.76 mm, Z 165 mm, mirrored horizontally,
+  anti-aliasing 8.
+- **Resin profile**: "Elegoo ABS-Like V3 Translucent". Layer 0.03 mm; 6 bottom layers at 40 s; exposure 2.5 s;
+  5 transition layers; light-off delay 1 s; wait 1 s before curing the bottom layers.
+- **Lift and retract**: two stages, 3 mm at 60 then 4 mm at 180; retract 180, then 3 mm at 60.
+
+`tools/print_spike/compare_goo.py REFERENCE.goo OURS.goo` compares 39 print settings. Our chain (profile above,
+`convert … goo`) gives **39/39 identical** against both files.
+
+What a header comparison cannot prove (it needs one test print, see below): that the layer images face the right
+way (a mirrored guide would be a dangerous error, since guides are not symmetric) and that PrusaSlicer's supports
+hold as well as Lychee's.
+
 ## Recommended chain (for Phase 1+)
 
 ```text
 Blender (evaluated copies, no-support faces -> blocker slab, shared vertices)
   -> 3MF (part + SupportBlocker volumes, orientation in the build transform)
-  -> live:   PrusaSlicer --load mars4ultra_sla.ini --display-pixels-x 1065 --display-pixels-y 540 --export-sla
+  -> live:   PrusaSlicer --load elegoo_abs_like_v3_translucent.ini --display-pixels-x 1065 --display-pixels-y 540 --export-sla
              -> layers -> openvdb -> Volume to Mesh preview                                  (~2 s)
-  -> export: PrusaSlicer --load mars4ultra_sla.ini --export-sla -> .sl1
-             -> UVtoolsCmd convert .sl1 auto -> rename .goo -> UVtoolsCmd print-issues --islands (area threshold)
+  -> export: PrusaSlicer --load elegoo_abs_like_v3_translucent.ini --export-sla -> .sl1
+             -> UVtoolsCmd convert .sl1 goo -> .goo v3 -> UVtoolsCmd print-issues --islands (area threshold)
              -> block export if a large island or a support in a blocker band                (~6 s)
 ```
 
@@ -216,11 +234,10 @@ Changes this suggests to the spec:
 
 ## Open points (to decide or check before Phase 1)
 
-1. **Goo version and mirroring**: confirm v5 (51) vs v3 and the X mirror with a reference file, or a small
-   test print.
-2. **Real resin values** for the favourite resin, from the resin sheet. The values in `mars4ultra_sla.ini`
-   are examples.
+1. ~~Goo version and mirroring~~: v3, mirrored horizontally (reference files). Still to prove **with one test
+   print of an asymmetric synthetic part** (e.g. a block with a raised "R"): the letter must read the right way.
+2. ~~Real resin values~~: taken from the reference files (Elegoo ABS-Like V3 Translucent, 0.03 mm).
 3. **Island threshold** in mm² for `print-issues`, and what to do about thin-tipped supports on precision
    features (tube ends).
-4. **Mechanical strength**: support tip diameter (`support_head_front_diameter` 0.4 mm by default) and density
-   for guides. To test in print.
+4. **Support settings for guides**: Lychee's support settings are not in the .goo. Tip diameter (PrusaSlicer
+   default 0.4 mm) and density to match what works in Lychee, then confirm by print.
