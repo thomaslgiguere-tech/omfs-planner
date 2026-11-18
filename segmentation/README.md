@@ -121,3 +121,15 @@ Measured on the two CBCTs above (M5 Pro 64 GB), same session, classic = `--class
   the ones sitting at the 50 % threshold (fp16 rounding). 21 voxels swapped maxilla/mandible on scan 1, 0 on scan 2.
 - Fast mode gains little or nothing: no mirrors to batch, so only fp16 is left.
 - Memory: no gain and no cost; the run is limited by the GPU, not by RAM.
+
+Other engines, one window (128 x 160 x 112, 8 mirrors, random input), 2026-11-17:
+
+| Engine | Time | Same classes as PyTorch fp32 |
+|---|---|---|
+| **PyTorch GPU (MPS) fp16, current** | **1.53 s** | 99.993 % |
+| PyTorch GPU fp32 | 2.35 s | reference |
+| MLX GPU fp32 / fp16 (hand-written port) | 2.88 s / 5.26 s | port not debugged (speed only) |
+| Core ML, Neural Engine fp16 (78 % of the work on the Neural Engine, 22 % on the CPU) | 2.37 s | 99.88 % |
+
+Core ML needed the instance norms flattened to (N, C, D*H*W) (its instance_norm takes rank 3 or 4 only).
+Conclusion: the current GPU path is the fastest; neither MLX nor the Neural Engine is worth a port.
