@@ -384,8 +384,6 @@ Naming used below (matches the object roles in code):
   - Works on the closed shells of the Segmentation workspace (no inner cavities; fast Boolean) as well as
     on STL imports (exact Boolean if not closed).
   - Scan 1: Le Fort I distal 20.5 cm3, 3.7 s; mandible distal 29.9 cm3 + proximal 10.6 / 9.6 cm3, 0.5 s.
-- Next: the interdental lines of a segmental Le Fort (occlusion seating) carried onto the bone cut, so the
-  bone segments follow the dental segments; teeth (CBCT) moving with their segment.
 
 ## Orthognathic extension: occlusion seating
 
@@ -464,61 +462,8 @@ Naming used below (matches the object roles in code):
     springs only (100 %). Test scans (truth = their raw occlusion), 6 springs all clicked 1 mm off in the
     same direction: error to the true occlusion 0.32 / 0.48 mm (+1 / -1 mm) without release, 0.24 / 0.25
     mm at 3 mm, and more contact (right / left 89 / 127 -> 123 / 180 mm²); seating about 26 s instead of 16.
-  - Segmental surgery of the upper arch (optional, e.g. transverse expansion of the posterior segments
-    for a better intercuspation). Order (surgeon, 2026-11-17): the whole arch is always seated first, without
-    segments; only then may the surgeon segment it, and "Optimise the occlusion" improves the intercuspation
-    of the segments from there. "Separate" is refused until the whole arch has been seated.
-    - "Draw a line": click-drag an osteotomy line across the upper arch (occlusal view), like the guide's
-      plane cut; several in a row. A line cuts the full height (along the arch's occlusal axis) but only
-      along its own length + 1 mm, so an interdental line does not cross the other side: draw past the
-      border of the scan, and make the lines that close a segment meet (e.g. two interdental lines and a
-      palatal line joining them). The cut shows live as orange dots on the scan.
-    - "Adjust the lines": press near an end and drag it; it slides on the scan (or past its border), and
-      the cut follows live, to put it exactly in the embrasure.
-    - "Separate the segments": each closed region becomes a segment (pieces under 5 mm² ignored), named
-      anterior / right / left posterior from the midline, each with its own block. The scan is never
-      modified: segments hold copies of its faces; it is hidden. Upper spring points move to the segment
-      they sit on. Each segment starts where the whole arch was seated ("Back to start" returns there), and
-      its angles read 0 there.
-    - Angles first (surgeon, 2026-11-09): the springs of one segment are close together (canine to
-      canine), so they cannot decide its rotation, least of all the incisors' torque. The surgeon sets
-      each segment's angles, relative to pre-op, typed in the panel or with three rings in the view (the
-      segment's block selected), about a pivot at its tips (centre of its vertices within 1 mm of its
-      most occlusal point: incisal edges, cusp tips):
-      - anterior segment, on the clinical axes (reference frame, else the lower block's): torque (+ =
-        crowns labial, roots palatal), cant (+ = left side down), rotation (+ = left side forward), and
-        the midline (mm, + = towards the patient's left);
-      - posterior segment, on its own axis (the line of its teeth, horizontal): torque (+ = crowns
-        buccal), tip (+ = crowns mesial), rotation (+ = front end buccal).
-    - "Optimise the occlusion" (surgeon, 2026-11-17), from where each segment is; the lower arch is fixed:
-      - posterior segments: keep their axes, they never turn (the surgeon's angles are kept exactly); they
-        only translate (springs on that segment, magnet, overlap limits) so the cusps intercuspate better;
-      - anterior segment (incisors, canines): glides in the sagittal plane only, angles and midline kept.
-        The surgeon gives the target overbite ("Surplomb vertical visé", 2 mm by default): it sets the
-        segment's height. At that height the segment slides antero-posteriorly to where it just touches the
-        lower arch (overlap at the anterior limit): the contact is kept, and the path follows the incisal
-        guidance whatever its slope. The slope is read and reported ("pente incisive", degrees from the
-        occlusal plane), not imposed.
-      - If other contacts (e.g. the canines on the lower canines / premolars) stop the segment before the
-        target overbite, it goes as far as they allow and the panel says at what overbite. If the incisors
-        no longer touch at that height (open bite), its antero-posterior position is kept and it says so.
-      - Overbite and overjet are measured at the midline (within 4 mm): overbite = how far the upper incisal
-        edge comes down past the lower one; overjet = upper incisal edge to the lower labial surface at that
-        height. Shown with the overlap map, whole arch or segmented.
-      - Test scans (anterior segment canine to canine, cut by hand): measured overbite 2.0 mm, overjet
-        1.0 mm; 1.0 mm asked: up 1.0, back 1.0 mm, guidance 42 deg, contact kept (0.01 mm overlap, 0.08 mm
-        if 0.1 mm further back); 3 mm asked: the canines stop it at 2.1 mm. 1.5 to 6.5 s.
-    - Neighbour check: the overlap map also shows where two segments now run into each other (the deeper
-      of that and the lower arch wins the colour), and the panel gives the deepest one and which pair,
-      flagged above 0.1 mm. Measured against pre-op (only overlap the movement created): real scans
-      already "overlap" at the cut (interproximal contacts, ragged cut edge). On the test scans, pre-op
-      reads 0; 6 deg of anterior torque against -4 deg on the right segment gave 1.2 mm at the cut.
-    - Panel: each segment with its angles, expansion (mm its centre moved away from the
-      midline) or midline, select (G / R) and back to start. "Join the arch" deletes the segments and
-      their movements (confirmation if moved), shows the scan again, and keeps the lines to adjust and
-      separate again.
-    - Not yet: the CBCT maxilla is not cut (later, with the Le Fort I tools); segments are not stopped
-      by their neighbours during seating, only flagged.
+  - Segmental surgery of the upper arch: removed (surgeon, 2026-11-17), to be redesigned from scratch. The whole-arch
+    seating above is unchanged.
   - Contacts may be as large as the dental anatomy allows: more contact area is better, no upper limit.
   - Stability: "stable tripod" when there is contact on the right, anterior and left (>= 1 mm² each).
     Anterior = the canine to canine zone above, so a premolar touching the distal slope of the upper

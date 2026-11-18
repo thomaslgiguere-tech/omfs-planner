@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, screws, locking, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
+from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, screws, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -502,7 +502,6 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             warn.alert = True
             draw_text(warn, context, "Arcade du haut non recalée sur le CBCT : l'assise la pose sur le bas, mais "
                                      "son déplacement n'est pas encore celui du maxillaire.")
-        segmented = bool(occlusion_segments.segments(scene))
         box.label(text="1. Ressorts (3 paires ou plus)")
         pairs = occlusion_seating.point_pairs(scene)
         lengths = dict(zip((occlusion_seating.pair_key(up) for up, _low in pairs), occlusion_seating.spring_lengths(scene)))
@@ -539,15 +538,12 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             draw_text(warn, context, "Sans les deux ressorts canins, la zone antérieure n'existe pas : la limite "
                                      "postérieure s'applique à toute l'arcade.")
         row = box.row(align=True)
-        if segmented:
-            row.operator("omfs.seat_occlusion", text="Optimiser l'occlusion (segments)", icon='PLAY')
-        else:
-            seat = row.row(align=True)
-            seat.enabled = len(occlusion_seating.point_pairs(scene)) >= 3
-            seat.operator("omfs.seat_occlusion", icon='PLAY')
-            row.operator("omfs.seat_occlusion", text="Reprendre d'ici", icon='FORWARD').from_here = True
+        seat = row.row(align=True)
+        seat.enabled = len(occlusion_seating.point_pairs(scene)) >= 3
+        seat.operator("omfs.seat_occlusion", icon='PLAY')
+        row.operator("omfs.seat_occlusion", text="Reprendre d'ici", icon='FORWARD').from_here = True
         block = occlusion.find_block(scene, 'UPPER')
-        if not segmented and block is not None:
+        if block is not None:
             summary = occlusion.movement_summary(scene, block)
             if summary is None:
                 box.label(text="Arcade du haut : position de départ", icon='CHECKMARK')
@@ -587,14 +583,6 @@ class OMFS_PT_occlusion(bpy.types.Panel):
                 res.label(text=f"Plus de {params.OCC_OVERLAP_RARE:g} mm : au-delà du meulage habituel", icon='BLANK1')
             if overlap > 3.0:
                 res.label(text="Vérifier : normales inversées ou bords du scan ?", icon='BLANK1')
-            if segmented:
-                between = props.segment_overlap
-                clash = between > params.SEG_NEIGHBOUR_TOLERANCE
-                row = res.row()
-                row.alert = clash
-                row.label(text=(f"Entre segments : {between:.2f} mm ({props.segment_overlap_pair})" if clash
-                                else "Entre segments : aucun chevauchement"),
-                          icon='ERROR' if clash else 'CHECKMARK')
             col = box.column(align=True)
             col.label(text="Surface de contact (mm²)")
             row = col.row(align=True)
@@ -603,9 +591,6 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             stable = occlusion_seating.tripod(props)
             col.label(text="Tripode stable" if stable else "Pas de tripode : contacts manquants",
                       icon='CHECKMARK' if stable else 'ERROR')
-            if props.incisors_found:
-                col.label(text=f"Surplomb vertical {props.overbite:.1f} mm   horizontal {props.overjet:.1f} mm",
-                          icon='TRIA_DOWN_BAR')
             if not current:
                 box.operator("omfs.refresh_overlap_map", text="Position changée : actualiser", icon='FILE_REFRESH')
         if props.show_map:
@@ -613,58 +598,6 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             leg.scale_y = 0.8
             for icon, text in occlusion_seating.legend():
                 leg.label(text=text, icon=icon)
-        self.draw_segments(context, box, props)
-
-    def draw_segments(self, context, box, props):
-        """Optional: segmental surgery of the upper arch (lines, segments, their movement)."""
-        scene = context.scene
-        sub = box.box()
-        sub.label(text="4. Segmentation du haut (optionnel, après l'assise)", icon='MOD_EXPLODE')
-        parts = occlusion_segments.segments(scene)
-        if not parts:
-            if not occlusion_segments.arch_seated(scene):
-                draw_text(sub, context, "Asseyez d'abord l'arcade entière : les traits se tracent sur l'arcade "
-                                        "assise, puis « Optimiser l'occlusion » améliore l'intercuspidation.")
-            col = sub.column(align=True)
-            for number in occlusion_segments.trait_ends(scene):
-                row = col.row(align=True)
-                row.label(text=f"Trait {number}", icon='SCULPTMODE_HLT')
-                row.operator("omfs.delete_segment_line", text="", icon='X').number = number
-            row = col.row(align=True)
-            row.operator("omfs.draw_segment_line", icon='GREASEPENCIL')
-            adjust = row.row(align=True)
-            adjust.enabled = bool(occlusion_segments.trait_ends(scene))
-            adjust.operator("omfs.adjust_segment_lines", icon='HANDLE_FREE')
-            split = sub.row()
-            split.enabled = bool(occlusion_segments.trait_ends(scene)) and occlusion_segments.arch_seated(scene)
-            split.operator("omfs.separate_segments", icon='MOD_EXPLODE')
-            return
-        draw_text(sub, context, "Réglez au besoin les angles d'un segment (tapez, ou anneaux dans la vue quand son "
-                                "bloc est sélectionné), autour de ses pointes. « Optimiser l'occlusion » : les "
-                                "postérieurs se translatent seulement, sans tourner ; l'antérieur glisse le long de "
-                                "la pente incisive jusqu'au surplomb vertical visé, en gardant le contact.")
-        sub.prop(props, "overbite_target")
-        for part in parts:
-            col = sub.box().column(align=True)
-            row = col.row(align=True)
-            landmark = part.omfs.landmark
-            row.label(text=part.name, icon='MESH_DATA')
-            row.operator("omfs.select_block", text="", icon='RESTRICT_SELECT_OFF').arch = landmark
-            row.operator("omfs.block_preop", text="", icon='LOOP_BACK').arch = landmark
-            block = occlusion_segments.block_of(part)
-            if not occlusion_segments.has_angles(block):
-                col.label(text="Séparé avant les angles : réunissez puis séparez", icon='INFO')
-                continue
-            a = block.omfs_seg
-            anterior = a.side == 0
-            for name, label in (("torque", "Torque"), ("tip", "Cant" if anterior else "Tip"), ("rotation", "Rotation")):
-                col.prop(a, name, text=label)
-            if anterior:
-                col.prop(a, "midline", text="Milieu")
-            elif occlusion_segments.moved(scene, part):
-                col.label(text=f"Expansion {occlusion_segments.expansion(scene, part):+.1f} mm (centre du segment)",
-                          icon='BLANK1')
-        sub.operator("omfs.join_segments", icon='MOD_BOOLEAN')
 
     def draw_preposition(self, context, box, props):
         box.label(text="Préposition de l'arcade du haut", icon='ORIENTATION_GIMBAL')

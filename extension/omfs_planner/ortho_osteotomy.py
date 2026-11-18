@@ -20,8 +20,7 @@ points clicked posteriorly, keeping the same vertical direction, until it exits 
 is not critical to the outcome (surgeon): it must separate the segments, quickly.
 
 Generic on purpose: a cut is a line + a direction on any bone, or a vertical cut + a curve. Le Fort / BSSO are only the defaults
-(depth, names, which piece is distal). Later, the interdental lines of a segmental Le Fort (occlusion_segments.py)
-can become cuts of the same kind.
+(names, which piece is distal).
 """
 
 import math

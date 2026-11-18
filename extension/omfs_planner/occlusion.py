@@ -31,7 +31,6 @@ ARCHES = (   # (id, block name, label)
 BLOCK_SIZE = 12.0     # mm, size of the block's axes in the viewport
 GHOST_ALPHA = 0.25
 GHOST_COLOR = (0.75, 0.75, 0.75)
-SEGMENT_MADE_BY = "Segmental"   # upper arch segments (occlusion_segments.py)
 MOVED_TOLERANCE = 1e-4   # mm / rad: below this, a block counts as pre-op
 
 
@@ -295,8 +294,7 @@ def set_ghosts(scene, block, show):
 
 def _poll_arch(other):
     def poll(props, obj):
-        return (obj.type == 'MESH' and obj.omfs.role == 'SCAN' and obj is not getattr(props, other)
-                and obj.omfs.made_by != SEGMENT_MADE_BY)
+        return obj.type == 'MESH' and obj.omfs.role == 'SCAN' and obj is not getattr(props, other)
     return poll
 
 
@@ -369,17 +367,6 @@ class OMFS_OcclusionProperties(bpy.types.PropertyGroup):
     area_anterior: bpy.props.FloatProperty()
     area_left: bpy.props.FloatProperty()
     map_state: bpy.props.StringProperty()
-    segment_overlap: bpy.props.FloatProperty()        # mm, deepest overlap between two upper segments
-    segment_overlap_pair: bpy.props.StringProperty()  # which two
-    # Incisors at the midline (occlusion_incisors.py)
-    overbite_target: bpy.props.FloatProperty(
-        name="Surplomb vertical visé", subtype='DISTANCE', default=params.SEG_OVERBITE, soft_min=-2.0, soft_max=5.0,
-        step=10, precision=1,
-        description="Hauteur du segment antérieur à l'optimisation : le bord incisif du haut descend d'autant "
-                    "sous celui du bas, au milieu. Le segment glisse ensuite d'avant en arrière jusqu'au contact")
-    incisors_found: bpy.props.BoolProperty()
-    overbite: bpy.props.FloatProperty()               # mm, measured with the map
-    overjet: bpy.props.FloatProperty()
 
 
 class OMFS_OcclusionObjectProperties(bpy.types.PropertyGroup):
