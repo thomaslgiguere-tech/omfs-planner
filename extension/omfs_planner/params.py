@@ -222,3 +222,12 @@ VOL_SMOOTH_FACTOR = 0.5         # strength of one smoothing pass
 VOL_PICK_RADIUS = 4             # voxels: a click this close to a piece picks it
 VOL_UPDATE_DELAY = 0.3          # s without touching a setting before the surface is recomputed
 VOL_EXPECTED_PIECES = {"Maxillaire": 1, "Mandibule": 1, "Canal mandibulaire": 2}   # more than this: a warning
+
+# Orthognathic osteotomies (ortho_osteotomy.py): Le Fort I and mandibular (BSSO) cut lines, then separation
+ORTHO_DEPTH_LEFORT = 65.0       # mm the Le Fort I cut reaches behind its most anterior point (septum, pterygoid plates)
+ORTHO_DEPTH_BSSO = 40.0         # mm a mandibular cut reaches through the bone from the clicked line (retromolar: up to 35 mm wide)
+ORTHO_MARGIN = 3.0              # mm the cut starts in front of the clicked surface (so it opens the cortex)
+ORTHO_END_EXTENSION = 4.0       # mm the cut runs past its first and last points (so it exits the bone)
+ORTHO_KERF = 0.5                # mm: thickness of the simulated saw cut
+ORTHO_SMOOTH_STEPS = 6          # samples per segment of the smooth line through the clicked points
+ORTHO_MIN_PIECE = 500.0         # mm3: smaller pieces left by the cut (chips) join the nearest large piece

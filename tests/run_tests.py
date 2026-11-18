@@ -23,7 +23,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy  # noqa: E402
 
 omfs_planner.register()
 
@@ -2725,6 +2725,77 @@ def test_volume_segmentation_workspace():
     for obj in list(scene.objects):
         bpy.data.objects.remove(obj)
     bpy.data.scenes.remove(scene)
+
+
+def test_ortho_osteotomies():
+    """Le Fort I: a line of points across the front of a "maxilla", pushed back, separates the lower part (distal)
+    from the rest; a bone already apart (a "vertebra") stays fixed. BSSO: a cut each side of a "mandible" bar gives
+    the distal body and two proximal parts. The bones' own meshes are never changed."""
+    scene = bpy.context.scene
+    maxilla = dense_box("Maxillaire", 'BONE', (0, 0, 0), (60, 50, 40))               # front face at y = -25
+    vertebra = dense_box("Vertebre", 'BONE', (0, 60, -15), (10, 10, 10))
+    joined = bpy.data.meshes.new("Maxillaire")                                         # one object, two bones apart
+    bm = bmesh.new()
+    for obj in (maxilla, vertebra):
+        part = obj.data.copy()
+        part.transform(obj.matrix_world)
+        bm.from_mesh(part)
+        bpy.data.meshes.remove(part)
+    bm.to_mesh(joined)
+    bm.free()
+    bpy.data.objects.remove(vertebra)
+    old = maxilla.data
+    maxilla.data = joined
+    bpy.data.meshes.remove(old)
+    maxilla.location = (0, 0, 0)
+    bpy.context.view_layer.update()
+    faces_before = len(maxilla.data.polygons)
+    assert ortho_osteotomy.bone(scene, 'MAXILLA') == maxilla, "found by its name"
+    points = [Vector((x, -25.0, -5.0)) for x in (-28, -10, 10, 28)]                   # across the front, 5 mm below centre
+    cut = ortho_osteotomy.make_cut(scene, 'LEFORT', maxilla, points, Vector((0, 1, 0)))
+    backs = [ortho_osteotomy.back_point(f).matrix_world.translation for f in ortho_osteotomy.front_points(cut)]
+    assert all(abs(b.y - (-25 + params.ORTHO_DEPTH_LEFORT)) < 1e-4 for b in backs), "back edge on one plane"
+    assert len(cut.data.polygons) > 4 and cut.omfs.role == 'CUT'
+    ortho_osteotomy.set_depth(cut, 55.0)
+    assert abs(ortho_osteotomy.back_point(ortho_osteotomy.front_points(cut)[0]).matrix_world.translation.y - 30.0) < 1e-4
+    pieces, warning = ortho_osteotomy.separate(bpy.context, maxilla)
+    assert warning is None, warning
+    named = {p.name: p for p in pieces}
+    distal, proximal = named["Maxillaire distal (Le Fort I)"], named["Maxillaire proximal"]
+    assert distal.omfs.role == 'SEGMENT' and proximal.omfs.role == 'BONE' and locking.is_locked(proximal)
+    vd, cd = ortho_osteotomy.mesh_volume(distal.data)
+    vp, _cp = ortho_osteotomy.mesh_volume(proximal.data)
+    assert abs(vd - 60 * 50 * (20 - 5 - params.ORTHO_KERF / 2)) < 300, (vd, vp, cd)        # below the cut, minus half the kerf
+    assert vp > 60 * 50 * 24 and cd[2] < -10, "the vertebra stayed with the fixed part, the distal piece is the lower one"
+    assert maxilla.hide_get() and len(maxilla.data.polygons) == faces_before, "source hidden, never changed"
+    bpy.ops.omfs.ortho_rejoin(which='MAXILLA')
+    assert not ortho_osteotomy.pieces_of(scene, maxilla) and not maxilla.hide_get()
+
+    # too short: the cut stops inside the bone, and says so
+    ortho_osteotomy.set_depth(cut, 20.0)
+    pieces, warning = ortho_osteotomy.separate(bpy.context, maxilla)
+    assert warning is not None and "incomplète" in warning and len(pieces) == 1
+    ortho_osteotomy.rejoin(scene, maxilla)
+
+    mandible = dense_box("Mandibule", 'BONE', (0, 0, -60), (100, 14, 24))              # a bar across
+    for kind, x in (('BSSO_R', -30.0), ('BSSO_L', 30.0)):
+        line = [Vector((x, -7.0, z)) for z in (-46, -60, -74)]
+        ortho_osteotomy.make_cut(scene, kind, mandible, line, Vector((0, 1, 0)))
+    pieces, warning = ortho_osteotomy.separate(bpy.context, mandible)
+    assert warning is None, warning
+    names = sorted(p.name for p in pieces)
+    assert names == ["Mandibule distale", "Mandibule proximal droit", "Mandibule proximal gauche"], names
+    body = next(p for p in pieces if p.omfs.role == 'SEGMENT')
+    assert abs(ortho_osteotomy.mesh_volume(body.data)[1][0]) < 1.0, "the body is the middle piece"
+    right = next(p for p in pieces if p.name.endswith("droit"))
+    assert ortho_osteotomy.mesh_volume(right.data)[1][0] < -30, "right = patient's right (-X)"
+    for which in ('MAXILLA', 'MANDIBLE'):
+        bpy.ops.omfs.ortho_rejoin(which=which)
+    for kind in ('LEFORT', 'BSSO_R', 'BSSO_L'):
+        ortho_osteotomy.remove_cut(ortho_osteotomy.find_cut(scene, kind))
+    assert not [o for o in scene.objects if o.omfs.made_by == ortho_osteotomy.MADE_BY], "points and sheets removed"
+    for obj in (maxilla, mandible):
+        bpy.data.objects.remove(obj)
 
 
 # Set aside for now (surgeon, 2026-11-14: whole-arch seating first, segmental later). With the new solver

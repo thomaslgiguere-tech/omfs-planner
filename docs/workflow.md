@@ -352,6 +352,28 @@ Naming used below (matches the object roles in code):
 - Print workspace (supports, slicing, .goo for the Elegoo printer): see docs/print_workspace.md (spec, not built yet).
 - Nuances: (add here)
 
+## Orthognathic extension: Le Fort I and mandibular osteotomies (done, 2026-11-18)
+
+- Separate from the genioplasty plane. Panel "Ostéotomies orthognathiques" (ortho_osteotomy.py), like
+  Dolphin 3D's osteotomy tool (surgeon's examples in "Photos exemples"):
+  - The surgeon clicks a few points on the bone where the cut passes, in the view that looks the way the saw
+    goes: Le Fort I from the front (a line above the apices, from one zygomatic buttress to the other); BSSO
+    from the side. Enter ends the line.
+  - The line (smooth through the points) is pushed along the view direction into a cutting sheet, shown
+    translucent yellow. Its back edge is straight, at a depth measured from the most anterior point (Le Fort I
+    65 mm by default: septum and pterygoid plates; BSSO 40 mm: through the whole ramus / retromolar bone).
+  - Each back point (blue) hangs from its front point (orange) and can be dragged on its own (G), e.g. lower
+    behind, at the pterygomaxillary junction; the sheet follows live. "Profondeur" moves them all.
+  - "Séparer les segments": a copy of the bone minus the sheets (0.5 mm saw kerf) splits into the distal
+    segment (Le Fort I maxilla; mandibular body, green, unlocked) and the proximal parts (skull; ramus +
+    condyle each side, locked). Bones already apart in the segmentation (vertebrae) stay with the fixed part.
+    "Coupe incomplète" when the sheet leaves a bridge of bone. The bone itself is only hidden ("Réunir").
+  - Works on the closed shells of the Segmentation workspace (no inner cavities; fast Boolean) as well as
+    on STL imports (exact Boolean if not closed).
+  - Scan 1: Le Fort I distal 20.5 cm3, 3.7 s; mandible distal 29.9 cm3 + proximal 10.6 / 9.6 cm3, 0.5 s.
+- Next: the interdental lines of a segmental Le Fort (occlusion seating) carried onto the bone cut, so the
+  bone segments follow the dental segments; teeth (CBCT) moving with their segment.
+
 ## Orthognathic extension: occlusion seating
 
 - Goal: set the upper and lower arch scans (precise intra-oral STLs) against each other in the final
