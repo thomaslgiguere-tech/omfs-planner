@@ -133,3 +133,12 @@ Other engines, one window (128 x 160 x 112, 8 mirrors, random input), 2026-11-17
 
 Core ML needed the instance norms flattened to (N, C, D*H*W) (its instance_norm takes rank 3 or 4 only).
 Conclusion: the current GPU path is the fastest; neither MLX nor the Neural Engine is worth a port.
+
+## Into Blender (2026-11-18)
+
+No more surfaces.py step for planning: drop the `<name>_probabilites.nrrd` (or the `.seg.nrrd`) on Blender's 3D view.
+The "Segmentation" workspace (extension: volume_scene.py) shows one surface per structure, live threshold, piece
+count with a warning when the mandible or the maxilla is in several pieces, and a click to give a mislabelled piece
+to another structure (or delete it); "Valider et importer" puts the result into the plan with the roles. On scan 1,
+the upper ramus labelled "maxilla" (both sides, 2.4 and 4.4 cm3) went back to the mandible in two clicks, about
+1 s each, and the right condyle joined it. Surfaces vs surfaces.py: mean 0.025 mm, 95 % under 0.08 mm.

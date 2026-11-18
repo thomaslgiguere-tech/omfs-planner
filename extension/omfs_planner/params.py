@@ -212,3 +212,13 @@ PRINT_RAFT_MARGIN = 2.0         # mm the raft extends past the parts and their s
 PRINT_RAFT_LIP = 1.0            # mm: the raft's top edge overhangs its foot by this much (bevel: the scraper slides under)
 PRINT_TILT_DEFAULT = 30.0       # degrees: a part arrives bearing surface up and tilted (no flat face parallel to the plate)
 PRINT_TEST_PLATE = (30.0, 20.0, 2.5)   # mm: the synthetic test piece's plate (asymmetric: one corner cut)
+
+# Segmentation workspace ("Segmentation", volume_scene.py): a .nrrd from DentalSeg turned into surfaces, checked and
+# corrected in Blender before planning
+VOL_THRESHOLD = 50.0            # %: the surface passes where the structure's probability has this value
+VOL_MIN_PIECE = 60.0            # mm3: smaller loose pieces are hidden (same as DentalSegmentator in 3D Slicer)
+VOL_SMOOTH_LABELS = 8           # smoothing passes by default for a label file (staircase surface); 0 for probabilities
+VOL_SMOOTH_FACTOR = 0.5         # strength of one smoothing pass
+VOL_PICK_RADIUS = 4             # voxels: a click this close to a piece picks it
+VOL_UPDATE_DELAY = 0.3          # s without touching a setting before the surface is recomputed
+VOL_EXPECTED_PIECES = {"Maxillaire": 1, "Mandibule": 1, "Canal mandibulaire": 2}   # more than this: a warning

@@ -63,6 +63,10 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   print_profiles.py          printer and resin profiles as JSON (shipped in print_profiles/, the user's own
                              in Blender's config folder)
   print_ui.py                "Imprimer" panel (OMFS tab) and the "Impression" tab of the print scene
+  volume_scene.py            Segmentation workspace: a DentalSeg .nrrd (drag and drop) -> one live surface per
+                             structure (threshold, pieces, smoothing), pieces given to another structure or
+                             deleted (voxel flood fill), then imported into the plan with their roles
+  volume_ui.py               "Segmentation (.nrrd)" entry (OMFS tab) and the "Segmentation" tab
   ui.py                      sidebar tab "OMFS" in the 3D viewport
 app_template/omfs_planner/   Application Template: clean surgical UI + Developer mode
 tools/dev_link.sh            symlinks both into the Blender user dirs (development)

@@ -23,7 +23,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene  # noqa: E402
 
 omfs_planner.register()
 
@@ -2636,6 +2636,95 @@ def test_print_test_piece_to_goo():
         assert found["Version"] == "30" and found["MachineName"] == "Elegoo Mars 4 Ultra" and found["LayerHeight"] == "0.03"
         assert abs(result.layers - print_scene.estimates(plate)["layers"]) < 30, "the estimate before export is close"
     remove_print_scene()
+
+
+def synthetic_segmentation(folder):
+    """A small DentalSeg-like probabilities file (no patient data): a "mandible" bar with a piece of "maxilla"
+    stuck to its end (the error seen on a real scan), a separate "vertebra" piece of mandible, and an axis order
+    and sign like a real CBCT (voxel axes permuted and flipped, 0.4 x 0.4 x 0.6 mm)."""
+    shape = (40, 30, 24)
+    data = np.zeros((5,) + shape, np.uint8)
+    x, y, z = np.meshgrid(*[np.arange(n) for n in shape], indexing='ij')
+
+    def blob(k, low, high):
+        inside = (x >= low[0]) & (x < high[0]) & (y >= low[1]) & (y < high[1]) & (z >= low[2]) & (z < high[2])
+        data[k][inside] = 255
+    blob(1, (4, 10, 8), (26, 18, 14))          # mandible bar
+    blob(0, (26, 10, 8), (32, 18, 14))         # "maxilla" glued to its end: really mandible
+    blob(1, (4, 22, 16), (10, 27, 21))         # a separate piece labelled mandible
+    blob(0, (14, 2, 2), (36, 8, 20))           # the real maxilla, apart
+    blob(4, (8, 13, 10), (22, 15, 12))         # a canal inside the mandible
+    data[4][(x >= 8) & (x < 22) & (y >= 13) & (y < 15) & (z >= 10) & (z < 12)] = 255
+    data[1][data[4] > 127] = 0
+    for k in range(5):                         # soft edges, like probabilities
+        soft = data[k].astype(float)
+        for axis in range(3):
+            soft = (np.roll(soft, 1, axis) + 2 * soft + np.roll(soft, -1, axis)) / 4
+        data[k] = np.clip(soft, 0, 255).astype(np.uint8)
+    directions = np.array(((0.0, 0.4, 0.0), (0.0, 0.0, -0.4), (-0.6, 0.0, 0.0)))   # i -> +Y, j -> -Z, k -> -X
+    origin = np.array((50.0, -100.0, 20.0))
+    path = Path(folder) / "synthetic_probabilites.nrrd"
+    volume_scene.write_nrrd(path, volume_scene.Volume(data, directions, origin))
+    return path, data, directions, origin
+
+
+def test_volume_segmentation_workspace():
+    """A probabilities .nrrd opens as one surface per structure in the patient's coordinates; pieces are counted;
+    a mislabelled piece is given to the right structure (and undone); the result is imported with its roles."""
+    plan = bpy.context.scene
+    with tempfile.TemporaryDirectory() as folder:
+        path, data, directions, origin = synthetic_segmentation(folder)
+        volume = volume_scene.read_nrrd(path)
+        assert volume.probabilities and volume.data.shape == data.shape and (volume.data == data).all()
+        assert np.allclose(volume.directions, directions) and np.allclose(volume.origin, origin)
+        bpy.ops.omfs.volume_open(filepath=str(path))
+    scene = volume_scene.volume_scene()
+    assert scene is not None and scene is not plan and scene.omfs_volume.source_scene == plan
+    mandible, maxilla = volume_scene.structure(scene, 1), volume_scene.structure(scene, 0)
+    assert mandible.name.startswith(volume_scene.PREFIX) and volume_scene.structure_name(mandible) == "Mandibule"
+    assert np.allclose(mandible.color, volume_scene.STRUCTURES[1][2], atol=1e-3), "its own colour, not the role's"
+    co = np.empty(len(mandible.data.vertices) * 3)
+    mandible.data.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    voxels = volume.to_world(np.argwhere(data[1] > 127))
+    assert (co.min(axis=0) > voxels.min(axis=0) - 0.7).all() and (co.max(axis=0) < voxels.max(axis=0) + 0.7).all(), \
+        "the surface wraps the voxels, in patient coordinates"
+    mandible.omfs_vol.min_piece = maxilla.omfs_vol.min_piece = 0.0     # count every piece (these are small)
+    bpy.context.view_layer.update()
+    sizes = volume_scene.count_pieces(scene, mandible)
+    assert len(sizes) == 2 and sizes[0] > sizes[1] > 0, sizes
+    assert len(volume_scene.count_pieces(scene, maxilla)) == 2
+
+    glued = volume.to_world((28.0, 14.0, 11.0))            # inside the "maxilla" piece glued to the mandible
+    message = volume_scene.correct(scene, maxilla, Vector(glued), 1)
+    assert "donné à « Mandibule »" in message, message
+    bpy.context.view_layer.update()
+    assert len(volume_scene.count_pieces(scene, maxilla)) == 1, "the glued piece left the maxilla"
+    after = volume_scene.count_pieces(scene, mandible)
+    assert len(after) == 2 and after[0] > sizes[0] + 15, "the mandible grew by that piece, still two pieces"
+    separate = volume.to_world((7.0, 24.0, 18.0))
+    assert "supprimé" in volume_scene.correct(scene, mandible, Vector(separate), None)
+    bpy.context.view_layer.update()
+    assert len(volume_scene.count_pieces(scene, mandible)) == 1, "one mandible"
+    bpy.ops.omfs.volume_undo()
+    bpy.context.view_layer.update()
+    assert len(volume_scene.count_pieces(scene, mandible)) == 2, "undo puts the piece back"
+
+    mandible.omfs_vol.min_piece = 50.0                      # hides the small piece without touching the voxels
+    bpy.context.view_layer.update()
+    assert len(volume_scene.count_pieces(scene, mandible)) == 1
+    bpy.ops.omfs.volume_import()
+    made = {o.name: o for o in plan.objects if o.omfs.made_by == "Segmentation"}
+    assert {"Maxillaire", "Mandibule", "Canal mandibulaire"} <= set(made), sorted(made)
+    assert made["Mandibule"].omfs.role == 'BONE' and made["Canal mandibulaire"].omfs.role == 'NERVE'
+    assert locking.is_locked(made["Mandibule"]) and made["Mandibule"].data.attributes.get(volume_scene.ISLAND) is None
+    bpy.ops.omfs.volume_import()                            # again: replaces, never duplicates
+    assert sum(1 for o in plan.objects if o.omfs.made_by == "Segmentation" and o.name.startswith("Mandibule")) == 1
+    for obj in [o for o in plan.objects if o.omfs.made_by == "Segmentation"]:
+        bpy.data.objects.remove(obj)
+    for obj in list(scene.objects):
+        bpy.data.objects.remove(obj)
+    bpy.data.scenes.remove(scene)
 
 
 # Set aside for now (surgeon, 2026-11-14: whole-arch seating first, segmental later). With the new solver
