@@ -5,8 +5,9 @@
 Uses synthetic meshes only (tools/make_test_case.py), written to a temporary folder.
 """
 
+import os
 import sys
-from math import radians
+from math import radians, tan
 import tempfile
 import traceback
 from pathlib import Path
@@ -23,7 +24,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, occlusion_segments, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, occlusion_segments, occlusion_incisors, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy  # noqa: E402
 
 omfs_planner.register()
 
@@ -786,9 +787,10 @@ def test_spring_release():
 
 
 def test_segmental_upper_arch():
-    """Two osteotomy lines divide the upper arch into three segments (scan untouched). Each segment seats on
-    the fixed lower arch: the surgeon's angles are kept (only translations), the right posterior segment's
-    spring expands it, the anterior midline stays. Neighbours turned into each other are flagged."""
+    """Order (surgeon, 2026-11-17): the whole arch is seated first, then segmented. Two lines divide the seated
+    upper arch into three segments (scan untouched), which start where the arch was seated. "Optimise": the
+    posterior segments only translate (their angles kept, never turned), the anterior segment glides in the
+    sagittal plane only (angles and midline kept). Neighbours turned into each other are flagged."""
     scene = bpy.context.scene
     props = scene.omfs_occlusion
     upper = dense_box("Upper arch", 'SCAN', (0, 0, 10), (60, 40, 8))             # occlusal surface at z = 6
@@ -798,12 +800,17 @@ def test_segmental_upper_arch():
     for x in (-10, 10):                                                          # past the scan on both sides
         occlusion_segments.add_trait(scene, upper, Vector((x, -25, 10)), Vector((x, 25, 10)))
     assert len(occlusion_segments.cut_points(upper, occlusion_segments.frames(scene, upper)[0])) > 0
-    for key, (x, y) in (('1', (-5, -5)), ('2', (5, -5)), ('3', (0, 5)), ('5', (20, 0))):   # 12 mm down
-        occlusion_seating.add_point(scene, f"OCC_U{key}", key, Vector((x, y, 6)), upper)
+    for key, (x, y) in (('1', (-5, -5)), ('2', (5, -5)), ('3', (0, 5)), ('4', (-20, 0)), ('5', (20, 0))):
+        occlusion_seating.add_point(scene, f"OCC_U{key}", key, Vector((x, y, 6)), upper)   # 12 mm down
         occlusion_seating.add_point(scene, f"OCC_L{key}", key, Vector((x, y, -6)), lower)
-    occlusion_seating.add_point(scene, "OCC_U4", "4", Vector((-20, 0, 6)), upper)  # right: 3 mm outwards
-    occlusion_seating.add_point(scene, "OCC_L4", "4", Vector((-23, 0, -6)), lower)
     bpy.context.view_layer.update()
+
+    assert occlusion_segments.separate(scene) is not None and not occlusion_segments.segments(scene), \
+        "segmenting before the whole arch is seated is refused"
+    bpy.ops.omfs.seat_occlusion()
+    bpy.context.view_layer.update()
+    seated = upper.matrix_world.copy()
+    assert -12.5 < seated.translation.z < -11.5, seated.translation              # the whole arch, down onto the lower
 
     bpy.ops.omfs.separate_segments()
     parts = occlusion_segments.segments(scene)
@@ -812,22 +819,24 @@ def test_segmental_upper_arch():
     assert sum(len(p.data.polygons) for p in parts) == faces                    # every face, once
     assert occlusion.shape_fingerprint(upper) == shape and upper.hide_get()      # scan untouched, hidden
     anterior, right = bpy.data.objects["Segment antérieur"], bpy.data.objects["Segment postérieur droit"]
+    assert_same_matrix(anterior.matrix_world, seated, "segments start where the arch was seated")
     points = {o.omfs.landmark: o for o in occlusion_seating.occlusion_points(scene)}
     assert points["OCC_U1"].parent is anterior and points["OCC_U4"].parent is right
-    assert (points["OCC_U4"].matrix_world.translation - Vector((-20, 0, 6))).length < 1e-6   # did not move
     jobs = occlusion_seating.seatings(scene)
     assert all(j.fixed is lower for j in jobs) and sorted(j.mobile.name for j in jobs) == names, "all onto the lower"
 
     # Frames and pivots: anterior on the clinical axes (no frame here: the lower block's = world), its pivot
-    # on the incisal level (z = 6); the right segment's axes along its teeth, with the signs of the side.
+    # on the incisal level (z = -6 once seated); the right segment's axes along its teeth.
     front, back = occlusion_segments.block_of(anterior), occlusion_segments.block_of(right)
     assert front.omfs_seg.side == 0 and back.omfs_seg.side == -1
-    assert abs((front.matrix_world @ Vector(front.omfs_seg.pivot)).z - 6) < 0.5
+    assert abs((front.matrix_world @ Vector(front.omfs_seg.pivot)).z + 6) < 0.5
     torque_axis = occlusion_segments.clinical_axis_vectors(back.omfs_seg)[0]
     assert abs(abs(torque_axis.y) - 1) < 5e-3, f"posterior torque about its long axis ({torque_axis})"
-    assert all(abs(v) < 1e-6 for v in occlusion_segments.clinical_angles(front)), "pre-op: 0"
+    assert all(abs(v) < 1e-6 for v in occlusion_segments.clinical_angles(front)), "start: 0"
     assert all(d < params.SEG_NEIGHBOUR_TOLERANCE for _a, _b, d in occlusion_seating.segment_overlaps(scene)), \
-        "pre-op: the segments touch only at the cut"
+        "start: the segments touch only at the cut"
+    assert occlusion_segments.free_motions(back).shape == (6, 3), "posterior: three translations, no rotation"
+    assert occlusion_segments.free_motions(front).shape == (6, 2), "anterior: vertical and antero-posterior only"
 
     # Typed angles turn the segment about its pivot (the pivot stays) and read back the same.
     pivot = front.matrix_world @ Vector(front.omfs_seg.pivot)
@@ -840,7 +849,6 @@ def test_segmental_upper_arch():
     back.omfs_seg.torque = radians(5)                                            # right side: crowns buccal (-X)
     up = back.matrix_world.to_3x3() @ Vector((0, 0, 1))
     assert up.x > 0.05, "+ posterior torque: the roots go towards the midline"
-    back.omfs_seg.torque = 0.0
 
     # A neighbour turned into the next one is flagged; turned back, clear again.
     front.omfs_seg.rotation = radians(20)
@@ -848,27 +856,28 @@ def test_segmental_upper_arch():
     assert clash and clash[0][2] > params.SEG_NEIGHBOUR_TOLERANCE and anterior in clash[0][:2], clash
     front.omfs_seg.rotation = radians(-3)
 
+    # Optimise: the right segment, lifted 1 mm, comes back onto the lower without turning. The anterior segment
+    # (back to 0, flat boxes: no incisors to glide on) keeps its angles and midline.
+    front.omfs_seg.torque = front.omfs_seg.rotation = 0.0
+    back.omfs_seg.torque = 0.0
+    back.matrix_world = Matrix.Translation((0, 0, 1)) @ back.matrix_world
+    turned = back.matrix_world.to_3x3().copy()
+    lifted = back.matrix_world.translation.z
+    props.tolerance_posterior, props.overbite_target = 0.0, 0.0
     bpy.ops.omfs.seat_occlusion()
-    assert abs(front.omfs_seg.torque - radians(10)) < 1e-4, "the seating kept the surgeon's torque"
-    assert abs(front.omfs_seg.rotation + radians(3)) < 1e-4
-    assert abs(front.omfs_seg.midline) < 1e-3, "and the midline"
-    drop = (front.matrix_world @ Vector(front.omfs_seg.pivot) - pivot).z
-    assert -12.5 < drop < -8.0, drop             # down onto the lower: tilted 10 deg, its edge (20 mm away) lands first
-    assert props.max_overlap_anterior < props.tolerance_anterior + 0.05
-    widening = occlusion_segments.expansion(scene, right)
-    assert 2.5 < widening < 3.3, widening                                        # the spring's 3 mm
+    assert 0.6 < lifted - back.matrix_world.translation.z < 1.1, lifted - back.matrix_world.translation.z  # 1 mm - 0.2 overlap
+    assert abs(back.omfs_seg.torque) < 1e-6, "posterior: torque kept"
+    assert max(abs(a - b) for ra, rb in zip(back.matrix_world.to_3x3(), turned) for a, b in zip(ra, rb)) < 1e-6, \
+        "posterior: never turned"
     assert props.max_overlap_posterior < props.tolerance_posterior + 0.05
+    assert all(abs(v) < 1e-6 for v in occlusion_segments.clinical_angles(front)), "anterior: angles kept"
+    assert abs(front.omfs_seg.midline) < 1e-3, "anterior: midline kept"
     assert_same_matrix(lower.matrix_world, Matrix(), "the lower arch stays")
-
-    front.omfs_seg.free_torque = True                                            # "affiner": the solver may turn it
-    assert occlusion_segments.free_motions(front).shape == (6, 3)
-    front.omfs_seg.free_torque = False
-    assert occlusion_segments.free_motions(front).shape == (6, 2), "anterior: vertical and antero-posterior only"
+    props.tolerance_posterior, props.overbite_target = params.OCC_TOLERATED_POSTERIOR, params.SEG_OVERBITE
 
     bpy.ops.omfs.join_segments()
     assert not occlusion_segments.segments(scene) and not upper.hide_get()
     assert points["OCC_U4"].parent is upper
-    assert (points["OCC_U4"].matrix_world.translation - Vector((-20, 0, 6))).length < 1e-4   # back on the scan
     assert len(occlusion_segments.trait_ends(scene)) == 2                        # kept for another try
     for number in list(occlusion_segments.trait_ends(scene)):
         occlusion_segments.remove_trait(scene, number)
@@ -879,6 +888,43 @@ def test_segmental_upper_arch():
         bpy.data.objects.remove(obj)
     for arch_id in ('UPPER', 'LOWER'):
         bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
+
+
+def test_incisor_glide():
+    """An upper incisor proclined 20 deg (palatal face leaning forward towards its edge) resting with its edge on
+    the edge of an upright lower incisor (overbite 0). Asked for 2 mm of overbite, the upper incisor goes 2 mm
+    down and forward by 2 tan 20 deg to keep its palatal face on the lower edge: the guidance angle reads
+    70 deg. Nothing turns; the lower stays."""
+    scene = bpy.context.scene
+    props = scene.omfs_occlusion
+    t = tan(radians(20))
+    lower = dense_box("Lower incisor", 'SCAN', (0, 0, -5), (8, 2, 10))           # z -10 .. 0, labial face y = 1
+    upper = dense_box("Upper incisor", 'SCAN', (0, 2, 5), (8, 2, 10))            # z 0 .. 10, palatal face y = 1
+    for v in upper.data.vertices:
+        v.co.y -= v.co.z * t                                                     # proclined: the root back
+    props.upper, props.lower = upper, lower
+    bpy.context.view_layer.update()
+    found = occlusion_incisors.measure(scene, upper, lower)
+    assert abs(found.overbite) < 1e-3, found
+    assert 0 < found.overjet < 2.05, found                                      # edge (2 mm thick) in front of the labial face
+    shift, result = occlusion_incisors.glide_shift(scene, upper, lower, 2.0, 0.0)
+    assert result.status == 'contact', result
+    assert abs(result.after - 2.0) < 1e-6 and abs(result.down - 2.0) < 1e-6, result
+    assert abs(result.forward - 2 * t) < 0.08, (result, 2 * t)
+    assert result.angle is not None and abs(result.angle - 70) < 4, result
+    upper.matrix_world = Matrix.Translation(Vector(shift)) @ upper.matrix_world
+    bpy.context.view_layer.update()
+    assert abs(occlusion_incisors.measure(scene, upper, lower).overbite - 2.0) < 1e-3
+    contact = occlusion_incisors.Contact(upper, lower, np.array((0, 0, 1.0)), 0.0)
+    assert contact.overlap(np.zeros(3)) <= 0.02, "touching, not overlapping"
+    assert contact.overlap(np.array((0, -0.2, 0))) > 0.1, "0.2 mm further back it would overlap: in contact"
+    props.upper = props.lower = None
+    for obj in (upper, lower):
+        bpy.data.objects.remove(obj)
+    for arch_id in ('UPPER', 'LOWER'):
+        block = occlusion.find_block(scene, arch_id)
+        if block is not None:
+            bpy.data.objects.remove(block)
 
 
 def test_open_border_is_ignored():
@@ -2806,13 +2852,13 @@ def test_ortho_osteotomies():
 # Set aside for now (surgeon, 2026-11-14: whole-arch seating first, segmental later). With the new solver
 # the right segment widens 1.7 mm instead of the spring's 3 mm on these boxes: the magnet also pulls the
 # segment's side face, 3 mm from the lower box's side. To look at again with the segmental work.
-SKIPPED = {"test_segmental_upper_arch"}
+SKIPPED = set()
 
 failures = 0
 for name, test in list(globals().items()):
     if name in SKIPPED:
         print(f"SKIP {name}")
-    elif name.startswith("test_") and callable(test):
+    elif name.startswith("test_") and callable(test) and os.environ.get("OMFS_ONLY", name) in name:
         try:
             test()
             print(f"PASS {name}")

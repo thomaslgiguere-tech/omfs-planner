@@ -371,6 +371,15 @@ class OMFS_OcclusionProperties(bpy.types.PropertyGroup):
     map_state: bpy.props.StringProperty()
     segment_overlap: bpy.props.FloatProperty()        # mm, deepest overlap between two upper segments
     segment_overlap_pair: bpy.props.StringProperty()  # which two
+    # Incisors at the midline (occlusion_incisors.py)
+    overbite_target: bpy.props.FloatProperty(
+        name="Surplomb vertical visé", subtype='DISTANCE', default=params.SEG_OVERBITE, soft_min=-2.0, soft_max=5.0,
+        step=10, precision=1,
+        description="Hauteur du segment antérieur à l'optimisation : le bord incisif du haut descend d'autant "
+                    "sous celui du bas, au milieu. Le segment glisse ensuite d'avant en arrière jusqu'au contact")
+    incisors_found: bpy.props.BoolProperty()
+    overbite: bpy.props.FloatProperty()               # mm, measured with the map
+    overjet: bpy.props.FloatProperty()
 
 
 class OMFS_OcclusionObjectProperties(bpy.types.PropertyGroup):

@@ -308,15 +308,10 @@ def midline_shift(block):
 
 
 def free_motions(block):
-    """6 x k basis (rotation, translation) of what seating may change: the three translations (not across
-    for the anterior segment unless its midline is free) and the rotations ticked "affiner"."""
+    """6 x k basis (rotation, translation) of what seating may change: translations only, never a rotation
+    (the segment keeps its axes, the surgeon's angles); not across for the anterior segment (its midline)."""
     a = block.omfs_seg
-    columns = [np.r_[np.array(k), np.zeros(3)] for k, free in
-               zip(clinical_axis_vectors(a), (a.free_torque, a.free_tip, a.free_rotation)) if free]
-    for i in range(3):
-        if i == 0 and a.side == 0 and not a.free_midline:
-            continue
-        columns.append(np.r_[np.zeros(3), np.array(a.axes[3 * i:3 * i + 3])])
+    columns = [np.r_[np.zeros(3), np.array(a.axes[3 * i:3 * i + 3])] for i in range(3) if not (i == 0 and a.side == 0)]
     return np.array(columns).T
 
 
@@ -365,10 +360,6 @@ class OMFS_SegmentAngles(bpy.types.PropertyGroup):
     midline: bpy.props.FloatProperty(name="Milieu", subtype='DISTANCE', get=_get_midline, set=_set_midline, step=10,
                                      precision=2, description="Décalage du milieu du segment antérieur, + = vers la "
                                                               "gauche du patient")
-    free_torque: bpy.props.BoolProperty(name="Affiner", description="L'assise peut retoucher cet angle")
-    free_tip: bpy.props.BoolProperty(name="Affiner", description="L'assise peut retoucher cet angle")
-    free_rotation: bpy.props.BoolProperty(name="Affiner", description="L'assise peut retoucher cet angle")
-    free_midline: bpy.props.BoolProperty(name="Affiner", description="L'assise peut déplacer le milieu")
 
 
 def has_angles(block):
@@ -416,6 +407,12 @@ def segment_name(scene, centre, taken):
     return name
 
 
+def arch_seated(scene):
+    """The whole upper arch has been moved from its starting pose (seated): segments start from there."""
+    block = occlusion.find_block(scene, 'UPPER')
+    return block is not None and occlusion.movement_summary(scene, block) is not None
+
+
 def separate(scene):
     """Divide the upper scan along the lines into segments, each with its own block. Returns an error
     message, or None. The scan itself is only hidden."""
@@ -423,6 +420,8 @@ def separate(scene):
     upper = props.upper
     if segments(scene):
         return "L'arcade est déjà segmentée : réunissez-la d'abord"
+    if not arch_seated(scene):
+        return "Asseyez d'abord l'arcade entière (Asseoir l'occlusion), puis segmentez"
     cut_frames = frames(scene, upper)
     if not cut_frames:
         return "Tracez d'abord au moins un trait d'ostéotomie"

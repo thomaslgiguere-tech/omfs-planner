@@ -695,8 +695,8 @@ def is_segment_job(job):
 
 def motions(scene, job, from_here):
     """6 x k basis of the motions the seating may use, or None for all of them. A segment: only
-    translations (its angles are the surgeon's) and the axes ticked "affiner". The whole arch "from
-    here": no slide in the occlusal plane, to keep a position adjusted by hand."""
+    translations (its angles are the surgeon's, it never turns). The whole arch "from here": no slide in
+    the occlusal plane, to keep a position adjusted by hand."""
     from . import occlusion_segments
     if is_segment_job(job):
         return occlusion_segments.free_motions(job.block)
@@ -747,14 +747,39 @@ def seat_one(scene, job, limits, spring_share=params.OCC_SPRING_SHARE / 100, can
     return first + last, ok
 
 
+def is_anterior_segment(job):
+    from . import occlusion_segments
+    return is_segment_job(job) and occlusion_segments.block_of(job.mobile).omfs_seg.side == 0
+
+
 def seat(scene, limits, spring_share=params.OCC_SPRING_SHARE / 100, canine_weight=params.OCC_CANINE_WEIGHT,
-         max_iterations=params.OCC_MAX_ITERATIONS, from_here=False, paths=None):
-    """Every seating in order (see seatings). paths: a list that gets (block, its world matrices along the
-    way) per seating. Returns (total iterations, True if all settled)."""
+         max_iterations=params.OCC_MAX_ITERATIONS, from_here=False, paths=None, messages=None):
+    """Every seating in order (see seatings). Segmented upper arch (separated once the whole arch is seated):
+    the optimisation, from where each segment is: the posterior segments only translate (springs, magnet,
+    limits), the anterior one glides along the incisal guidance to the target overbite (occlusion_incisors).
+    paths: a list that gets (block, its world matrices along the way) per seating. messages: a list that gets
+    (level, text) for the surgeon. Returns (total iterations, True if all settled)."""
+    from . import occlusion_incisors
     total, all_settled = 0, True
+    props = scene.omfs_occlusion
     for job in seatings(scene):
         path = [] if paths is not None else None
-        iterations, ok = seat_one(scene, job, limits, spring_share, canine_weight, max_iterations, from_here, path)
+        if is_anterior_segment(job):
+            start = job.block.matrix_world.copy()
+            result = occlusion_incisors.glide(scene, job.mobile, job.fixed, props.overbite_target, limits[0])
+            bpy.context.view_layer.update()
+            if isinstance(result, str):
+                all_settled = False
+                if messages is not None:
+                    messages.append(('WARNING', result))
+            elif messages is not None:
+                messages.append(('WARNING' if result.status == 'free' or result.short else 'INFO',
+                                 f"{job.mobile.name} : {occlusion_incisors.describe(result)}"))
+            if paths is not None:
+                paths.append((job.block, [start, job.block.matrix_world.copy()]))
+            continue
+        iterations, ok = seat_one(scene, job, limits, spring_share, canine_weight, max_iterations,
+                                  from_here or is_segment_job(job), path)
         if paths is not None:
             paths.append((job.block, path))
         total += iterations
@@ -873,6 +898,12 @@ def write_overlap_map(scene):
     props.max_overlap = max(deepest.values())
     between = segment_overlaps(scene) if len(parts) > 1 else []
     props.segment_overlap = between[0][2] if between else 0.0
+    from . import occlusion_incisors
+    front = next((p for p in parts if p is props.upper or p.name.startswith("Segment antérieur")), None)
+    found = occlusion_incisors.measure(scene, front, lower) if front is not None else None
+    props.incisors_found = found is not None
+    if found is not None:
+        props.overbite, props.overjet = found.overbite, found.overjet
     props.segment_overlap_pair = f"{between[0][0].name[8:]} ↔ {between[0][1].name[8:]}" if between else ""
     props.map_state = repr(map_key(scene))
 
@@ -1180,6 +1211,12 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
 
     @classmethod
     def description(cls, context, properties):
+        from . import occlusion_segments
+        if occlusion_segments.segments(context.scene):
+            return ("Optimiser l'occlusion segmentée, depuis la position de chaque segment : les segments "
+                    "postérieurs ne font que se translater (aucune rotation) pour mieux s'intercuspider ; le "
+                    "segment antérieur glisse le long de la pente incisive jusqu'au surplomb vertical visé, "
+                    "en gardant le contact. Échap : annuler")
         if properties.from_here:
             return ("Rasseoir depuis la position actuelle (ex. après un ajustement à la main) : seulement les "
                     "derniers millimètres, avec les ressorts présents, l'aimant et les limites. Arcade entière : "
@@ -1194,7 +1231,7 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
         jobs = seatings(scene)
         if is_segment_job(jobs[0]) or self.from_here:   # translations (or a hand position): one spring will do
             for job in jobs:
-                if not guided(scene, job):
+                if not is_anterior_segment(job) and not guided(scene, job):
                     where = f"{job.mobile.name} : " if is_segment_job(job) else ""
                     self.report({'ERROR'}, f"{where}Rien ne guide l'assise : ajoutez un ressort, ou rapprochez les "
                                            f"arcades à moins de {params.OCC_MAGNET_RANGE:g} mm avec une part des "
@@ -1218,10 +1255,13 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
             return {'CANCELLED'}
         scene = context.scene
         props = scene.omfs_occlusion
+        messages = []
         iterations, settled = seat(scene, limits_of(props), props.spring_share / 100, props.canine_weight,
-                                   from_here=self.from_here)
+                                   from_here=self.from_here, messages=messages)
         write_overlap_map(scene)
         self.report({'INFO'}, f"Assise : {iterations} itérations")
+        for level, text in messages:
+            self.report({level}, text)
         self.report_end(settled)
         return {'FINISHED'}
 
@@ -1247,13 +1287,16 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
         scene = context.scene
         props = scene.omfs_occlusion
         start = time.monotonic()
-        paths = []
+        paths, messages = [], []
         iterations, self.all_settled = seat(scene, limits_of(props), props.spring_share / 100, props.canine_weight,
-                                            from_here=self.from_here, paths=paths)
+                                            from_here=self.from_here, paths=paths, messages=messages)
         self.report({'INFO'}, f"Assise : {iterations} itérations, {time.monotonic() - start:.1f} s de calcul")
+        for level, text in messages:
+            self.report({level}, text)
         for block, matrix in self.starts:
             block.matrix_world = matrix
-        self.frames = [(block, playback_frames(path, eased=not self.from_here)) for block, path in paths]
+        self.frames = [(block, playback_frames(path, eased=not self.from_here or len(path) == 2))
+                       for block, path in paths]
         self.frame = 0
         context.window.cursor_set('DEFAULT')
         if self.area:

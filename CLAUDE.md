@@ -31,9 +31,12 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
   occlusion_seating.py       springs between the arches, seating solver (upper onto the fixed lower), overlap map,
                              overlap between neighbouring segments (vs pre-op)
+  occlusion_incisors.py      overbite / overjet at the midline; anterior segment glided to a target overbite
+                             along the incisal guidance, contact kept (segmental optimisation)
   occlusion_segments.py      segmental upper arch: osteotomy lines (drag, ends slid on the scan), segments
                              (copies of the scan's faces, own blocks), the surgeon's angles (torque, tip / cant,
-                             rotation about the tips; typed or rings), then each only translated onto the lower
+                             rotation about the tips; typed or rings), after the whole arch is seated; then
+                             optimised: posterior ones only translated, the anterior one glided (incisors)
   splint.py                  Object creator: Splint (coverage points -> two surfaces, automatic round outline) /
                              Chape (arch curve); blank, imprints, solid, text
   splint_holes.py            splint option: wire holes in the buccal flange (click, slide, click; one Boolean)
