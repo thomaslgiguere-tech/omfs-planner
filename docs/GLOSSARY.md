@@ -176,3 +176,4 @@ Blender term → what it actually does → closest Meshmixer equivalent. Grows w
 | **Flood fill** | From a clicked voxel, every connected voxel of the same structure: one piece. Used to give a mislabelled piece to another structure. | None (closest: Select > Connected). |
 | **Cutting sheet (ruled surface)** *(OMFS Planner)* | A surface swept between two lines of points (the clicked line on the bone and a back line), thickened to the saw kerf and subtracted from a copy of the bone (Boolean difference). | Edit > Plane Cut, but along a curved line. |
 | **Separate by Loose Parts** | Splits a mesh into one object per connected piece (Edit Mode > Mesh > Separate > By Loose Parts): after the cut, the distal and proximal segments. | Edit > Separate Shells. |
+| **Draw handler** | Python code that draws extra shapes in the 3D view on top of the scene (here a solid ball on each clicked point) without creating any object or mesh. | None. |

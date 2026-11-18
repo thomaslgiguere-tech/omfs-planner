@@ -17,7 +17,7 @@ ICP_MAX_PAIR_DISTANCE = 2.0     # mm: farther closest points are ignored (gingiv
 CUT_BELOW_FORAMINA = 5.0      # mm, cut below the midpoint of the mental foramina
 CUT_PROFILE_ANGLE = 0.0       # deg relative to Frankfort, + = cut rises anteriorly
 CUT_FRONTAL_ANGLE = 0.0       # deg, + = patient's left side higher
-CUT_POSTERIOR_EXTENT = 15.0   # mm behind each mental foramen
+CUT_POSTERIOR_EXTENT = 30.0   # mm behind each mental foramen (surgeon 2026-11-18: far enough to cover the whole chin)
 
 # Safety distances from the cut (warn below)
 NERVE_SAFETY_MARGIN = 4.0     # mm to the inferior alveolar nerve canal, TO CONFIRM
@@ -231,3 +231,7 @@ ORTHO_END_EXTENSION = 4.0       # mm the cut runs past its first and last points
 ORTHO_KERF = 0.5                # mm: thickness of the simulated saw cut
 ORTHO_SMOOTH_STEPS = 6          # samples per segment of the smooth line through the clicked points
 ORTHO_MIN_PIECE = 500.0         # mm3: smaller pieces left by the cut (chips) join the nearest large piece
+
+# Points shown as solid balls (point_balls.py): landmarks, splint coverage points, osteotomy line points
+POINT_BALL_COLOUR = (0.15, 0.85, 0.30, 1.0)   # green
+POINT_BALL_MIN_RADIUS = 1.2     # mm: a ball is never smaller than this, whatever the point's own size

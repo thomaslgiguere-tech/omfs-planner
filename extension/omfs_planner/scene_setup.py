@@ -31,6 +31,7 @@ def setup_viewport(space):
     shading.cavity_type = 'BOTH'
     shading.show_specular_highlight = True
     shading.show_backface_culling = False   # see the inside of cut or open meshes
+    space.overlay.show_relationship_lines = False   # no dotted lines from a point to the point it hangs from
 
 
 def view3d_areas(context):

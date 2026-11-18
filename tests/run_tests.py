@@ -188,6 +188,8 @@ def test_osteotomy():
     assert osteotomy.height_on_plane(props, 20, 0) > osteotomy.height_on_plane(props, -20, 0)
     props.frontal_angle = 0
 
+    assert props.extent_r == props.extent_l == params.CUT_POSTERIOR_EXTENT == 30.0, "default: far behind the foramina"
+    props.extent_r = props.extent_l = 15.0
     vertices_before = len(bone.data.vertices)
     segment, proximal = osteotomy.apply_cut(bpy.context, cut)
     # Segment: x -30..30, y -20..15 (posterior extent), z -65..-45 -> 60 * 35 * 20 mm3.
@@ -2755,6 +2757,9 @@ def test_ortho_osteotomies():
     cut = ortho_osteotomy.make_cut(scene, 'LEFORT', maxilla, points, Vector((0, 1, 0)))
     backs = [ortho_osteotomy.back_point(f).matrix_world.translation for f in ortho_osteotomy.front_points(cut)]
     assert all(abs(b.y - (-25 + params.ORTHO_DEPTH_LEFORT)) < 1e-4 for b in backs), "back edge on one plane"
+    front = ortho_osteotomy.front_points(cut)[0]
+    assert np.allclose(front.color, ortho_osteotomy.FRONT_COLOUR) and np.allclose(
+        ortho_osteotomy.back_point(front).color, ortho_osteotomy.BACK_COLOUR), "front orange, back blue (not the role's colour)"
     assert len(cut.data.polygons) > 4 and cut.omfs.role == 'CUT'
     ortho_osteotomy.set_depth(cut, 55.0)
     assert abs(ortho_osteotomy.back_point(ortho_osteotomy.front_points(cut)[0]).matrix_world.translation.y - 30.0) < 1e-4

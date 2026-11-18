@@ -71,6 +71,7 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
                              structure (threshold, pieces, smoothing), pieces given to another structure or
                              deleted (voxel flood fill), then imported into the plan with their roles
   volume_ui.py               "Segmentation (.nrrd)" entry (OMFS tab) and the "Segmentation" tab
+  point_balls.py             clicked points (landmarks, splint points, osteotomy lines) drawn as solid shaded balls
   ui.py                      sidebar tab "OMFS" in the 3D viewport
 app_template/omfs_planner/   Application Template: clean surgical UI + Developer mode
 tools/dev_link.sh            symlinks both into the Blender user dirs (development)

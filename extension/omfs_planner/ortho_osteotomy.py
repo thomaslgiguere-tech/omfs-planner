@@ -83,9 +83,9 @@ def new_point(scene, cut, name, tag, location, colour, size, parent=None):
     obj = bpy.data.objects.new(name, None)
     collection(scene).objects.link(obj)
     obj.empty_display_type, obj.empty_display_size = 'SPHERE', size
-    obj.color = colour
     obj.show_in_front = True
     obj.omfs.made_by, obj.omfs.landmark, obj.omfs.role = MADE_BY, tag, 'MARKER'
+    obj.color = colour          # after the role: setting the role paints the role's colour
     obj.parent = parent or cut
     obj.matrix_parent_inverse = Matrix()
     if parent is None:
