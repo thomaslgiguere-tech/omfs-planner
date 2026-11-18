@@ -2801,14 +2801,20 @@ def test_ortho_osteotomies():
     assert ortho_osteotomy.bone(scene, 'MAXILLA') == maxilla, "found by its name"
     points = [Vector((x, -25.0, -5.0)) for x in (-28, -10, 10, 28)]                   # across the front, 5 mm below centre
     cut = ortho_osteotomy.make_cut(scene, 'LEFORT', maxilla, points, Vector((0, 1, 0)))
-    backs = [ortho_osteotomy.back_point(f).matrix_world.translation for f in ortho_osteotomy.front_points(cut)]
-    assert all(abs(b.y - (-25 + params.ORTHO_DEPTH_LEFORT)) < 1e-4 for b in backs), "back edge on one plane"
-    front = ortho_osteotomy.front_points(cut)[0]
-    assert np.allclose(front.color, ortho_osteotomy.FRONT_COLOUR) and np.allclose(
-        ortho_osteotomy.back_point(front).color, ortho_osteotomy.BACK_COLOUR), "front orange, back blue (not the role's colour)"
-    assert len(cut.data.polygons) > 4 and cut.omfs.role == 'CUT'
-    ortho_osteotomy.set_depth(cut, 55.0)
-    assert abs(ortho_osteotomy.back_point(ortho_osteotomy.front_points(cut)[0]).matrix_world.translation.y - 30.0) < 1e-4
+    assert len(cut.data.polygons) == 0 and len(cut.data.edges) > 3, "before the stops: the line alone"
+    pieces, warning = ortho_osteotomy.separate(bpy.context, maxilla)
+    assert not pieces and "stops" in warning, "no separation without the two posterior stops"
+    for side, x in (('R', -30.0), ('L', 30.0)):                                       # pterygomaxillary junctions
+        ortho_osteotomy.set_stop(scene, cut, side, Vector((x, 15.0, -5.0)))
+    stop = ortho_osteotomy.stop_point(cut, 'R')
+    assert np.allclose(stop.color, ortho_osteotomy.STOP_COLOUR), "stop blue (not the role's colour)"
+    assert np.allclose(ortho_osteotomy.front_points(cut)[0].color, ortho_osteotomy.FRONT_COLOUR)
+    verts = np.array([v.co for v in cut.data.vertices])
+    assert abs(verts[:, 1].max() - 15.0) < 1e-4, "the first plane stops at the stop plane"
+    assert abs(verts[:, 2].min() - (-5.0 - params.ORTHO_PTM_DROP)) < 1e-4, "then down at 90 degrees"
+    assert verts[:, 0].max() > 30 + params.ORTHO_END_EXTENSION_LEFORT - 3, "wide laterally"
+    cut = ortho_osteotomy.make_cut(scene, 'LEFORT', maxilla, points, Vector((0, 1, 0)))   # redrawn: stops kept
+    assert ortho_osteotomy.stops_ready(cut)
     pieces, warning = ortho_osteotomy.separate(bpy.context, maxilla)
     assert warning is None, warning
     named = {p.name: p for p in pieces}
@@ -2816,22 +2822,42 @@ def test_ortho_osteotomies():
     assert distal.omfs.role == 'SEGMENT' and proximal.omfs.role == 'BONE' and locking.is_locked(proximal)
     vd, cd = ortho_osteotomy.mesh_volume(distal.data)
     vp, _cp = ortho_osteotomy.mesh_volume(proximal.data)
-    assert abs(vd - 60 * 50 * (20 - 5 - params.ORTHO_KERF / 2)) < 300, (vd, vp, cd)        # below the cut, minus half the kerf
-    assert vp > 60 * 50 * 24 and cd[2] < -10, "the vertebra stayed with the fixed part, the distal piece is the lower one"
+    k = params.ORTHO_KERF / 2
+    expected = 60 * (40 - k) * (15 - k)                       # below the plane, in front of the stop, minus half kerfs
+    assert abs(vd - expected) < 300, (vd, expected, cd)
+    assert vp > 60 * 50 * 24 and cd[2] < -10, "behind the stop (pterygoids) and the vertebra stay with the fixed part"
     assert maxilla.hide_get() and len(maxilla.data.polygons) == faces_before, "source hidden, never changed"
     bpy.ops.omfs.ortho_rejoin(which='MAXILLA')
     assert not ortho_osteotomy.pieces_of(scene, maxilla) and not maxilla.hide_get()
 
-    # too short: the cut stops inside the bone, and says so
-    ortho_osteotomy.set_depth(cut, 20.0)
+    # stops in front of the bone's back but the line too short laterally: the cut stops inside, and says so
+    short = ortho_osteotomy.make_cut(scene, 'LEFORT', maxilla, [Vector((x, -25.0, -5.0)) for x in (-5, 5)], Vector((0, 1, 0)))
+    params.ORTHO_END_EXTENSION_LEFORT, wide = 4.0, params.ORTHO_END_EXTENSION_LEFORT
+    ortho_osteotomy.rebuild_sheet(short)
     pieces, warning = ortho_osteotomy.separate(bpy.context, maxilla)
+    params.ORTHO_END_EXTENSION_LEFORT = wide
     assert warning is not None and "incomplète" in warning and len(pieces) == 1
     ortho_osteotomy.rejoin(scene, maxilla)
 
-    mandible = dense_box("Mandibule", 'BONE', (0, 0, -60), (100, 14, 24))              # a bar across
+    mandible = dense_box("Mandibule", 'BONE', (0, 0, -60), (100, 14, 24))              # a bar across, y -7..7, z -72..-48
+    ring = [(-7, -50), (-7, -60), (-7, -70), (0, -71.5), (7, -70), (7, -60), (7, -50), (0, -48.5)]   # on its faces
     for kind, x in (('BSSO_R', -30.0), ('BSSO_L', 30.0)):
-        line = [Vector((x, -7.0, z)) for z in (-46, -60, -74)]
-        ortho_osteotomy.make_cut(scene, kind, mandible, line, Vector((0, 1, 0)))
+        cut = ortho_osteotomy.make_loop(scene, kind, mandible)                         # clicked one by one, live
+        for y, z in ring[:2]:
+            ortho_osteotomy.add_loop_point(scene, cut, Vector((x, y, z)))
+        assert len(cut.data.polygons) == 0 and len(cut.data.edges) == 1, "two points: the first segment only"
+        ortho_osteotomy.add_loop_point(scene, cut, Vector((x, 5, -40)))              # a wrong click...
+        ortho_osteotomy.remove_last_point(cut)                                          # ...Backspace
+        for y, z in ring[2:]:
+            ortho_osteotomy.add_loop_point(scene, cut, Vector((x, y, z)))
+        assert len(ortho_osteotomy.front_points(cut)) == 8 and len(cut.data.polygons) > 100
+        verts = np.array([v.co for v in cut.data.vertices])
+        assert np.abs(verts[:, 0] - x).max() < 1e-3, "a flat curve: a flat membrane, no folds out of its plane"
+        assert verts[:, 2].max() > -48 + 2 and verts[:, 2].min() < -72 - 2, "past the curve: opens the bone all round"
+    cut = ortho_osteotomy.find_cut(scene, 'BSSO_L')
+    cut.omfs_ortho.extension = 0.0
+    assert max(v.co.z for v in cut.data.vertices) < -48.0 + 0.2, "Débord 0: the surface stops at the curve"
+    cut.omfs_ortho.extension = params.ORTHO_LOOP_EXTENSION
     pieces, warning = ortho_osteotomy.separate(bpy.context, mandible)
     assert warning is None, warning
     names = sorted(p.name for p in pieces)

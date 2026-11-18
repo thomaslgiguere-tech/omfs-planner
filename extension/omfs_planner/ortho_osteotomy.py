@@ -1,18 +1,25 @@
 """Orthognathic osteotomies: Le Fort I and mandibular (BSSO) cuts, separate from the genioplasty plane.
 
-Like Dolphin 3D's osteotomy tool: the surgeon clicks a few points on the bone where the cut should pass, in the
-view that looks through the bone the way the saw goes (Le Fort I: from the front, the cut runs back to the
-pterygoid plates; BSSO: across the ramus / body). The line through the points is pushed along that view
-direction into a cutting sheet ("nappe de coupe"): a ruled surface from the clicked line to a back line. Each
-back point hangs from its front point and can be dragged on its own, so the cut is adjusted at a distance
-(e.g. lower behind, at the pterygomaxillary junction). Front points can be dragged too; the sheet follows.
+Le Fort I, like Dolphin 3D's osteotomy tool: the surgeon clicks a few points on the bone where the cut should pass,
+from the front (the view looks through the bone the way the saw goes). The line through the points is pushed along
+that direction into a cutting sheet ("nappe de coupe"). Then (surgeon, 2026-11-17) one click each side at the
+pterygomaxillary junction sets a reliable posterior stop: the first plane is kept up to the plane through the two
+stops, and the cut goes down there at 90 degrees, so the segment comes without the pterygoid plates. Points can
+be dragged (G); the sheet follows. The line also runs 15 mm past its end points laterally.
 
 "Séparer" cuts a copy of the bone with every sheet of that bone (thickened to a saw kerf, Boolean difference) and
 splits the result into its loose pieces: the distal segment (teeth-bearing: the Le Fort I maxilla, the
 mandibular body) and the proximal parts (skull base, ramus + condyle each side). The bone's own mesh is never
 touched (CBCT data): it is only hidden, and "Réunir" brings it back.
 
-Generic on purpose: a cut is a line + a direction + a depth on any bone. Le Fort / BSSO are only the defaults
+BSSO (surgeon, 2026-11-17): a closed curve instead. The surgeon clicks points on the bone all round the split
+surface (medial cut above the lingula, anterior border, buccal cut down to the lower border, lower and posterior
+borders), turning the view between clicks. A smooth closed curve passes through the points; the surface it bounds
+(a membrane: the harmonic surface spanning the curve, like a soap film on a wire) is the curved cutting surface
+through the bone, pushed a few mm past the curve all round so it opens the cortex. Its exact course inside the
+bone is not critical to the surgery's outcome: what matters is that it separates the segments, quickly.
+
+Generic on purpose: a cut is a line + a direction + a depth on any bone, or a closed curve. Le Fort / BSSO are only the defaults
 (depth, names, which piece is distal). Later, the interdental lines of a segmental Le Fort (occlusion_segments.py)
 can become cuts of the same kind.
 """
@@ -31,12 +38,19 @@ MADE_BY = "Ortho osteotomy"
 COLLECTION = "Ostéotomies orthognathiques"
 KINDS = (
     ('LEFORT', "Le Fort I", "Trait au-dessus des apex, de part et d'autre, poussé vers l'arrière jusqu'aux ptérygoïdes"),
-    ('BSSO_R', "BSSO droite", "Ostéotomie sagittale de la branche droite (trait médial, bord antérieur, vestibulaire)"),
-    ('BSSO_L', "BSSO gauche", "Ostéotomie sagittale de la branche gauche"),
+    ('BSSO_R', "BSSO droite", "Ostéotomie sagittale droite : courbe fermée autour de la surface de clivage (médial, "
+                              "bord antérieur, vestibulaire, bords basilaire et postérieur)"),
+    ('BSSO_L', "BSSO gauche", "Ostéotomie sagittale gauche : courbe fermée autour de la surface de clivage"),
 )
 NAMES = {'LEFORT': "Trait Le Fort I", 'BSSO_R': "Trait BSSO droite", 'BSSO_L': "Trait BSSO gauche"}
 SHEET_COLOUR = (1.0, 0.85, 0.1, 0.45)
-FRONT_COLOUR, BACK_COLOUR = (1.0, 0.75, 0.0, 1.0), (0.2, 0.8, 1.0, 1.0)
+FRONT_COLOUR, STOP_COLOUR = (1.0, 0.75, 0.0, 1.0), (0.2, 0.8, 1.0, 1.0)
+STOPS = (('R', "droit"), ('L', "gauche"))   # Le Fort I posterior stops, at the pterygomaxillary junctions
+CLOSED_KINDS = {'BSSO_R', 'BSSO_L'}   # drawn as a closed curve; the others as a line pushed along the view
+
+
+def is_closed(cut):
+    return cut.omfs_ortho.kind in CLOSED_KINDS
 
 
 # --- Axes ---------------------------------------------------------------------------------------
@@ -66,8 +80,26 @@ def front_points(cut):
     return sorted((o for o in cut.children if o.omfs.landmark.startswith("ORTHO_F")), key=lambda o: int(o.omfs.landmark[7:]))
 
 
-def back_point(front):
-    return next((o for o in front.children if o.omfs.landmark.startswith("ORTHO_B")), None)
+def stop_point(cut, side):
+    """The Le Fort I's posterior stop on that side ('R' / 'L'), or None."""
+    return next((o for o in cut.children if o.omfs.landmark == f"ORTHO_PTM_{side}"), None)
+
+
+def stops_ready(cut):
+    return all(stop_point(cut, side) is not None for side, _name in STOPS)
+
+
+def set_stop(scene, cut, side, location):
+    """Place (or move) the posterior stop of that side: a click at the pterygomaxillary junction."""
+    point = stop_point(cut, side)
+    if point is None:
+        name = dict(STOPS)[side]
+        point = new_point(scene, cut, f"Stop ptérygo-maxillaire {name}", f"ORTHO_PTM_{side}", Vector(location),
+                          STOP_COLOUR, 1.2)
+    point.location = Vector(location)
+    bpy.context.view_layer.update()
+    rebuild_sheet(cut)
+    return point
 
 
 def collection(scene):
@@ -97,14 +129,15 @@ def new_point(scene, cut, name, tag, location, colour, size, parent=None):
     return obj
 
 
-def make_cut(scene, kind, source, points, direction, depth=None):
-    """A cut on a bone: clicked points (world), the direction the saw goes (world), and its depth (mm), measured
-    from the clicked point furthest forward: the back points line up on one plane. Replaces a cut of the same
-    kind. Returns the cut object (its mesh is the sheet)."""
+def make_cut(scene, kind, source, points, direction):
+    """A line cut on a bone (Le Fort I): clicked points (world) and the direction the saw goes (world). Replaces a
+    cut of the same kind, keeping its posterior stops. The cut is complete once both stops are placed (set_stop).
+    Returns the cut object (its mesh is the sheet)."""
     old = find_cut(scene, kind)
+    kept = {}
     if old is not None:
+        kept = {side: stop_point(old, side).matrix_world.translation.copy() for side, _n in STOPS if stop_point(old, side)}
         remove_cut(old)
-    depth = depth if depth is not None else (params.ORTHO_DEPTH_LEFORT if kind == 'LEFORT' else params.ORTHO_DEPTH_BSSO)
     mesh = bpy.data.meshes.new(NAMES[kind])
     cut = bpy.data.objects.new(NAMES[kind], mesh)
     collection(scene).objects.link(cut)
@@ -113,39 +146,63 @@ def make_cut(scene, kind, source, points, direction, depth=None):
     cut.show_transparent = True
     cut.hide_select = True
     props = cut.omfs_ortho
-    props.kind, props.source, props.depth = kind, source, depth
+    props.kind, props.source = kind, source
     props.direction = Vector(direction).normalized()
-    d = Vector(props.direction)
-    nearest = min(d.dot(Vector(p)) for p in points)             # the clicked point furthest forward
     for i, p in enumerate(points, 1):
-        front = new_point(scene, cut, f"{NAMES[kind]} {i}", f"ORTHO_F{i}", Vector(p), FRONT_COLOUR, 1.0)
-        # every back point on one plane, depth behind the furthest-forward point: a straight back edge
-        reach = depth - (d.dot(Vector(p)) - nearest)
-        new_point(scene, cut, f"{NAMES[kind]} {i} arrière", f"ORTHO_B{i}", d * max(reach, 2.0), BACK_COLOUR, 1.2, front)
+        new_point(scene, cut, f"{NAMES[kind]} {i}", f"ORTHO_F{i}", Vector(p), FRONT_COLOUR, 1.0)
+    for side, location in kept.items():
+        set_stop(scene, cut, side, location)
     bpy.context.view_layer.update()
     rebuild_sheet(cut)
     return cut
 
 
+def make_loop(scene, kind, source, points=()):
+    """A closed-curve cut on a bone (BSSO): its points (world), more can be added (add_loop_point). Replaces a cut
+    of the same kind. Returns the cut object (its mesh is the membrane, and the curve as edges)."""
+    old = find_cut(scene, kind)
+    if old is not None:
+        remove_cut(old)
+    mesh = bpy.data.meshes.new(NAMES[kind])
+    cut = bpy.data.objects.new(NAMES[kind], mesh)
+    collection(scene).objects.link(cut)
+    cut.omfs.role, cut.omfs.made_by = 'CUT', MADE_BY
+    cut.color = SHEET_COLOUR
+    cut.show_transparent = True
+    cut.hide_select = True
+    props = cut.omfs_ortho
+    props.kind, props.source, props.extension = kind, source, params.ORTHO_LOOP_EXTENSION
+    for p in points:
+        add_loop_point(scene, cut, p, rebuild=False)
+    bpy.context.view_layer.update()
+    rebuild_sheet(cut)
+    return cut
+
+
+def add_loop_point(scene, cut, location, rebuild=True):
+    i = len(front_points(cut)) + 1
+    point = new_point(scene, cut, f"{NAMES[cut.omfs_ortho.kind]} {i}", f"ORTHO_F{i}", Vector(location), FRONT_COLOUR, 1.0)
+    if rebuild:
+        bpy.context.view_layer.update()
+        rebuild_sheet(cut)
+    return point
+
+
+def remove_last_point(cut):
+    points = front_points(cut)
+    if points:
+        for obj in list(points[-1].children) + [points[-1]]:
+            bpy.data.objects.remove(obj)
+        bpy.context.view_layer.update()
+        rebuild_sheet(cut)
+
+
 def remove_cut(cut):
-    for obj in [c for f in front_points(cut) for c in f.children] + front_points(cut):
+    for obj in list(cut.children_recursive):
         bpy.data.objects.remove(obj)
     mesh = cut.data
     bpy.data.objects.remove(cut)
     bpy.data.meshes.remove(mesh)
-
-
-def set_depth(cut, depth):
-    """Move every back point along the cut's direction so the cut reaches depth, keeping each one's own adjustment."""
-    props = cut.omfs_ortho
-    d = Vector(props.direction)
-    for front in front_points(cut):
-        back = back_point(front)
-        if back is not None:
-            back.location = back.location + d * (depth - props.depth)
-    props.depth = depth
-    bpy.context.view_layer.update()      # the points' world positions, then the sheet
-    rebuild_sheet(cut)
 
 
 # --- The sheet ----------------------------------------------------------------------------------
@@ -174,43 +231,124 @@ def extend(line, length):
 
 
 def sheet_rows(cut):
-    """(front row, back row) of the sheet (k, 3) world: the smooth clicked line pulled MARGIN back out of the bone
-    (against the direction), and the smooth back line; both extended past their ends. None with < 2 points."""
+    """The rows of the Le Fort I sheet (each (k, 3), world), or None until the line and both stops are placed:
+    the smooth clicked line pulled MARGIN out of the bone and extended laterally (front row); the same line pushed
+    along the saw's direction to the stop plane (back row: the first plane is kept up to there); then straight down
+    from it, at 90 degrees to that plane, ORTHO_PTM_DROP mm (bottom row). The stop plane passes through both
+    pterygomaxillary stops and that downward direction: the pterygoid plates behind it stay with the skull."""
     fronts = front_points(cut)
-    if len(fronts) < 2:
+    if len(fronts) < 2 or not stops_ready(cut):
         return None
     d = np.array(cut.omfs_ortho.direction)
     front = np.array([f.matrix_world.translation for f in fronts])
-    back = np.array([back_point(f).matrix_world.translation if back_point(f) else f.matrix_world.translation + d * cut.omfs_ortho.depth
-                     for f in fronts])
-    steps = params.ORTHO_SMOOTH_STEPS
-    a = extend(smooth_line(front - d * params.ORTHO_MARGIN, steps), params.ORTHO_END_EXTENSION)
-    b = extend(smooth_line(back, steps), params.ORTHO_END_EXTENSION)
-    return a, b
+    a = extend(smooth_line(front - d * params.ORTHO_MARGIN, params.ORTHO_SMOOTH_STEPS), params.ORTHO_END_EXTENSION_LEFORT)
+    right, left = (np.array(stop_point(cut, side).matrix_world.translation) for side, _n in STOPS)
+    across = left - right
+    across /= max(np.linalg.norm(across), 1e-9)
+    normal = np.cross(across, d)                         # of the first plane
+    normal /= max(np.linalg.norm(normal), 1e-9)
+    up = np.array(clinical_axes(bpy.context.scene)[2])
+    down = -normal if normal @ up > 0 else normal
+    stop_normal = np.cross(across, down)
+    stop_normal /= max(np.linalg.norm(stop_normal), 1e-9)
+    t = ((right - a) @ stop_normal) / (d @ stop_normal)  # along the saw's direction, up to the stop plane
+    b = a + t[:, None] * d
+    return a, b, b + down * params.ORTHO_PTM_DROP
+
+
+def closed_curve(points, spacing):
+    """Smooth closed curve (periodic Catmull-Rom) through the points (n, 3), resampled every `spacing` mm."""
+    p = np.asarray(points, float)
+    n = len(p)
+    dense = []
+    for i in range(n):
+        p0, p1, p2, p3 = p[i - 1], p[i], p[(i + 1) % n], p[(i + 2) % n]
+        for t in np.linspace(0, 1, 16, endpoint=False):
+            dense.append(0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t
+                                + (-p0 + 3 * p1 - 3 * p2 + p3) * t ** 3))
+    dense = np.array(dense)
+    closed = np.vstack((dense, dense[:1]))
+    s = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(closed, axis=0), axis=1))]
+    m = max(24, int(np.ceil(s[-1] / spacing)))
+    t = np.linspace(0, s[-1], m, endpoint=False)
+    return np.stack([np.interp(t, s, closed[:, k]) for k in range(3)], axis=1)
+
+
+def membrane(loop, rings, iterations, extension):
+    """(vertices, faces) of the surface spanning a closed curve (m, 3): a disc of rings, the curve as its rim, the
+    inside relaxed into the harmonic surface (each vertex the mean of its four neighbours: a soap film on the
+    wire), then rings added outside, `extension` mm past the curve along the surface. Centre vertex first."""
+    m = len(loop)
+    centre = loop.mean(axis=0)
+    k = np.arange(1, rings + 1)[:, None, None] / rings
+    grid = centre + k * (loop - centre)               # ring r (0-based) = (r + 1) / rings of the way out; last = curve
+    for _ in range(iterations):
+        inner = np.vstack((grid[:1] * 0 + grid[0].mean(axis=0), grid[:-2]))   # ring below (centre for the first)
+        relaxed = (inner + grid[1:] + np.roll(grid[:-1], 1, axis=1) + np.roll(grid[:-1], -1, axis=1)) / 4
+        grid[:-1] = relaxed
+    rim, below = grid[-1], grid[-2]
+    out = rim - below
+    out /= np.maximum(np.linalg.norm(out, axis=1), 1e-9)[:, None]
+    extra = [rim + out * extension * f for f in (0.5, 1.0)] if extension > 0 else []
+    grid = np.vstack((grid, np.array(extra).reshape(-1, m, 3)))
+    verts = np.vstack((grid[0].mean(axis=0)[None], grid.reshape(-1, 3)))
+    index = lambda r, i: 1 + r * m + i % m
+    faces = [(0, index(0, i), index(0, i + 1)) for i in range(m)]
+    faces += [(index(r, i), index(r + 1, i), index(r + 1, i + 1), index(r, i + 1))
+              for r in range(len(grid) - 1) for i in range(m)]
+    return verts, faces
+
+
+def sheet_geometry(cut):
+    """(vertices, faces) of the cutting surface, world; None when not enough points (2 for a line, 3 for a curve)."""
+    if is_closed(cut):
+        points = [f.matrix_world.translation for f in front_points(cut)]
+        if len(points) < 3:
+            return None
+        loop = closed_curve(points, params.ORTHO_LOOP_SPACING)
+        return membrane(loop, params.ORTHO_LOOP_RINGS, params.ORTHO_LOOP_ITERATIONS, cut.omfs_ortho.extension)
+    rows = sheet_rows(cut)
+    if rows is None:
+        return None
+    k = len(rows[0])
+    faces = [(r * k + i, r * k + i + 1, (r + 1) * k + i + 1, (r + 1) * k + i)
+             for r in range(len(rows) - 1) for i in range(k - 1)]
+    return np.vstack(rows), faces
 
 
 def rebuild_sheet(cut):
-    """The cut object's mesh: the open sheet between the front and back rows (drawn translucent)."""
-    rows = sheet_rows(cut)
+    """The cut object's mesh: the cutting surface (drawn translucent); a closed curve also as edges."""
     mesh = cut.data
     mesh.clear_geometry()
-    if rows is None:
+    geometry = sheet_geometry(cut)
+    if geometry is None:
+        points = [f.matrix_world.translation for f in front_points(cut)]
+        if is_closed(cut) and len(points) == 2:      # while drawing: the first segment
+            mesh.from_pydata([tuple(p) for p in points], [(0, 1)], [])
+            mesh.update()
+        elif not is_closed(cut) and len(points) >= 2:   # Le Fort before its stops: the line alone
+            line = smooth_line(np.array(points), params.ORTHO_SMOOTH_STEPS)
+            mesh.from_pydata(line.tolist(), [(i, i + 1) for i in range(len(line) - 1)], [])
+            mesh.update()
         return
-    a, b = rows
-    k = len(a)
-    mesh.from_pydata(np.vstack((a, b)).tolist(), [], [(i, i + 1, k + i + 1, k + i) for i in range(k - 1)])
+    verts, faces = geometry
+    edges = []
+    if is_closed(cut):                              # the curve itself, through the clicked points
+        loop = closed_curve([f.matrix_world.translation for f in front_points(cut)], params.ORTHO_LOOP_SPACING)
+        start = len(verts)
+        verts = np.vstack((verts, loop))
+        edges = [(start + i, start + (i + 1) % len(loop)) for i in range(len(loop))]
+    mesh.from_pydata(np.asarray(verts).tolist(), edges, faces)
     mesh.update()
 
 
 def cutter_mesh(cut):
-    """The sheet thickened to the saw kerf: a closed slab, for the Boolean."""
-    rows = sheet_rows(cut)
-    a, b = rows
-    k = len(a)
+    """The cutting surface thickened to the saw kerf: a closed slab, for the Boolean."""
+    verts, faces = sheet_geometry(cut)
     bm = bmesh.new()
-    verts = [bm.verts.new(v) for v in np.vstack((a, b))]
-    for i in range(k - 1):
-        bm.faces.new((verts[i], verts[i + 1], verts[k + i + 1], verts[k + i]))
+    bverts = [bm.verts.new(v) for v in verts]
+    for f in faces:
+        bm.faces.new([bverts[i] for i in f])
     bm.normal_update()
     for v in bm.verts:
         v.co += v.normal * params.ORTHO_KERF / 2      # solidify grows backwards: the slab ends centred on the sheet
@@ -363,7 +501,9 @@ def rejoin(scene, source):
 def separate(context, source):
     """Cut the bone with all its cuts and name the pieces. Returns (pieces, warning or None)."""
     scene = context.scene
-    found = cuts(scene, source)
+    if any(not is_closed(c) and not stops_ready(c) for c in cuts(scene, source)):
+        return [], "Placez d'abord les deux stops ptérygo-maxillaires (droit et gauche)"
+    found = [c for c in cuts(scene, source) if sheet_geometry(c) is not None]
     if not found:
         return [], "Tracez d'abord un trait sur cet os"
     if context.mode != 'OBJECT':
@@ -425,17 +565,20 @@ def separate(context, source):
     source.hide_set(True)
     warning = None
     if len(big) < expected:
-        warning = (f"Coupe incomplète: {len(big)} morceau(x) au lieu de {expected}. Prolongez le trait au-delà de l'os "
-                   "(points d'extrémité) ou augmentez la profondeur")
+        how = ("BSSO : faites passer la courbe hors de l'os tout autour (un pont reste là où elle rentre dans l'os) "
+               "ou augmentez le « Débord »" if kinds & CLOSED_KINDS else
+               "Prolongez le trait au-delà de l'os (points d'extrémité) ou vérifiez les stops ptérygo-maxillaires")
+        warning = f"Coupe incomplète : {len(big)} morceau(x) au lieu de {expected}. {how}"
     return big, warning
 
 
 # --- Drawing ------------------------------------------------------------------------------------
 
 class OMFS_OT_ortho_draw(bpy.types.Operator):
-    """Cliquez des points sur l'os où l'ostéotomie doit passer, dans la vue qui regarde dans le sens de la scie
-    (Le Fort I: de face; BSSO: de côté). Entrée ou clic droit: terminer (le trait est poussé dans l'os selon la
-    direction de la vue). Retour arrière: retirer le dernier point. Échap: annuler"""
+    """Le Fort I : cliquez des points sur l'os où l'ostéotomie doit passer, dans la vue qui regarde dans le sens de la
+    scie (de face) ; Entrée : le trait est poussé dans l'os selon la direction de la vue. BSSO : cliquez des points
+    tout autour de la surface de clivage en tournant la vue entre les clics ; la courbe se referme d'elle-même et
+    sa surface intérieure devient la coupe. Retour arrière : dernier point. Échap : annuler"""
     bl_idname = "omfs.ortho_draw"
     bl_label = "Tracer le trait"
     bl_options = {'REGISTER', 'UNDO'}
@@ -452,13 +595,24 @@ class OMFS_OT_ortho_draw(bpy.types.Operator):
         self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
             (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
         self.markers = []
+        self.closed = self.kind in CLOSED_KINDS
+        self.loop = None
+        if self.closed:                 # live: the curve and its surface follow each click
+            old = find_cut(context.scene, self.kind)
+            self.previous = None if old is None else (
+                [f.matrix_world.translation.copy() for f in front_points(old)], old.omfs_ortho.extension)
+            self.loop = make_loop(context.scene, self.kind, source)
         self.prompt()
         context.window.cursor_modal_set('CROSSHAIR')
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
+    def count(self):
+        return len(front_points(self.loop)) if self.closed else len(self.points)
+
     def prompt(self):
-        self.area.header_text_set(f"{NAMES[self.kind]}: cliquez sur {self.source.name} ({len(self.points)} point(s))   |   "
+        what = "tout autour de la surface de clivage (tournez la vue entre les clics)" if self.closed else ""
+        self.area.header_text_set(f"{NAMES[self.kind]}: cliquez sur {self.source.name} {what} ({self.count()} point(s))   |   "
                                   "Entrée / clic droit: terminer   |   Retour arrière: dernier point   |   Échap: annuler")
 
     def clear(self, context):
@@ -468,24 +622,37 @@ class OMFS_OT_ortho_draw(bpy.types.Operator):
         self.area.header_text_set(None)
         context.window.cursor_modal_restore()
 
+    def cancel_loop(self, context):
+        remove_cut(self.loop)
+        if self.previous is not None:   # the curve there before comes back
+            cut = make_loop(context.scene, self.kind, self.source, self.previous[0])
+            cut.omfs_ortho.extension = self.previous[1]
+
     def modal(self, context, event):
         if event.type == 'ESC' and event.value == 'PRESS':
             self.clear(context)
+            if self.closed:
+                self.cancel_loop(context)
             return {'CANCELLED'}
-        if event.type == 'BACK_SPACE' and event.value == 'PRESS' and self.points:
-            self.points.pop()
-            bpy.data.objects.remove(self.markers.pop())
+        if event.type == 'BACK_SPACE' and event.value == 'PRESS' and self.count():
+            if self.closed:
+                remove_last_point(self.loop)
+            else:
+                self.points.pop()
+                bpy.data.objects.remove(self.markers.pop())
             self.prompt()
             return {'RUNNING_MODAL'}
         if event.type in {'RET', 'NUMPAD_ENTER', 'RIGHTMOUSE'} and event.value == 'PRESS':
-            if len(self.points) < 2:
-                self.report({'WARNING'}, "Au moins 2 points")
+            needed = 3 if self.closed else 2
+            if self.count() < needed:
+                self.report({'WARNING'}, f"Au moins {needed} points")
                 return {'RUNNING_MODAL'}
+            self.clear(context)
+            if self.closed:
+                return {'FINISHED'}
             view = next(r.data for r in self.area.regions if r.type == 'WINDOW')
             direction = view.view_rotation @ Vector((0.0, 0.0, -1.0))
-            points = list(self.points)
-            self.clear(context)
-            make_cut(context.scene, self.kind, self.source, points, direction)
+            make_cut(context.scene, self.kind, self.source, list(self.points), direction)
             return {'FINISHED'}
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             under = landmarks.viewport_region_under_mouse(self.area, event)
@@ -494,14 +661,61 @@ class OMFS_OT_ortho_draw(bpy.types.Operator):
             hit = landmarks.object_hit(context, under[0], under[1], self.source)
             if hit is None:
                 return {'RUNNING_MODAL'}
-            self.points.append(hit.copy())
-            marker = bpy.data.objects.new("point", None)
-            context.scene.collection.objects.link(marker)
-            marker.empty_display_type, marker.empty_display_size, marker.location = 'SPHERE', 1.0, hit
-            marker.show_in_front = True
-            self.markers.append(marker)
+            if self.closed:
+                add_loop_point(context.scene, self.loop, hit)
+            else:
+                self.points.append(hit.copy())
+                marker = bpy.data.objects.new("point", None)
+                context.scene.collection.objects.link(marker)
+                marker.empty_display_type, marker.empty_display_size, marker.location = 'SPHERE', 1.0, hit
+                marker.show_in_front = True
+                self.markers.append(marker)
             self.prompt()
             return {'RUNNING_MODAL'}
+        return {'PASS_THROUGH'}
+
+
+class OMFS_OT_ortho_stop(bpy.types.Operator):
+    """Cliquez sur l'os à la jonction ptérygo-maxillaire de ce côté : la coupe s'arrête là et descend à 90°,
+    sans prendre les plaques ptérygoïdes. Échap : annuler"""
+    bl_idname = "omfs.ortho_stop"
+    bl_label = "Stop ptérygo-maxillaire"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    side: bpy.props.EnumProperty(items=(('R', "Droit", ""), ('L', "Gauche", "")))
+
+    def invoke(self, context, event):
+        self.cut = find_cut(context.scene, 'LEFORT')
+        if self.cut is None:
+            self.report({'ERROR'}, "Tracez d'abord le trait du Le Fort I")
+            return {'CANCELLED'}
+        self.source = self.cut.omfs_ortho.source
+        self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
+            (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
+        self.area.header_text_set(f"Stop ptérygo-maxillaire {dict(STOPS)[self.side]} : cliquez sur l'os à la jonction "
+                                  "(vue de côté)   |   Échap : annuler")
+        context.window.cursor_modal_set('CROSSHAIR')
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def end(self, context):
+        self.area.header_text_set(None)
+        context.window.cursor_modal_restore()
+
+    def modal(self, context, event):
+        if event.type == 'ESC' and event.value == 'PRESS':
+            self.end(context)
+            return {'CANCELLED'}
+        if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            under = landmarks.viewport_region_under_mouse(self.area, event)
+            if under is None:
+                return {'PASS_THROUGH'}
+            hit = landmarks.object_hit(context, under[0], under[1], self.source)
+            if hit is None:
+                return {'RUNNING_MODAL'}
+            set_stop(context.scene, self.cut, self.side, hit)
+            self.end(context)
+            return {'FINISHED'}
         return {'PASS_THROUGH'}
 
 
@@ -584,7 +798,14 @@ class OMFS_OrthoCut(bpy.types.PropertyGroup):
     kind: bpy.props.StringProperty()
     source: bpy.props.PointerProperty(type=bpy.types.Object)
     direction: bpy.props.FloatVectorProperty(size=3)
-    depth: bpy.props.FloatProperty()
+    extension: bpy.props.FloatProperty(
+        name="Débord", min=0.0, soft_max=15.0, step=50, precision=1, unit='LENGTH',
+        update=lambda self, _context: rebuild_sheet(self.id_data),
+        description="Jusqu'où la surface de coupe dépasse la courbe tout autour, pour bien ouvrir la corticale")
+    extension: bpy.props.FloatProperty(
+        name="Débord", min=0.0, soft_max=15.0, step=50, precision=1, unit='LENGTH',
+        update=lambda self, _context: rebuild_sheet(self.id_data),
+        description="Jusqu'où la surface de coupe dépasse la courbe tout autour, pour bien ouvrir la corticale")
     depth_ui: bpy.props.FloatProperty(
         name="Profondeur", min=2.0, max=120.0, step=100, precision=0, unit='LENGTH',
         get=lambda self: self.depth, set=lambda self, value: set_depth(self.id_data, value),
@@ -603,7 +824,7 @@ class OMFS_OrthoScene(bpy.types.PropertyGroup):
                                         description="L'os coupé par les BSSO")
 
 
-classes = (OMFS_OrthoCut, OMFS_OrthoScene, OMFS_OT_ortho_draw, OMFS_OT_ortho_remove, OMFS_OT_ortho_separate,
+classes = (OMFS_OrthoCut, OMFS_OrthoScene, OMFS_OT_ortho_draw, OMFS_OT_ortho_stop, OMFS_OT_ortho_remove, OMFS_OT_ortho_separate,
            OMFS_OT_ortho_rejoin)
 
 

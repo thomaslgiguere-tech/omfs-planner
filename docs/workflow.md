@@ -356,14 +356,25 @@ Naming used below (matches the object roles in code):
 
 - Separate from the genioplasty plane. Panel "Ostéotomies orthognathiques" (ortho_osteotomy.py), like
   Dolphin 3D's osteotomy tool (surgeon's examples in "Photos exemples"):
-  - The surgeon clicks a few points on the bone where the cut passes, in the view that looks the way the saw
-    goes: Le Fort I from the front (a line above the apices, from one zygomatic buttress to the other); BSSO
-    from the side. Enter ends the line.
-  - The line (smooth through the points) is pushed along the view direction into a cutting sheet, shown
-    translucent yellow. Its back edge is straight, at a depth measured from the most anterior point (Le Fort I
-    65 mm by default: septum and pterygoid plates; BSSO 40 mm: through the whole ramus / retromolar bone).
-  - Each back point (blue) hangs from its front point (orange) and can be dragged on its own (G), e.g. lower
-    behind, at the pterygomaxillary junction; the sheet follows live. "Profondeur" moves them all.
+  - Le Fort I: the surgeon clicks a few points on the bone where the cut passes, from the front (the view looks
+    the way the saw goes: a line above the apices, from one zygomatic buttress to the other). Enter ends the line.
+    It runs 15 mm past its end points laterally (surgeon, 2026-11-17: nothing lateral to the maxilla can be caught
+    by accident). Points move with G; the sheet follows live.
+  - Posterior stop (surgeon, 2026-11-17, replaces the blue back points and "Profondeur"): then one click each side
+    at the pterygomaxillary junction ("Stop droit" / "Stop gauche", blue). The first plane (the line pushed along
+    the saw's direction) is kept up to the plane through the two stops; there the cut goes down at 90 degrees
+    (40 mm), so the segment comes without the pterygoid plates: a reliable posterior stop. "Séparer" is refused
+    until both stops are placed; redrawing the line keeps them. Scan 1: distal maxilla 19.6 cm3 (20.5 with the
+    old 65 mm depth, which brought pterygoid bone along), 3.6 s.
+  - BSSO, closed curve (surgeon, 2026-11-17: the pushed line did not work for the sagittal split). Click points on
+    the mandible all round the split surface (medial cut above the lingula, anterior border, buccal cut down to
+    the lower border, lower and posterior borders), turning the view between clicks. A smooth curve passes through
+    them and closes on itself, live; the surface it bounds (a membrane, like a soap film on the wire) is the curved
+    cut through the bone, pushed past the curve all round by the "Débord" (4 mm by default, adjustable) so it opens
+    the cortex. Points move with G; Backspace removes the last one while drawing. The course of the cut inside the
+    bone is not critical to the outcome (surgeon): it only has to separate the segments, quickly; the Spix region
+    may look awkward. Where the curve dips into the bone (a concavity), a bridge remains: the warning says so.
+    Scan 1 (closed curve right round each ramus above the teeth): body 39.1, proximal 5.5 and 5.9 cm3, 0.6 s.
   - "Séparer les segments": a copy of the bone minus the sheets (0.5 mm saw kerf) splits into the distal
     segment (Le Fort I maxilla; mandibular body, green, unlocked) and the proximal parts (skull; ramus +
     condyle each side, locked). Bones already apart in the segmentation (vertebrae) stay with the fixed part.

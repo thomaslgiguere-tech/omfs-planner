@@ -15,8 +15,17 @@ def draw_cut(layout, context, kind, label):
     if cut is not None:
         row.operator("omfs.ortho_remove", text="", icon='X').kind = kind
         col = layout.column(align=True)
-        col.prop(cut.omfs_ortho, "depth_ui")
-        col.label(text=f"{len(ortho.front_points(cut))} points (orange) · points arrière (bleus) déplaçables", icon='BLANK1')
+        if ortho.is_closed(cut):
+            col.prop(cut.omfs_ortho, "extension")
+            col.label(text=f"Courbe fermée, {len(ortho.front_points(cut))} points (G pour déplacer)", icon='BLANK1')
+        else:
+            col.label(text=f"{len(ortho.front_points(cut))} points (orange, G pour déplacer)", icon='BLANK1')
+            col.label(text="Stops postérieurs (jonction ptérygo-maxillaire) :")
+            row = col.row(align=True)
+            for side, name in ortho.STOPS:
+                placed = ortho.stop_point(cut, side) is not None
+                row.operator("omfs.ortho_stop", text=f"{'Replacer' if placed else 'Stop'} {name}",
+                             icon='CHECKMARK' if placed else 'ADD').side = side
 
 
 class OMFS_PT_ortho_osteotomy(bpy.types.Panel):
@@ -35,9 +44,11 @@ class OMFS_PT_ortho_osteotomy(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
-        draw_text(layout, context, "Cliquez des points sur l'os où passe la coupe, dans la vue qui regarde dans le sens "
-                                   "de la scie (Le Fort: de face; BSSO: de côté), puis Entrée. Ajustez les points arrière "
-                                   "(bleus, G pour déplacer) pour placer la coupe à distance.")
+        draw_text(layout, context, "Le Fort : cliquez des points sur l'os où passe la coupe, de face, puis Entrée ; "
+                                   "puis un clic de chaque côté à la jonction ptérygo-maxillaire (stops bleus) : la "
+                                   "coupe s'y arrête et descend à 90°. BSSO : "
+                                   "cliquez tout autour de la surface de clivage en tournant la vue ; la courbe se "
+                                   "referme et l'intérieur devient la coupe, prolongée du « Débord ».")
         for which, label, kinds in (('MAXILLA', "Maxillaire", (('LEFORT', "Le Fort I"),)),
                                     ('MANDIBLE', "Mandibule", (('BSSO_R', "BSSO droite"), ('BSSO_L', "BSSO gauche")))):
             box = layout.box()
@@ -50,7 +61,8 @@ class OMFS_PT_ortho_osteotomy(bpy.types.Panel):
                 draw_cut(box, context, kind, text)
             pieces = ortho.pieces_of(scene, source) if source is not None else []
             row = box.row(align=True)
-            row.enabled = source is not None and bool(ortho.cuts(scene, source))
+            row.enabled = source is not None and bool(ortho.cuts(scene, source)) and all(
+                ortho.is_closed(c) or ortho.stops_ready(c) for c in ortho.cuts(scene, source))
             row.operator("omfs.ortho_separate", icon='MOD_BOOLEAN').which = which
             if pieces:
                 row.operator("omfs.ortho_rejoin", icon='LOOP_BACK').which = which
