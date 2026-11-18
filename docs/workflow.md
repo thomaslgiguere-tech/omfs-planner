@@ -358,23 +358,25 @@ Naming used below (matches the object roles in code):
   Dolphin 3D's osteotomy tool (surgeon's examples in "Photos exemples"):
   - Le Fort I: the surgeon clicks a few points on the bone where the cut passes, from the front (the view looks
     the way the saw goes: a line above the apices, from one zygomatic buttress to the other). Enter ends the line.
-    It runs 15 mm past its end points laterally (surgeon, 2026-11-17: nothing lateral to the maxilla can be caught
-    by accident). Points move with G; the sheet follows live.
+    It runs 30 mm past its end points laterally (surgeon, 2026-11-17: nothing lateral to the maxilla can be caught
+    by accident; the buttress / zygoma often runs past the last point) and starts 15 mm in front of the line (the
+    nasal spine sticks out). Points move with G; the sheet follows live.
   - Posterior stop (surgeon, 2026-11-17, replaces the blue back points and "Profondeur"): then one click each side
     at the pterygomaxillary junction ("Stop droit" / "Stop gauche", blue). The first plane (the line pushed along
     the saw's direction) is kept up to the plane through the two stops; there the cut goes down at 90 degrees
     (40 mm), so the segment comes without the pterygoid plates: a reliable posterior stop. "Séparer" is refused
     until both stops are placed; redrawing the line keeps them. Scan 1: distal maxilla 19.6 cm3 (20.5 with the
     old 65 mm depth, which brought pterygoid bone along), 3.6 s.
-  - BSSO, closed curve (surgeon, 2026-11-17: the pushed line did not work for the sagittal split). Click points on
-    the mandible all round the split surface (medial cut above the lingula, anterior border, buccal cut down to
-    the lower border, lower and posterior borders), turning the view between clicks. A smooth curve passes through
-    them and closes on itself, live; the surface it bounds (a membrane, like a soap film on the wire) is the curved
-    cut through the bone, pushed past the curve all round by the "Débord" (4 mm by default, adjustable) so it opens
-    the cortex. Points move with G; Backspace removes the last one while drawing. The course of the cut inside the
-    bone is not critical to the outcome (surgeon): it only has to separate the segments, quickly; the Spix region
-    may look awkward. Where the curve dips into the bone (a concavity), a bridge remains: the warning says so.
-    Scan 1 (closed curve right round each ramus above the teeth): body 39.1, proximal 5.5 and 5.9 cm3, 0.6 s.
+  - BSSO (surgeon, 2026-11-17, second version; the closed curve was dropped). Side view: two blue clicks on the
+    buccal cortex set the anterior vertical cut. A first plane goes from 10 mm outside the bone into it along the
+    view, over the whole height of the bone, and stops automatically at the nerve canal's depth (the NERVE object:
+    the first canal met going in, within 3 mm of the cut's plane; 6 mm if none, flagged in the panel): the buccal
+    cortex only. Then orange clicks posteriorly: the cut turns at the canal (an acute angle to start with) and follows
+    a smooth curve through them, keeping the same vertical direction, 6 mm past the last one so it exits the lingual
+    cortex. At each point it spans the bone there + 5 mm above and below. Points move with G. Exact course not
+    critical (surgeon): it must separate the segments, quickly. Scan 1 (blue points between the first and second
+    molars, two orange points back into the ramus and out of its medial face): canal at 10.0 / 8.6 mm, body 24.4,
+    proximal 13.5 and 12.1 cm3, 0.8 s.
   - "Séparer les segments": a copy of the bone minus the sheets (0.5 mm saw kerf) splits into the distal
     segment (Le Fort I maxilla; mandibular body, green, unlocked) and the proximal parts (skull; ramus +
     condyle each side, locked). Bones already apart in the segmentation (vertebrae) stay with the fixed part.

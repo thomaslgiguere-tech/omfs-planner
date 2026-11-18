@@ -67,8 +67,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
                              in Blender's config folder)
   print_ui.py                "Imprimer" panel (OMFS tab) and the "Impression" tab of the print scene
   ortho_osteotomy.py         Le Fort I and mandibular (BSSO) cuts: Le Fort, clicked points pushed into a cutting sheet
-                             along the view up to two pterygomaxillary stops, then down at 90°; BSSO, a closed curve through
-                             clicked points, its membrane (+ overhang) the cut; then the bone (a copy) split into
+                             along the view up to two pterygomaxillary stops, then down at 90°; BSSO, a buccal vertical cut
+                             (2 clicks) down to the nerve canal, then a curve (clicks) to the lingual cortex; then the bone (a copy) split into
                              distal / proximal segments; separate from the genioplasty plane (osteotomy.py)
   ortho_ui.py                "Ostéotomies orthognathiques" panel (OMFS tab)
   volume_scene.py            Segmentation workspace: a DentalSeg .nrrd (drag and drop) -> one live surface per

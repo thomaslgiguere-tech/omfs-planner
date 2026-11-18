@@ -233,14 +233,18 @@ VOL_UPDATE_DELAY = 0.3          # s without touching a setting before the surfac
 VOL_EXPECTED_PIECES = {"Maxillaire": 1, "Mandibule": 1, "Canal mandibulaire": 2}   # more than this: a warning
 
 # Orthognathic osteotomies (ortho_osteotomy.py): Le Fort I and mandibular (BSSO) cut lines, then separation
+ORTHO_LEFORT_SPACING = 1.5      # mm between the grid lines of the Le Fort I cut surface
 ORTHO_PTM_DROP = 40.0           # mm the Le Fort I's posterior stop goes down from the cut plane (past the tuberosities)
-ORTHO_MARGIN = 3.0              # mm the cut starts in front of the clicked surface (so it opens the cortex)
-ORTHO_END_EXTENSION = 4.0       # mm the cut runs past its first and last points (so it exits the bone)
-ORTHO_END_EXTENSION_LEFORT = 15.0   # mm, Le Fort I: wider laterally from the start (nothing lateral to spare there)
-ORTHO_LOOP_EXTENSION = 4.0      # mm a closed-curve cut (BSSO) reaches past its curve, so it opens the cortex all round
-ORTHO_LOOP_SPACING = 1.5        # mm between samples of the closed curve
-ORTHO_LOOP_RINGS = 12           # rings of the membrane inside the closed curve
-ORTHO_LOOP_ITERATIONS = 600     # relaxation steps of the membrane (harmonic surface spanning the curve)
+ORTHO_MARGIN = 15.0             # mm the Le Fort I surface starts in front of the clicked line (the nasal spine sticks out)
+ORTHO_END_EXTENSION_LEFORT = 30.0   # mm, Le Fort I: wide laterally (the buttress / zygoma runs past the last point)
+ORTHO_BSSO_OUTSIDE = 10.0       # mm the BSSO's buccal vertical cut starts outside the bone (towards the surgeon)
+ORTHO_BSSO_NERVE_BAND = 3.0     # mm: nerve canal vertices this close to the buccal cut's plane set its depth
+ORTHO_BSSO_CANAL = 4.0          # mm: the canal's width (its vertices this far beyond the nearest one belong to it)
+ORTHO_BSSO_DEFAULT_DEPTH = 6.0  # mm: depth of the buccal cut when no nerve canal is found there
+ORTHO_BSSO_EXIT = 6.0           # mm the split runs past its last point (so it exits the lingual cortex)
+ORTHO_BSSO_HEIGHT_RADIUS = 4.0  # mm: the bone this close to each point of the split sets its height there
+ORTHO_BSSO_HEIGHT_MARGIN = 5.0  # mm the split reaches above and below the bone
+ORTHO_BSSO_SPACING = 1.5        # mm between samples of the split's path
 ORTHO_KERF = 0.5                # mm: thickness of the simulated saw cut
 ORTHO_SMOOTH_STEPS = 6          # samples per segment of the smooth line through the clicked points
 ORTHO_MIN_PIECE = 500.0         # mm3: smaller pieces left by the cut (chips) join the nearest large piece

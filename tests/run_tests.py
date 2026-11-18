@@ -2827,8 +2827,21 @@ def test_ortho_osteotomies():
     assert abs(vd - expected) < 300, (vd, expected, cd)
     assert vp > 60 * 50 * 24 and cd[2] < -10, "behind the stop (pterygoids) and the vertebra stay with the fixed part"
     assert maxilla.hide_get() and len(maxilla.data.polygons) == faces_before, "source hidden, never changed"
+    cut = ortho_osteotomy.find_cut(scene, 'LEFORT')
+    assert cut.hide_get() and all(p.hide_get() for p in cut.children), "separated: the cut and its points hidden"
     bpy.ops.omfs.ortho_rejoin(which='MAXILLA')
     assert not ortho_osteotomy.pieces_of(scene, maxilla) and not maxilla.hide_get()
+    assert not cut.hide_get() and not any(p.hide_get() for p in cut.children), "rejoined: shown again to adjust"
+
+    # a line clicked round the front and back along the lateral walls, past the stops: still one clean cut
+    # (the surface goes through the line but covers the whole width, up to the stops; it never folds back)
+    around = [Vector(p) for p in ((-30, 22, -5), (-30, 0, -5), (-28, -25, -5), (0, -25, -5), (28, -25, -5),
+                                  (30, 0, -5), (30, 22, -5))]
+    cut = ortho_osteotomy.make_cut(scene, 'LEFORT', maxilla, around, Vector((0, 1, 0)))
+    assert max(v.co.y for v in cut.data.vertices) < 15.0 + 1e-4, "never past the stops"
+    pieces, warning = ortho_osteotomy.separate(bpy.context, maxilla)
+    assert warning is None and abs(ortho_osteotomy.mesh_volume(pieces[0].data)[0] - expected) < 300, warning
+    ortho_osteotomy.rejoin(scene, maxilla)
 
     # stops in front of the bone's back but the line too short laterally: the cut stops inside, and says so
     short = ortho_osteotomy.make_cut(scene, 'LEFORT', maxilla, [Vector((x, -25.0, -5.0)) for x in (-5, 5)], Vector((0, 1, 0)))
@@ -2840,24 +2853,25 @@ def test_ortho_osteotomies():
     ortho_osteotomy.rejoin(scene, maxilla)
 
     mandible = dense_box("Mandibule", 'BONE', (0, 0, -60), (100, 14, 24))              # a bar across, y -7..7, z -72..-48
-    ring = [(-7, -50), (-7, -60), (-7, -70), (0, -71.5), (7, -70), (7, -60), (7, -50), (0, -48.5)]   # on its faces
-    for kind, x in (('BSSO_R', -30.0), ('BSSO_L', 30.0)):
-        cut = ortho_osteotomy.make_loop(scene, kind, mandible)                         # clicked one by one, live
-        for y, z in ring[:2]:
-            ortho_osteotomy.add_loop_point(scene, cut, Vector((x, y, z)))
-        assert len(cut.data.polygons) == 0 and len(cut.data.edges) == 1, "two points: the first segment only"
-        ortho_osteotomy.add_loop_point(scene, cut, Vector((x, 5, -40)))              # a wrong click...
-        ortho_osteotomy.remove_last_point(cut)                                          # ...Backspace
-        for y, z in ring[2:]:
-            ortho_osteotomy.add_loop_point(scene, cut, Vector((x, y, z)))
-        assert len(ortho_osteotomy.front_points(cut)) == 8 and len(cut.data.polygons) > 100
+    canal = dense_box("Canal mandibulaire", 'NERVE', (0, 0, -62), (100, 2, 2))      # the nerve, mid-thickness (y = 0)
+    bpy.context.view_layer.update()
+    for kind, sign in (('BSSO_R', -1.0), ('BSSO_L', 1.0)):
+        cut = ortho_osteotomy.make_split(scene, kind, mandible)                       # clicked one by one, live
+        for z in (-50.0, -70.0):                                                      # blue: buccal face (y = -7)
+            ortho_osteotomy.add_split_point(scene, cut, Vector((sign * 25, -7.0, z)), Vector((0, 1, 0)))
+        props = cut.omfs_ortho
+        assert props.nerve_found and abs(props.nerve_depth - 7.0) < 0.3, (props.nerve_found, props.nerve_depth)
         verts = np.array([v.co for v in cut.data.vertices])
-        assert np.abs(verts[:, 0] - x).max() < 1e-3, "a flat curve: a flat membrane, no folds out of its plane"
-        assert verts[:, 2].max() > -48 + 2 and verts[:, 2].min() < -72 - 2, "past the curve: opens the bone all round"
-    cut = ortho_osteotomy.find_cut(scene, 'BSSO_L')
-    cut.omfs_ortho.extension = 0.0
-    assert max(v.co.z for v in cut.data.vertices) < -48.0 + 0.2, "Débord 0: the surface stops at the curve"
-    cut.omfs_ortho.extension = params.ORTHO_LOOP_EXTENSION
+        assert abs(verts[:, 1].min() - (-7 - params.ORTHO_BSSO_OUTSIDE)) < 1e-3, "starts 10 mm outside the bone"
+        assert abs(verts[:, 1].max() - 0.0) < 0.3, "the buccal cut stops at the nerve"
+        assert verts[:, 2].min() < -72 - 3 and verts[:, 2].max() > -48 + 3, "the whole height of the bone"
+        ortho_osteotomy.add_split_point(scene, cut, Vector((sign * 30, 7.0, -40)))     # a wrong click...
+        ortho_osteotomy.remove_last_point(cut)                                         # ...Backspace
+        for x, y in ((35, 2.0), (42, 7.0)):                                            # orange: back, to the lingual face
+            ortho_osteotomy.add_split_point(scene, cut, Vector((sign * x, y, -60)))
+        assert len(ortho_osteotomy.vertical_points(cut)) == 2 and len(ortho_osteotomy.front_points(cut)) == 2
+        verts = np.array([v.co for v in cut.data.vertices])
+        assert verts[:, 1].max() > 7 + 2, "past the lingual cortex"
     pieces, warning = ortho_osteotomy.separate(bpy.context, mandible)
     assert warning is None, warning
     names = sorted(p.name for p in pieces)
@@ -2870,6 +2884,7 @@ def test_ortho_osteotomies():
         bpy.ops.omfs.ortho_rejoin(which=which)
     for kind in ('LEFORT', 'BSSO_R', 'BSSO_L'):
         ortho_osteotomy.remove_cut(ortho_osteotomy.find_cut(scene, kind))
+    bpy.data.objects.remove(canal)
     assert not [o for o in scene.objects if o.omfs.made_by == ortho_osteotomy.MADE_BY], "points and sheets removed"
     for obj in (maxilla, mandible):
         bpy.data.objects.remove(obj)

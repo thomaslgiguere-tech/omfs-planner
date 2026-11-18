@@ -15,9 +15,14 @@ def draw_cut(layout, context, kind, label):
     if cut is not None:
         row.operator("omfs.ortho_remove", text="", icon='X').kind = kind
         col = layout.column(align=True)
-        if ortho.is_closed(cut):
-            col.prop(cut.omfs_ortho, "extension")
-            col.label(text=f"Courbe fermée, {len(ortho.front_points(cut))} points (G pour déplacer)", icon='BLANK1')
+        if ortho.is_split(cut):
+            col.label(text=f"{len(ortho.vertical_points(cut))} points bleus (trait vertical) · "
+                           f"{len(ortho.front_points(cut))} orange (G pour déplacer)", icon='BLANK1')
+            p = cut.omfs_ortho
+            row = col.row()
+            row.alert = not p.nerve_found
+            row.label(text=f"Arrêt au nerf : {p.nerve_depth:.1f} mm" if p.nerve_found else
+                      f"Canal du nerf introuvable : {p.nerve_depth:.1f} mm par défaut", icon='CHECKMARK' if p.nerve_found else 'ERROR')
         else:
             col.label(text=f"{len(ortho.front_points(cut))} points (orange, G pour déplacer)", icon='BLANK1')
             col.label(text="Stops postérieurs (jonction ptérygo-maxillaire) :")
@@ -46,9 +51,9 @@ class OMFS_PT_ortho_osteotomy(bpy.types.Panel):
         scene = context.scene
         draw_text(layout, context, "Le Fort : cliquez des points sur l'os où passe la coupe, de face, puis Entrée ; "
                                    "puis un clic de chaque côté à la jonction ptérygo-maxillaire (stops bleus) : la "
-                                   "coupe s'y arrête et descend à 90°. BSSO : "
-                                   "cliquez tout autour de la surface de clivage en tournant la vue ; la courbe se "
-                                   "referme et l'intérieur devient la coupe, prolongée du « Débord ».")
+                                   "coupe s'y arrête et descend à 90°. BSSO : vue de côté, 2 points bleus sur la "
+                                   "corticale vestibulaire (trait vertical, jusqu'au nerf), puis des points orange "
+                                   "vers l'arrière jusqu'au cortex lingual.")
         for which, label, kinds in (('MAXILLA', "Maxillaire", (('LEFORT', "Le Fort I"),)),
                                     ('MANDIBLE', "Mandibule", (('BSSO_R', "BSSO droite"), ('BSSO_L', "BSSO gauche")))):
             box = layout.box()
@@ -62,7 +67,7 @@ class OMFS_PT_ortho_osteotomy(bpy.types.Panel):
             pieces = ortho.pieces_of(scene, source) if source is not None else []
             row = box.row(align=True)
             row.enabled = source is not None and bool(ortho.cuts(scene, source)) and all(
-                ortho.is_closed(c) or ortho.stops_ready(c) for c in ortho.cuts(scene, source))
+                ortho.is_split(c) or ortho.stops_ready(c) for c in ortho.cuts(scene, source))
             row.operator("omfs.ortho_separate", icon='MOD_BOOLEAN').which = which
             if pieces:
                 row.operator("omfs.ortho_rejoin", icon='LOOP_BACK').which = which
