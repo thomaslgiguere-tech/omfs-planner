@@ -53,7 +53,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   section_contours.py        live section contours, caps, overlap on the section
   analysis.py                exact intersection volume (Boolean overlay, live or snapshot)
   distance_map.py            distance map (Geometry Nodes modifier), closest-point marker
-  snapshot.py                section caption + scale bar, PNG snapshot (offscreen render)
+  snapshot.py                section caption + scale bar, PNG snapshot of the view, section on or off (offscreen render)
+  measure.py                 point-to-point measurements (click-drag), drawn in the view and the snapshot
   print_scene.py             Impression workspace: print scene (copies on a virtual build plate), bearing
                              faces -> no-support slabs, live supports, raft, checks, export .goo, test piece
   print_chain.py             the external tools behind it: 3MF, PrusaSlicer (supports, slicing), layers ->

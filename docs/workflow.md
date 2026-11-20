@@ -810,6 +810,14 @@ responsive with CT meshes of several hundred thousand triangles.
    offscreen at its on-screen size, without Blender's interface, grid or 3D cursor. A folder
    inside the git repository is refused. File name:
    `section_<plane>_<position>mm_<thickness>mm_<date-time>.png`.
+   Also with the section tool off (surgeon, 2026-11-18): a plain screenshot of the scene,
+   `vue_<date-time>.png`, with the scale bar in an orthographic view, the measurements and the points.
+6. Measurements *(done, 2026-11-18)*, with the section tool on or off: "Mesurer", then click a point
+   on a surface and drag to the second (or click, release, click the second). The absolute 3D
+   distance in mm is drawn on a yellow line between the two points, live while dragging, and stays
+   (list in the panel, delete one or all, show / hide). Always drawn on top of the anatomy, and in the
+   snapshot. Several measurements in a row; Esc ends. With the slab on, the hidden part can't be
+   picked. Fixed points in space: they don't follow an object moved afterwards.
 
 ## Open questions
 

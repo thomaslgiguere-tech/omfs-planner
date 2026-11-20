@@ -32,6 +32,8 @@ def setup_viewport(space):
     shading.show_specular_highlight = True
     shading.show_backface_culling = False   # see the inside of cut or open meshes
     space.overlay.show_relationship_lines = False   # no dotted lines from a point to the point it hangs from
+    for axis in ("x", "y", "z"):                     # no red / green lines at the file coordinates' origin
+        setattr(space.overlay, f"show_axis_{axis}", False)
 
 
 def view3d_areas(context):

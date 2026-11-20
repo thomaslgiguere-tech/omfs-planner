@@ -240,3 +240,9 @@ ORTHO_MIN_PIECE = 500.0         # mm3: smaller pieces left by the cut (chips) jo
 # Points shown as solid balls (point_balls.py): landmarks, splint coverage points, osteotomy line points
 POINT_BALL_COLOUR = (0.15, 0.85, 0.30, 1.0)   # green
 POINT_BALL_MIN_RADIUS = 1.2     # mm: a ball is never smaller than this, whatever the point's own size
+
+# Measurements (Section & Analysis, measure.py)
+MEASURE_COLOUR = (1.0, 0.85, 0.1, 1.0)   # yellow line, end points and label
+MEASURE_LINE_WIDTH = 2.5                 # px
+MEASURE_POINT_SIZE = 9.0                 # px, end points
+MEASURE_DRAG_PX = 6                      # px: shorter mouse travel = a click (then click the second point)

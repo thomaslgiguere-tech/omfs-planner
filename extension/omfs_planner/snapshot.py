@@ -1,4 +1,4 @@
-"""Section & Analysis: caption, scale bar and PNG snapshot of the section view.
+"""Section & Analysis: caption, scale bar and PNG snapshot of the view (with or without the section).
 
 While the section tool is on, a caption (plane, position, slab thickness) and, in an orthographic
 view, a scale bar are drawn in the corner of the viewport, like the legend of a radiograph.
@@ -6,7 +6,8 @@ Save Snapshot draws the viewport again into an offscreen buffer (GPUOffScreen): 
 viewport shows it, slab clipping included, without Blender's interface (toolbar, sidebar, view
 name, gizmos). Our own layers (contours, caps, overlap, distance marker, caption) are drawn on
 top with the same view matrices, and the pixels are written as a PNG to a folder chosen outside
-the repository (patient images must never land in git).
+the repository (patient images must never land in git). The snapshot also works with the section
+tool off: the plain view, its scale bar (orthographic view), measurements and points.
 """
 
 import time
@@ -20,7 +21,7 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 
-from . import distance_map, reference_frame, section, section_contours
+from . import distance_map, measure, point_balls, reference_frame, section, section_contours
 
 NICE_LENGTHS = (0.5, 1, 2, 5, 10, 20, 50, 100)   # mm
 BAR_TARGET_PX = 120
@@ -84,7 +85,8 @@ def _draw_caption():
     context = bpy.context
     scene = context.scene
     props = scene.omfs_section
-    if section.active_plane(scene) is None or not (props.show_caption or _snapshotting):
+    sectioned = section.active_plane(scene) is not None
+    if not (_snapshotting or (sectioned and props.show_caption)):
         return
     region, rv3d = context.region, context.region_data
     left = 0 if _snapshotting else visible_rect(context.area, region)[0]   # a snapshot has no toolbar
@@ -110,11 +112,11 @@ def _draw_caption():
         blf.position(font, x + length + 8 * scale, y - 5 * scale, 0)
         blf.draw(font, f"{mm:g} mm")
         y += 18 * scale
-    else:
+    elif sectioned:
         blf.position(font, x, y, 0)
         blf.draw(font, "Perspective: no scale (Align View for a true-scale view)")
         y += 22 * scale
-    for line in reversed(caption(scene)):
+    for line in reversed(caption(scene) if sectioned else []):
         blf.position(font, x, y, 0)
         blf.draw(font, line)
         y += 20 * scale
@@ -149,6 +151,8 @@ def folder_problem(folder):
 
 def snapshot_name(scene):
     props = scene.omfs_section
+    if section.active_plane(scene) is None:
+        return f"vue_{time.strftime('%Y%m%d-%H%M%S')}.png"
     kind = props.orientation.lower()
     return f"section_{kind}_{props.offset:+.1f}mm_{props.thickness:.1f}mm_{time.strftime('%Y%m%d-%H%M%S')}.png"
 
@@ -173,10 +177,13 @@ def render_view(context, area, region):
                 gpu.matrix.load_projection_matrix(rv3d.window_matrix)
                 section_contours._draw_contours()
                 distance_map._draw_marker_3d()
+                point_balls._draw()
+                measure._draw_3d()
             with gpu.matrix.push_pop(), gpu.matrix.push_pop_projection():
                 gpu.matrix.load_matrix(Matrix.Identity(4))
                 gpu.matrix.load_projection_matrix(pixel_projection(width, height))
                 distance_map._draw_marker_label()
+                measure._draw_labels()
                 _draw_caption()
         buffer = offscreen.texture_color.read()
         buffer.dimensions = width * height * 4
@@ -197,7 +204,8 @@ def save_png(pixels, target):
 
 
 class OMFS_OT_section_snapshot(bpy.types.Operator):
-    """Save the section view as a PNG (caption and scale bar included) in the chosen folder"""
+    """Save the view as a PNG in the chosen folder: section caption and scale bar, measurements and
+    points included. Works with the section tool on or off"""
     bl_idname = "omfs.section_snapshot"
     bl_label = "Save Snapshot"
 

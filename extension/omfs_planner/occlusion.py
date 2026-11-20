@@ -138,6 +138,7 @@ def ensure_block(scene, arch_id, arch):
     block.matrix_world = matrix
     block.omfs_occl.preop = matrix
     block.lock_scale = (True,) * 3    # rigid only: move and rotate, never scale
+    block.hide_set(True)              # its X / Y / Z arrows only show once "Sélectionner le bloc" is clicked
     return block
 
 

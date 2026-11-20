@@ -24,7 +24,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import occlusion_prepare  # noqa: E402
+from omfs_planner import measure, occlusion_prepare  # noqa: E402
 from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy  # noqa: E402
 
 omfs_planner.register()
@@ -596,6 +596,7 @@ def test_occlusion_blocks_are_rigid():
     props.upper, props.lower = upper, lower
     block = occlusion.find_block(scene, 'LOWER')
     assert lower.parent is block and upper.parent is occlusion.find_block(scene, 'UPPER')
+    assert block.hide_get(), "block arrows hidden until 'Sélectionner le bloc'"
     props.pick_lower = bone                                # picker adds, then clears itself
     assert bone.parent is block and props.pick_lower is None
     bpy.context.view_layer.update()
@@ -1174,6 +1175,31 @@ def test_distance_map():
         bpy.data.objects.remove(obj)
 
 
+def test_measurements():
+    from types import SimpleNamespace as NS
+    scene = bpy.context.scene
+    scene.omfs_measures.clear()
+    m = measure.add(scene, Vector((0, 0, 0)), Vector((3, 4, 12)))
+    assert abs(measure.distance(m) - 13.0) < 1e-6, "absolute 3D distance in mm"
+    measure.add(scene, Vector((1, 1, 1)), Vector((1, 1, 2)))
+    assert len(measure.segments(scene)) == 2
+    scene.omfs_measure_show = False
+    assert measure.segments(scene) == [], "hidden"
+    scene.omfs_measure_show = True
+    assert bpy.ops.omfs.delete_measure(index=0) == {'FINISHED'}
+    assert len(scene.omfs_measures) == 1 and abs(measure.distance(scene.omfs_measures[0]) - 1.0) < 1e-6
+    assert bpy.ops.omfs.delete_measure() == {'FINISHED'} and len(scene.omfs_measures) == 0, "all deleted"
+    # The slab hides z > 5: a point there can't be picked (kept when n . p + d >= 0).
+    rv3d = NS(use_clip_planes=True, clip_planes=[(0, 0, -1, 5)])
+    assert measure.clipped(rv3d, Vector((0, 0, 6))) and not measure.clipped(rv3d, Vector((0, 0, 4)))
+    assert not measure.clipped(NS(use_clip_planes=False, clip_planes=[]), Vector((0, 0, 6)))
+    # Snapshot without the section tool: a plain view name.
+    enabled = scene.omfs_section.enabled
+    scene.omfs_section.enabled = False
+    assert snapshot.snapshot_name(scene).startswith("vue_")
+    scene.omfs_section.enabled = enabled
+
+
 def test_snapshot_helpers():
     from types import SimpleNamespace as NS
     assert snapshot.bar_length(12.0) == 10, "10 mm bar at 12 px/mm (120 px)"
@@ -1184,7 +1210,10 @@ def test_snapshot_helpers():
         assert snapshot.folder_problem(folder) is None
         scene = bpy.context.scene
         scene.omfs_section.orientation, scene.omfs_section.offset = 'CORONAL', -12.34
+        enabled = scene.omfs_section.enabled
+        scene.omfs_section.enabled = True
         name = snapshot.snapshot_name(scene)
+        scene.omfs_section.enabled = enabled
         assert name.startswith("section_coronal_-12.3mm_") and name.endswith(".png"), name
 
         # Visible part of a 100 x 60 viewport: sidebar over the right 30 px, header over the top 10 px.

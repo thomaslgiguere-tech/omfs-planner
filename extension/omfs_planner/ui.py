@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, screws, locking, movement, occlusion, occlusion_prepare, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
+from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, measure, model_base, screws, locking, movement, occlusion, occlusion_prepare, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -133,14 +133,28 @@ class OMFS_PT_section(bpy.types.Panel):
             if not pairs:
                 col.label(text="No overlap on the section", icon='CHECKMARK')
 
+        box = layout.box()   # measurements and snapshot also work with the section off
+        row = box.row(align=True)
+        row.label(text="Mesures", icon='DRIVER_DISTANCE')
+        if scene.omfs_measures:
+            row.prop(scene, "omfs_measure_show", text="", icon='HIDE_OFF' if scene.omfs_measure_show else 'HIDE_ON')
+            row.operator("omfs.delete_measure", text="", icon='TRASH').index = -1
+        box.operator("omfs.measure", text="Mesurer (cliquer-glisser)", icon='DRIVER_DISTANCE')
+        col = box.column(align=True)
+        for i, m in enumerate(scene.omfs_measures):
+            row = col.row(align=True)
+            row.label(text=f"{i + 1}.  {measure.distance(m):.2f} mm")
+            row.operator("omfs.delete_measure", text="", icon='X').index = i
+
         box = layout.box()
-        box.active = props.enabled
         box.label(text="Snapshot", icon='IMAGE_DATA')
-        box.prop(props, "show_caption", toggle=True, icon='FONT_DATA')
+        sub = box.row()
+        sub.active = props.enabled
+        sub.prop(props, "show_caption", toggle=True, icon='FONT_DATA')
         box.prop(props, "snapshot_dir", text="")
         problem = snapshot.folder_problem(props.snapshot_dir)
         row = box.row()
-        row.enabled = problem is None and props.enabled
+        row.enabled = problem is None
         row.operator("omfs.section_snapshot", icon='RENDER_STILL')
         if problem and props.snapshot_dir:
             warn = box.column()
