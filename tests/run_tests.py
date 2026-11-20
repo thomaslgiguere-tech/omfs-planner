@@ -24,6 +24,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
+from omfs_planner import occlusion_prepare  # noqa: E402
 from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy  # noqa: E402
 
 omfs_planner.register()
@@ -314,6 +315,70 @@ def test_freeze_teeth_position():
     icons = {i.identifier for i in bpy.types.UILayout.bl_rna.functions["prop"].parameters["icon"].enum_items}
     assert 'FREEZE' in icons
     for obj in (point, ghost, upper, lower_unfrozen, scan):
+        bpy.data.objects.remove(obj)
+
+
+def test_prepare_arches_isolate_and_clean_borders():
+    """First step of the occlusion seating: only the two arches visible, ragged borders cleaned, still open."""
+    scene = bpy.context.scene
+
+    def ragged_arch(name, z):
+        bm = bmesh.new()
+        bmesh.ops.create_grid(bm, x_segments=60, y_segments=30, size=15.0)
+        for v in bm.verts:                                   # wavy border, like a scan's
+            if v.is_boundary:
+                v.co.x += 0.2 * ((v.index * 7919) % 5 - 2) / 2
+        a, b = bm.verts.new((40, 0, 0)), bm.verts.new((40.5, 0, 0))   # crumb: one loose triangle
+        bm.faces.new((a, b, bm.verts.new((40, 0.5, 0))))
+        edge = [v for v in bm.verts if v.is_boundary and abs(v.co.y + 15) < 1e-4][:2]
+        bm.faces.new((edge[0], edge[1], bm.verts.new((edge[0].co.x, -16.5, 0))))   # spike on the border
+        mesh = bpy.data.meshes.new(name)
+        bm.to_mesh(mesh)
+        bm.free()
+        obj = bpy.data.objects.new(name, mesh)
+        scene.collection.objects.link(obj)
+        obj.omfs.role = 'SCAN'
+        obj.location.z = z
+        return obj
+
+    upper, lower = ragged_arch("Prep upper", 600), ragged_arch("Prep lower", 590)
+    other = bpy.data.objects.new("Prep other", None)
+    scene.collection.objects.link(other)
+    already_hidden = bpy.data.objects.new("Prep hidden", None)
+    scene.collection.objects.link(already_hidden)
+    already_hidden.hide_set(True)
+    props = scene.omfs_occlusion
+    props.upper, props.lower = upper, lower
+    centre = {i: v.co.copy() for i, v in enumerate(upper.data.vertices) if abs(v.co.x) < 5 and abs(v.co.y) < 5}
+    before = len(upper.data.vertices)
+    original = upper.data
+
+    assert bpy.ops.omfs.prepare_arches() == {'FINISHED'}
+    layer = bpy.context.view_layer
+    assert upper.visible_get() and lower.visible_get()
+    assert not other.visible_get(), "everything else is hidden"
+    assert all(not o.visible_get(view_layer=layer) for o in scene.objects if o not in (upper, lower))
+    mesh = upper.data
+    assert mesh is not original and upper.omfs_untrimmed is original, "original borders kept"
+    assert len(mesh.vertices) < before
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    assert any(e.is_boundary for e in bm.edges), "the scan stays open"
+    assert not any(occlusion_prepare._is_spike(f, radians(params.OCC_TRIM_SPIKE_ANGLE)) for f in bm.faces), "no spike"
+    assert any(sum(e.is_boundary for e in f.edges) == 2 for f in bm.faces), "square corners are not spikes"
+    assert len(occlusion_prepare._islands(bm)) == 1, "crumb removed"
+    assert max(abs(v.co.y) for v in bm.verts) < 15.0 - params.OCC_TRIM_BAND + 0.6, "band removed at the border"
+    bm.free()
+    kept = {tuple(round(c, 5) for c in v.co) for v in mesh.vertices}
+    assert all(tuple(round(c, 5) for c in co) in kept for co in centre.values()), "inside never moved"
+
+    assert bpy.ops.omfs.show_hidden() == {'FINISHED'}
+    assert other.visible_get() and not already_hidden.visible_get(), "exactly what was visible comes back"
+    assert bpy.ops.omfs.restore_borders() == {'FINISHED'}
+    assert upper.data is original and len(upper.data.vertices) == before and upper.omfs_untrimmed is None
+    assert upper.data.name == "Prep upper"
+    props.upper = props.lower = None
+    for obj in (upper, lower, other, already_hidden):
         bpy.data.objects.remove(obj)
 
 

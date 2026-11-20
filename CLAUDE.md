@@ -29,6 +29,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   movement.py                segment movement (Step 5): 6 DOF on the osteotomy plane or frame axes
   movement_gizmos.py         drag arrows / rings for the segment movement, on the movement axes
   occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
+  occlusion_prepare.py       seating's first step: hide everything but the two arch scans, clean their open
+                             borders (band, spikes, crumbs; still open, original mesh kept)
   occlusion_seating.py       springs between the arches, seating solver (upper onto the fixed lower), overlap map
   splint.py                  Object creator: Splint (coverage points -> two surfaces, automatic round outline) /
                              Chape (arch curve); blank, imprints, solid, text

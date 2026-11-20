@@ -72,6 +72,9 @@ BONE_REST_CUT_MARGIN = 1.0      # mm: the rest's whole footprint stays this far 
 BONE_REST_GRID = 0.25           # mm between the rays that fit the rest's foot to the bone surface
 
 # Occlusion seating (virtual, lower arch onto the fixed upper arch)
+OCC_TRIM_BAND = 1.0              # mm removed along the open border of each arch scan (first step of the seating)
+OCC_TRIM_SPIKE_ANGLE = 60.0      # degrees: a border tip sharper than this is a spike, removed
+OCC_TRIM_MIN_ISLAND = 2.0        # %: loose pieces smaller than this share of the arch area are removed
 OCC_TOLERATED_ANTERIOR = 0.0     # mm: overlap limit canine to canine (grinding there is avoided)
 OCC_TOLERATED_POSTERIOR = 0.2    # mm: overlap limit on the premolars and molars (less is better)
 OCC_CANINE_ZONE_MARGIN = 3.5     # mm behind the upper canine tip: the distal slope of the canine stays anterior

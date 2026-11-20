@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, screws, locking, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
+from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, model_base, screws, locking, movement, occlusion, occlusion_prepare, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -505,6 +505,13 @@ class OMFS_PT_occlusion(bpy.types.Panel):
         col.prop(props, "upper")
         col.prop(props, "lower")
         if props.upper is not None and props.lower is not None:
+            col = box.column(align=True)
+            col.operator("omfs.prepare_arches", icon='MOD_EDGESPLIT')
+            row = col.row(align=True)
+            if occlusion_prepare.is_isolated(context.scene):
+                row.operator("omfs.show_hidden", icon='HIDE_OFF')
+            if any(a.omfs_untrimmed is not None for a in occlusion_prepare.arches(context.scene)):
+                row.operator("omfs.restore_borders", icon='LOOP_BACK')
             self.draw_preposition(context, layout.box(), props)
         if occlusion_seating.arches_ready(context.scene):
             self.draw_seating(context, layout.box(), props)

@@ -403,10 +403,20 @@ Naming used below (matches the object roles in code):
   mandibular osteotomy such as BSSO). Without them, "bone that moves with the arch" can only be whole
   bones: the whole skull would follow the upper arch, and the condyles would follow the lower arch.
 - Absolute constraint: the scans (and any CBCT mesh moving with them) are moved, never modified.
-  Rigid displacement only; a shape check proves the mesh data is unchanged.
+  Rigid displacement only; a shape check proves the mesh data is unchanged. Two deliberate,
+  user-clicked exceptions on the scans only: "Canner la position dentaire initiale" (Step 2: rigid
+  pose baked in, shape unchanged) and the border cleaning below (original borders kept).
 - Typical bimaxillary order (surgeon, 2026-11-18): register each arch scan on the CBCT teeth, "Canner
   la position dentaire initiale", then this tab. The seating works on the dental STLs only and starts
   from that canned position zero, which every later "back to pre-op" returns to.
+- First step (done, 2026-11-18), "Isoler et nettoyer les arcades", one button once both arches are chosen:
+  - hides every other object in the scene, without exception (eye icon, nothing deleted; "Réafficher
+    le reste" brings back exactly what was visible);
+  - cleans both scans' borders: removes a 1 mm band along the open border, the sharp spikes left on
+    it (tip under 60 degrees) and loose crumbs (under 2 % of the arch area). The scans stay open (open
+    scans work well for the seating). Vertices kept never move; the teeth are far from the border. The
+    original mesh is kept: "Bords d'origine" puts it back. Band, crumb size: redo panel, defaults in
+    params.py. Real test arches: about 8 % of vertices removed, border edges 3000 -> 1900, 2.5 s each.
 - Part 1 (done):
   - Top of the panel: choose which scan is the upper arch and which is the lower arch.
   - Each arch has a mobile block. Associating other objects with an arch (CBCT teeth, bone segment,
