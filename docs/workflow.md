@@ -648,6 +648,18 @@ Naming used below (matches the object roles in code):
      (the contact curve). Its shape may change during the seating, but it can **never get shorter** after the
      final seating: a shorter contact curve would mean less tooth mass (teeth overlapping), which is impossible.
      A constraint / check for the segmental seating.
+     Proposal, work in progress (surgeon, 2026-11-19): when only one segment is left to place and the others are
+     roughly in place, a button places it both in a logical occlusal position and so that the contact curve
+     stays as continuous as before: its shape may change, but no awkward break (e.g. a fragment much too high
+     or too low against the rest of the occlusal plane): the soft tissues can't absorb such a step in the bone.
+     Idea for the maths: each chosen cut splits a contact point in two copies, one on each neighbouring
+     segment; continuity = the two copies stay together (above all along the occlusal axis), next to the
+     occlusal magnet and the overlap limits; the curve's length can't shrink (the copies can't overlap).
+     Seating design proposed, waiting for the surgeon's go: "Séparer les segments" (zero thickness, one block
+     each), posterior segments first (G / R by hand, then "Asseoir ce segment": magnet + overlap limits, springs
+     optional, seated segments are obstacles for the next), and a rotational spring per segment towards the angle
+     the surgeon gave it ("Tenue de l'angulation": 100 % = translations only, the angle kept exactly; lower = some
+     rotation allowed when it improves the intercuspation a lot, shown in degrees; 0 % = free).
   3. Osteotomies: the Le Fort is drawn and separated; segmental case, bony cuts reproduce the segmentation of
      the set-up (a line between the same teeth), so each bony segment carries exactly the teeth of one set-up
      segment and bone and teeth move as one homogeneous piece (e.g. the posterior left segment: its bone and
