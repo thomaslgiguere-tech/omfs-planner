@@ -76,6 +76,17 @@ Naming used below (matches the object roles in code):
     0.1 % folded triangles, about 5 s per arch. What remains: the bottom of the narrowest grooves
     (chords between vertices) and the interproximal areas, where the scan bridges the embrasure at the
     contact point (a limit of the scan, not of the teeth).
+  - **Exact crowns** (surgeon, 2026-11-19: "littéralement le même STL" on the occlusal and incisal
+    anatomy, the priority; the projection above smoothed the incisal mamelons and serrated the incisal
+    edges): on the crown proper, the scan's **own triangles** replace the projected crown (same
+    vertices, same triangles), joined to the CBCT tooth by a seam in the 0.5 mm band above the gum line.
+    The crown is the "Crowns" selection completed by every scan point lying on the CBCT teeth (0.5 mm,
+    same side; gingiva lies over the root at a distance): the selection alone was patchy on the molars.
+    Real case: 240 000 / 265 000 scan triangles transplanted per arch, incisal edges 100 % identical (top
+    2 mm, max 0.000 mm), molar occlusal surfaces 98 % identical (the rest: spots the camera missed,
+    closed), result closed (manifold), about 14 s per arch. Not identical: the band at the gum line
+    (projected CBCT) and the interproximal areas (the scan bridges the embrasure there). Known cosmetic
+    issues: the seam at the gum line is jagged, and a few long seam triangles in some embrasures.
   - Not done in place: the teeth object gets a new mesh, the CBCT mesh data-block is kept untouched
     (omfs_fusion.original); "Dents CBCT d'origine" puts it back. Defaults in params.py (FUSE_*).
   - Splints and the chape can be made on the scan or on these teeth (the arch pickers accept both).

@@ -258,3 +258,13 @@ FUSE_REPORT_MARGIN = 0.5      # mm: the reported deviation leaves out this band 
 FUSE_GROOVE_PASSES = 6        # rounds of reverse pull into the grooves the CBCT could not see
 FUSE_RELAX_PASSES = 1         # rounds evening out the crown triangles on the scan surface, after each pull
 FUSE_BLEND = 1.0              # mm: transition band below the crown; beyond it the roots never move
+# Exact crowns: the scan's own triangles replace the crown proper (occlusal / incisal anatomy identical to the scan)
+FUSE_EXACT = True             # False: crowns only projected onto the scan (previous method)
+FUSE_EXACT_TOL = 0.15         # mm: scan crown points this close to the fused crown (same side) can be transplanted
+FUSE_EXACT_MARGIN = 0.5       # mm from the gum line: below it, the projected CBCT crown stays (joins the root)
+FUSE_EXACT_GAP = 0.1          # mm: clearance around the transplanted triangles, closed by the seam
+FUSE_EXACT_MIN_FACES = 200    # triangles: smaller transplanted pieces (or teeth crumbs left in a hole) dropped
+FUSE_EXACT_PAIR = 1.0         # mm: a scan zone border and a teeth hole border this close (on average) are joined
+FUSE_EXACT_SMALL_HOLE = 60    # vertices: a smaller leftover hole (either side) is closed by a fan of triangles
+FUSE_EXACT_RETRIES = 12       # rounds leaving out the zone pieces whose border can't be joined to the teeth
+FUSE_CROWN_REACH = 0.5        # mm: scan points this close to the CBCT teeth (same side) are crown, added to the "Crowns" selection

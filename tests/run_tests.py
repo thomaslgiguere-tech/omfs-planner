@@ -282,6 +282,10 @@ def test_fuse_cbct_crowns_onto_scan():
     bm = bmesh.new()
     bm.from_mesh(scan.data)
     bmesh.ops.delete(bm, geom=[f for f in bm.faces if all(v.co.z < 0 for v in f.verts)], context='FACES')
+    for v in bm.verts:                                      # gingiva: 1.5 mm thick over the tooth
+        if v.co.z < 1.5:
+            radial = Vector((v.co.x + 700, v.co.y, 0)).normalized()
+            v.co += radial * 1.5 * (1.5 - max(v.co.z, 0.0)) / 1.5
     bm.to_mesh(scan.data)                                   # open, with a "gingiva" band 0 < z < 1.5
     bm.free()
     group = scan.vertex_groups.new(name=registration.CROWNS_GROUP)
@@ -306,6 +310,14 @@ def test_fuse_cbct_crowns_onto_scan():
     assert max(v.co.z for v in mesh.vertices) > 3 + 5.25, "crown top now on the scan"
     f = teeth.omfs_fusion
     assert 0 <= f.mean < 0.01 and f.p95 < 0.02, (f.mean, f.p95)
+    assert f.exact_faces > 100, f"scan triangles transplanted ({f.exact_note})"
+    exact = {tuple(v.co) for v in scan.data.vertices if v.co.z > 3.0}   # crown proper, away from the gum line
+    assert exact <= kept, "crown proper: the scan's own vertices, exactly"
+    edges = {}
+    for poly in mesh.polygons:
+        for key in poly.edge_keys:
+            edges[key] = edges.get(key, 0) + 1
+    assert set(edges.values()) == {2}, "closed: the seam joins the scan triangles to the CBCT tooth"
     assert splint.towards_teeth(teeth, np.array((0.0, 0.0, -1.0)))[2] > 0, "teeth end = crowns"
 
     assert bpy.ops.omfs.restore_cbct_teeth(teeth_name=teeth.name) == {'FINISHED'}

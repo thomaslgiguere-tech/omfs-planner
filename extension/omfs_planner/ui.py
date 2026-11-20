@@ -317,6 +317,10 @@ class OMFS_PT_registration(bpy.types.Panel):
             f = teeth.omfs_fusion
             res = box.column(align=True)
             res.label(text=f"{teeth.name} : couronnes du scan", icon='CHECKMARK')
+            if f.exact_faces:
+                res.label(text=f"{f.exact_faces} triangles du scan, identiques", icon='CHECKMARK')
+            elif f.exact_note:
+                res.label(text=f"Couronnes projetées seulement : {f.exact_note}", icon='ERROR')
             res.label(text=f"Écart moyen {f.mean:.3f} mm   95 % sous {f.p95:.3f} mm")
             row = box.row(align=True)
             row.operator("omfs.restore_cbct_teeth", icon='LOOP_BACK').teeth_name = teeth.name

@@ -25,8 +25,9 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   scene_setup.py             millimetre units, viewport shading, framing
   mesh_io.py                 STL / OBJ / PLY import with raw coordinates
   locking.py                 lock / unlock anatomy
-  crown_fusion.py            CBCT teeth crowns brought exactly onto the scan crowns (roots untouched, new mesh,
-                             CBCT mesh kept); splints / chape accept these teeth as arches
+  crown_fusion.py            CBCT teeth crowns brought onto the scan crowns, then the scan's own crown triangles
+                             transplanted (occlusal / incisal anatomy identical), seam to the CBCT tooth;
+                             roots untouched, new mesh, CBCT mesh kept; splints / chape accept these teeth
   ops_import.py              "Import Case" operator
   movement.py                segment movement (Step 5): 6 DOF on the osteotomy plane or frame axes
   movement_gizmos.py         drag arrows / rings for the segment movement, on the movement axes
