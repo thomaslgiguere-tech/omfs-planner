@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, cylinders, distance_map, pins, guide_workshop, landmarks, measure, model_base, screws, locking, movement, occlusion, occlusion_prepare, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
+from . import analysis, crown_fusion, cylinders, distance_map, pins, guide_workshop, landmarks, measure, model_base, screws, locking, movement, occlusion, occlusion_prepare, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -305,6 +305,25 @@ class OMFS_PT_registration(bpy.types.Panel):
         if props.rms >= 0:
             col.operator("omfs.toggle_distance_map", icon='COLOR')
         col.operator("omfs.unfreeze_scan", icon='UNLOCKED').scan_name = name
+
+        box.label(text="5. Couronnes des dents CBCT")
+        teeth = props.target
+        fused = crown_fusion.is_fused(teeth) and teeth.omfs_fusion.scan == bpy.data.objects.get(name)
+        col = box.column(align=True)
+        col.enabled = teeth is not None
+        col.operator("omfs.fuse_crowns", text="Refaire (couronnes CBCT)" if fused else "Modifier la géométrie des dents CBCT",
+                     icon='MOD_SHRINKWRAP').scan_name = name
+        if fused:
+            f = teeth.omfs_fusion
+            res = box.column(align=True)
+            res.label(text=f"{teeth.name} : couronnes du scan", icon='CHECKMARK')
+            res.label(text=f"Écart moyen {f.mean:.3f} mm   95 % sous {f.p95:.3f} mm")
+            row = box.row(align=True)
+            row.operator("omfs.restore_cbct_teeth", icon='LOOP_BACK').teeth_name = teeth.name
+            scan = bpy.data.objects.get(name)
+            hidden = scan.hide_get()
+            row.operator("omfs.toggle_scan", text="Montrer le scan" if hidden else "Cacher le scan",
+                         icon='HIDE_ON' if hidden else 'HIDE_OFF').scan_name = name
 
 
 class OMFS_PT_landmarks(bpy.types.Panel):

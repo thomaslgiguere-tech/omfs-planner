@@ -34,7 +34,7 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
-from . import landmarks, locking, params, reference_frame, text_labels
+from . import crown_fusion, landmarks, locking, params, reference_frame, text_labels
 
 COLLECTION = "Splint"
 CURVE_NAME = "Arch curve"
@@ -50,7 +50,9 @@ CENTRE_REACH = 15.0                    # mm: how far up / down to look for the o
 # --- Arches and axes --------------------------------------------------------------------
 
 def is_scan(obj):
-    return obj is not None and obj.type == 'MESH' and obj.omfs.role == 'SCAN'
+    """An arch a splint or a cap can be made on: an intraoral scan, or CBCT teeth whose crowns were
+    taken from the scan (crown_fusion: closed teeth, no gingiva)."""
+    return obj is not None and obj.type == 'MESH' and (obj.omfs.role == 'SCAN' or crown_fusion.is_fused(obj))
 
 
 def upper_arch(scene):
@@ -114,6 +116,9 @@ def towards_teeth(obj, axis):
         mesh.edges.foreach_get("vertices", pairs)
         border = pairs.reshape(-1, 2)[open_edges].ravel()
         return axis if heights[border].mean() < heights.mean() else -axis
+    crowns = crown_fusion.crown_mask(obj)
+    if crowns is not None and crowns.any():   # CBCT teeth with scan crowns: crowns at the teeth end, roots away
+        return axis if heights[crowns].mean() > heights.mean() else -axis
     normals = np.empty(len(mesh.polygons) * 3)
     mesh.polygons.foreach_get("normal", normals)
     areas = np.empty(len(mesh.polygons))
@@ -943,11 +948,11 @@ def _on_wire_hole_diameter(props, context):
 class OMFS_SplintProperties(bpy.types.PropertyGroup):
     kind: bpy.props.EnumProperty(name="Type", items=KINDS, default='FINAL', update=_on_blank_param)
     upper: bpy.props.PointerProperty(name="Arcade du haut", type=bpy.types.Object,
-                                     poll=lambda _p, o: is_scan(o), description="Scan de l'arcade du haut (par défaut: celle de l'assise de l'occlusion)")
+                                     poll=lambda _p, o: is_scan(o), description="Scan de l'arcade du haut, ou ses dents CBCT aux couronnes du scan (par défaut: celle de l'assise de l'occlusion)")
     lower: bpy.props.PointerProperty(name="Arcade du bas", type=bpy.types.Object,
-                                     poll=lambda _p, o: is_scan(o), description="Scan de l'arcade du bas (par défaut: celle de l'assise de l'occlusion)")
+                                     poll=lambda _p, o: is_scan(o), description="Scan de l'arcade du bas, ou ses dents CBCT aux couronnes du scan (par défaut: celle de l'assise de l'occlusion)")
     cap_arch: bpy.props.PointerProperty(name="Arcade", type=bpy.types.Object, poll=lambda _p, o: is_scan(o),
-                                        description="Scan de l'arcade que la chape recouvre")
+                                        description="Scan de l'arcade que la chape recouvre, ou ses dents CBCT aux couronnes du scan")
     buccal_margin: bpy.props.FloatProperty(
         name="Vestibulaire", subtype='DISTANCE', default=params.SPLINT_BUCCAL_MARGIN, min=0.0, soft_max=10.0,
         step=10, update=_on_blank_param,

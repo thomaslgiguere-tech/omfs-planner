@@ -24,7 +24,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import measure, occlusion_prepare  # noqa: E402
+from omfs_planner import crown_fusion, measure, occlusion_prepare  # noqa: E402
 from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy  # noqa: E402
 
 omfs_planner.register()
@@ -258,6 +258,60 @@ def test_registration():
     assert all(abs(s - 1) < 1e-6 for s in scan.matrix_world.to_scale()), "registration must stay rigid"
     assert [tuple(v.co) for v in scan.data.vertices] == [tuple(v.co) for v in teeth.data.vertices], \
         "scan vertices must never change"
+
+
+def test_fuse_cbct_crowns_onto_scan():
+    """Modifier la géométrie des dents CBCT: crowns land on the scan's crowns, roots never move."""
+    scene = bpy.context.scene
+
+    def sphere(name, radius, segments):
+        bm = bmesh.new()
+        bmesh.ops.create_uvsphere(bm, u_segments=segments, v_segments=segments // 2, radius=radius)
+        bmesh.ops.translate(bm, vec=(-700, 0, 3), verts=bm.verts)
+        mesh = bpy.data.meshes.new(name)
+        bm.to_mesh(mesh)
+        bm.free()
+        obj = bpy.data.objects.new(name, mesh)
+        scene.collection.objects.link(obj)
+        return obj
+
+    teeth = sphere("Fuse teeth", 5.0, 32)                  # CBCT tooth: crown above z = 1.5, root below
+    teeth.omfs.role = 'TEETH'
+    scan = sphere("Fuse scan", 5.3, 96)                    # true crown 0.3 mm bigger, finer mesh
+    scan.omfs.role = 'SCAN'
+    bm = bmesh.new()
+    bm.from_mesh(scan.data)
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if all(v.co.z < 0 for v in f.verts)], context='FACES')
+    bm.to_mesh(scan.data)                                   # open, with a "gingiva" band 0 < z < 1.5
+    bm.free()
+    group = scan.vertex_groups.new(name=registration.CROWNS_GROUP)
+    group.add([v.index for v in scan.data.vertices if v.co.z > 1.5], 1.0, 'REPLACE')
+    scan.omfs_reg.target = teeth
+    scan.omfs_reg.frozen = True
+    original = teeth.data
+    roots = {tuple(v.co) for v in original.vertices if v.co.z < -0.5}
+
+    assert bpy.ops.omfs.fuse_crowns(scan_name=scan.name) == {'FINISHED'}
+    mesh = teeth.data
+    assert mesh is not original and teeth.omfs_fusion.original is original, "CBCT mesh kept untouched"
+    assert crown_fusion.is_fused(teeth) and splint.is_scan(teeth), "splints / cap can use the fused teeth"
+    assert not scan.visible_get(), "scan set aside"
+    kept = {tuple(v.co) for v in mesh.vertices}
+    assert roots <= kept, "roots never move"
+    crown = crown_fusion.crown_mask(teeth)
+    assert crown.sum() > 100
+    scan_bvh = BVHTree.FromPolygons([v.co for v in scan.data.vertices], [p.vertices for p in scan.data.polygons])
+    on_scan = [scan_bvh.find_nearest(mesh.vertices[i].co)[3] for i in np.flatnonzero(crown)]
+    assert max(on_scan) < 1e-4, max(on_scan)
+    assert max(v.co.z for v in mesh.vertices) > 3 + 5.25, "crown top now on the scan"
+    f = teeth.omfs_fusion
+    assert 0 <= f.mean < 0.01 and f.p95 < 0.02, (f.mean, f.p95)
+    assert splint.towards_teeth(teeth, np.array((0.0, 0.0, -1.0)))[2] > 0, "teeth end = crowns"
+
+    assert bpy.ops.omfs.restore_cbct_teeth(teeth_name=teeth.name) == {'FINISHED'}
+    assert teeth.data is original and teeth.data.name == "Fuse teeth" and not crown_fusion.is_fused(teeth)
+    for obj in (teeth, scan):
+        bpy.data.objects.remove(obj)
 
 
 def test_freeze_teeth_position():

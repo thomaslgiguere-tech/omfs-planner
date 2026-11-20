@@ -61,6 +61,26 @@ Naming used below (matches the object roles in code):
   préop" always means this frozen pose: it prevails over everything that follows. A frozen upper
   arch is not pre-positioned (flip / hand adjustment refused): only its block moves.
   "Décanner" re-opens the registration; canning again makes the new registered pose the zero.
+- **"Modifier la géométrie des dents CBCT"** (surgeon, 2026-11-18), last button of the step, once canned:
+  the crowns of the CBCT teeth are brought exactly onto the scan's crowns; the roots never move. Then
+  the scan (gingiva, imperfect borders) is set aside (hidden): the teeth carry the true crown shape.
+  - A "magnet" that knows the parts: scan side, only the "Crowns" selection (gingiva excluded, small
+    holes filled); CBCT side, a vertex is crown when the scan crowns are within 1 mm, facing the same
+    way (60 degrees) and not at the gum line (0.3 mm from the patch edge).
+  - The crown areas are subdivided to 0.25 mm edges, each crown vertex goes onto the scan surface,
+    a reverse pull brings vertices into the grooves and pits the CBCT could not see, and a sliding
+    relaxation along the surface unfolds the triangles. A 1 mm band below the crown blends; beyond it
+    the CBCT positions are exact.
+  - Report: gap from the scan's crown points to the new crowns, away from the gum line. Real case
+    (lower / upper): every crown vertex lies on the scan; mean 0.03 / 0.04 mm, 90 % under 0.06 / 0.09 mm,
+    0.1 % folded triangles, about 5 s per arch. What remains: the bottom of the narrowest grooves
+    (chords between vertices) and the interproximal areas, where the scan bridges the embrasure at the
+    contact point (a limit of the scan, not of the teeth).
+  - Not done in place: the teeth object gets a new mesh, the CBCT mesh data-block is kept untouched
+    (omfs_fusion.original); "Dents CBCT d'origine" puts it back. Defaults in params.py (FUSE_*).
+  - Splints and the chape can be made on the scan or on these teeth (the arch pickers accept both).
+    To test: with separate teeth and no gingiva, embrasures under the contact points are open; a splint
+    imprint could lock into them.
 - Possible later upgrade: ICP followed by a non-rigid refinement (Thin Shell Demons, open source in ITK), reported to tighten the fit compared to ICP alone. Note: non-rigid would change the scan's shape, which goes against the rigid-only rule above; only consider it as an explicit, optional step.
 - Nuances: (add here)
 

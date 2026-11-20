@@ -25,6 +25,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   scene_setup.py             millimetre units, viewport shading, framing
   mesh_io.py                 STL / OBJ / PLY import with raw coordinates
   locking.py                 lock / unlock anatomy
+  crown_fusion.py            CBCT teeth crowns brought exactly onto the scan crowns (roots untouched, new mesh,
+                             CBCT mesh kept); splints / chape accept these teeth as arches
   ops_import.py              "Import Case" operator
   movement.py                segment movement (Step 5): 6 DOF on the osteotomy plane or frame axes
   movement_gizmos.py         drag arrows / rings for the segment movement, on the movement axes
@@ -138,6 +140,9 @@ All meshes are typically STL; OBJ and PLY are also supported. Role names in code
   (rotation + translation, no scale, vertices untouched). "Canner la position dentaire initiale" then bakes that
   rigid pose into the scan's vertices (shape unchanged, transform reset to identity): it is the scan's
   position zero for every later step (registration.freeze_scan; file coordinates kept as frozen_matrix).
+  Exception asked by the surgeon (2026-11-18): "Modifier la géométrie des dents CBCT" gives the CBCT teeth
+  object a **new** mesh whose crowns lie on the scan crowns (crown_fusion.py); the CBCT mesh data-block itself
+  is kept untouched on the object and can be put back. Roots never move.
 - **Anatomy is never reoriented.** The clinical reference frame is a separate object (Empty) built from
   landmarks; movements are expressed in that frame. Export stays in the original patient coordinates.
 

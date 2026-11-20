@@ -246,3 +246,15 @@ MEASURE_COLOUR = (1.0, 0.85, 0.1, 1.0)   # yellow line, end points and label
 MEASURE_LINE_WIDTH = 2.5                 # px
 MEASURE_POINT_SIZE = 9.0                 # px, end points
 MEASURE_DRAG_PX = 6                      # px: shorter mouse travel = a click (then click the second point)
+
+# CBCT teeth crowns brought onto the scan crowns (crown_fusion.py, last step of the teeth registration)
+FUSE_SNAP_MAX = 1.0           # mm: a CBCT tooth vertex this close to the scan crowns is a crown vertex
+FUSE_MAX_ANGLE = 60.0         # degrees between the tooth's and the scan's surface directions (else: other side)
+FUSE_BORDER_GAP = 0.3         # mm: closest point this near the edge of the scan crown patch (gum line): not snapped
+FUSE_MAX_EDGE = 0.25          # mm: crown edges longer than this are split before snapping
+FUSE_SUBDIVIDE_PASSES = 2     # at most 2 halvings
+FUSE_CROWN_CLOSE = 4          # rings: the scan crown selection's small holes are filled (grow then shrink)
+FUSE_REPORT_MARGIN = 0.5      # mm: the reported deviation leaves out this band along the gum line
+FUSE_GROOVE_PASSES = 6        # rounds of reverse pull into the grooves the CBCT could not see
+FUSE_RELAX_PASSES = 1         # rounds evening out the crown triangles on the scan surface, after each pull
+FUSE_BLEND = 1.0              # mm: transition band below the crown; beyond it the roots never move
