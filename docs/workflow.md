@@ -51,6 +51,16 @@ Naming used below (matches the object roles in code):
 - Blender implementation: point-to-plane ICP in numpy with mathutils.kdtree (built into Blender), no external library needed. Meshmixer equivalent: Align tool (manual points, then surface align).
 - How I judge that the alignment is good: show a colour distance map on the crowns plus the mean / RMS error in mm. Working target: mean / RMS error on crowns of about 0.3 mm, flag above 0.5 mm (literature reports ~0.3 mm for IOS-to-CBCT registration; 0.5 mm is a self-chosen safety margin, not a published standard). Overall planning tolerance in the literature: under 2 mm and under 4° between plan and outcome, so registration error must stay a small fraction of that.
 - Restorations: more restorations means lower registration accuracy, whatever the method. Show a warning when many teeth are excluded.
+- **Freeze the teeth position ("Canner la position dentaire initiale", surgeon's wording)**, last button of the step: the registered
+  pose becomes the scan's **position zero** for the rest of the plan. The CBCT sits in the CBCT
+  machine's coordinates; registration has just brought the accurate scan teeth into those same
+  coordinates, so this is the true pre-op teeth position. Freezing bakes that rigid pose into the scan
+  (same motion on every vertex, shape unchanged) and resets the scan's transform to zero: the
+  scanner's file coordinates are forgotten (only kept as a stored matrix). From then on, whatever
+  later steps do (occlusion seating, osteotomy movements...), "back to position zero" / "Retour
+  préop" always means this frozen pose: it prevails over everything that follows. A frozen upper
+  arch is not pre-positioned (flip / hand adjustment refused): only its block moves.
+  "Décanner" re-opens the registration; canning again makes the new registered pose the zero.
 - Possible later upgrade: ICP followed by a non-rigid refinement (Thin Shell Demons, open source in ITK), reported to tighten the fit compared to ICP alone. Note: non-rigid would change the scan's shape, which goes against the rigid-only rule above; only consider it as an explicit, optional step.
 - Nuances: (add here)
 
@@ -394,6 +404,9 @@ Naming used below (matches the object roles in code):
   bones: the whole skull would follow the upper arch, and the condyles would follow the lower arch.
 - Absolute constraint: the scans (and any CBCT mesh moving with them) are moved, never modified.
   Rigid displacement only; a shape check proves the mesh data is unchanged.
+- Typical bimaxillary order (surgeon, 2026-11-18): register each arch scan on the CBCT teeth, "Canner
+  la position dentaire initiale", then this tab. The seating works on the dental STLs only and starts
+  from that canned position zero, which every later "back to pre-op" returns to.
 - Part 1 (done):
   - Top of the panel: choose which scan is the upper arch and which is the lower arch.
   - Each arch has a mobile block. Associating other objects with an arch (CBCT teeth, bone segment,

@@ -12,6 +12,11 @@ its vertices are never touched.
 3. ICP (iterative closest point), point-to-plane, on those crowns only, against the crown
    region of the CBCT teeth (outside the bone and away from it, so roots are ignored).
 4. Report: mean / RMS distance on the crowns and a colour map.
+5. Freeze ("Canner la position dentaire initiale"): the registered pose is baked into the scan's vertices
+   (the same rigid motion applied to every vertex, so the shape is unchanged) and the scan's
+   transform becomes identity. That pose is the scan's position zero from then on: every later
+   tool (occlusion blocks, ghosts, "back to pre-op") measures from it. The file coordinates are
+   only kept as a stored matrix (frozen_matrix: file coordinates -> position zero).
 """
 
 import bpy
@@ -192,6 +197,42 @@ def move_scan(scan, matrix):
     bpy.context.view_layer.update()   # so the scan's point-pair children report their new position
 
 
+IDENTITY = ((1.0, 0.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+
+
+def freeze_scan(scan):
+    """Bake the scan's own transform (its registered pose) into its vertices: rigid, shape unchanged.
+    Its transform becomes identity, its children and every other user of the same mesh data keep
+    their world position. Returns the baked matrix."""
+    matrix = as_rigid(scan.matrix_basis)
+    bpy.context.view_layer.update()
+    children = {c: c.matrix_world.copy() for c in scan.children}
+    for other in [o for o in bpy.data.objects if o.data is scan.data and o is not scan]:
+        other.matrix_world = other.matrix_world @ matrix.inverted()   # e.g. a pre-op ghost (linked mesh)
+    scan.data.transform(matrix)
+    scan.data.update()
+    untrimmed = getattr(scan, "omfs_untrimmed", None)   # borders cleaned for the occlusion: its original too
+    if untrimmed is not None and untrimmed is not scan.data:
+        untrimmed.transform(matrix)
+    scan.matrix_basis = Matrix()
+    bpy.context.view_layer.update()
+    for child, world in children.items():
+        child.matrix_world = world
+    props = scan.omfs_reg
+    props.frozen_matrix = matrix @ props.frozen_matrix   # file coordinates -> position zero
+    props.frozen = True
+    if scan.omfs_occl.fingerprint:   # in an occlusion block: only the position changed, re-take the proof
+        from . import occlusion
+        occlusion.remember_shape(scan)
+    locking.set_locked(scan, True)
+    return matrix
+
+
+def file_matrix(scan):
+    """Scan's local coordinates -> its original file coordinates (identity until it is frozen)."""
+    return Matrix(scan.omfs_reg.frozen_matrix).inverted()
+
+
 def align_points(scene, scan):
     """Rigid fit of the scan points onto the CBCT points. Returns the RMS residual in mm."""
     pairs = point_pairs(scene, scan)
@@ -292,6 +333,9 @@ class OMFS_RegistrationProperties(bpy.types.PropertyGroup):
     rms: bpy.props.FloatProperty(default=-1.0)
     p95: bpy.props.FloatProperty(default=-1.0)
     crown_count: bpy.props.IntProperty()
+    frozen: bpy.props.BoolProperty(description="Registered pose baked in: the scan's position zero")
+    frozen_matrix: bpy.props.FloatVectorProperty(size=(4, 4), subtype='MATRIX', default=IDENTITY,
+                                                 description="File coordinates -> position zero")
 
 
 def default_partners(scene, scan):
@@ -328,6 +372,13 @@ def scan_for(context, scan_name):
     return scan
 
 
+def refuse_if_frozen(op, scan):
+    if scan is not None and scan.omfs_reg.frozen:
+        op.report({'ERROR'}, "Position dentaire initiale cannée : décannez-la pour refaire le recalage")
+        return True
+    return False
+
+
 _target_cache = {}
 
 
@@ -351,6 +402,8 @@ class OMFS_OT_add_point_pair(bpy.types.Operator):
 
     def invoke(self, context, event):
         self.scan = scan_for(context, self.scan_name)
+        if refuse_if_frozen(self, self.scan):
+            return {'CANCELLED'}
         if self.scan is None or self.scan.omfs_reg.target is None:
             self.report({'ERROR'}, "Choose the scan and the CBCT teeth first")
             return {'CANCELLED'}
@@ -423,6 +476,8 @@ class OMFS_OT_align_points(bpy.types.Operator):
 
     def execute(self, context):
         scan = scan_for(context, self.scan_name)
+        if refuse_if_frozen(self, scan):
+            return {'CANCELLED'}
         if scan is None or len(point_pairs(context.scene, scan)) < 3:
             self.report({'ERROR'}, "Place at least 3 point pairs")
             return {'CANCELLED'}
@@ -506,6 +561,8 @@ class OMFS_OT_refine_icp(bpy.types.Operator):
 
     def execute(self, context):
         scan = scan_for(context, self.scan_name)
+        if refuse_if_frozen(self, scan):
+            return {'CANCELLED'}
         if context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
         indices = crown_indices(scan) if scan is not None else []
@@ -527,7 +584,8 @@ class OMFS_OT_refine_icp(bpy.types.Operator):
 
 
 class OMFS_OT_reset_scan(bpy.types.Operator):
-    """Put the scan back at its file coordinates (undo the registration)"""
+    """Put the scan back at its file coordinates (undo the registration), or at its frozen
+    position zero once the teeth position is frozen"""
     bl_idname = "omfs.reset_scan"
     bl_label = "Reset Scan Position"
     bl_options = {'REGISTER', 'UNDO'}
@@ -538,8 +596,56 @@ class OMFS_OT_reset_scan(bpy.types.Operator):
         scan = scan_for(context, self.scan_name)
         if scan is not None:
             home = scan.parent.matrix_world @ scan.matrix_parent_inverse if scan.parent else Matrix()
-            move_scan(scan, home)   # file coordinates, carried by its occlusion block if it has one
-            scan.omfs_reg.points_rms = scan.omfs_reg.mean = scan.omfs_reg.rms = scan.omfs_reg.p95 = -1.0
+            move_scan(scan, home)   # identity: file coordinates, or position zero once frozen; carried by its block
+            if not scan.omfs_reg.frozen:
+                scan.omfs_reg.points_rms = scan.omfs_reg.mean = scan.omfs_reg.rms = scan.omfs_reg.p95 = -1.0
+        return {'FINISHED'}
+
+
+class OMFS_OT_freeze_scan(bpy.types.Operator):
+    """Canner la position dentaire initiale : la position recalée du scan devient sa position zéro, définitive
+    pour tous les outils suivants (assise de l'occlusion, mouvements, retour préop). Le même mouvement
+    rigide est appliqué à tous les sommets du scan (forme inchangée), sa transformation revient à zéro"""
+    bl_idname = "omfs.freeze_scan"
+    bl_label = "Canner la position dentaire initiale"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    scan_name: bpy.props.StringProperty()
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        scan = scan_for(context, self.scan_name)
+        if scan is None or refuse_if_frozen(self, scan):
+            return {'CANCELLED'}
+        if scan.omfs_reg.rms < 0 and scan.omfs_reg.points_rms < 0:
+            self.report({'ERROR'}, "Recalez d'abord le scan sur les dents du CBCT")
+            return {'CANCELLED'}
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        freeze_scan(scan)
+        self.report({'INFO'}, f"{scan.name} : position dentaire initiale cannée (position zéro)")
+        return {'FINISHED'}
+
+
+class OMFS_OT_unfreeze_scan(bpy.types.Operator):
+    """Décanner pour refaire le recalage. La position actuelle reste ; la prochaine fois que vous
+    cannez, la nouvelle position recalée devient la position zéro"""
+    bl_idname = "omfs.unfreeze_scan"
+    bl_label = "Décanner (refaire le recalage)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    scan_name: bpy.props.StringProperty()
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event)
+
+    def execute(self, context):
+        scan = scan_for(context, self.scan_name)
+        if scan is None:
+            return {'CANCELLED'}
+        scan.omfs_reg.frozen = False
         return {'FINISHED'}
 
 
@@ -572,7 +678,8 @@ class OMFS_OT_toggle_distance_map(bpy.types.Operator):
 
 classes = (OMFS_RegistrationProperties, OMFS_OT_add_point_pair, OMFS_OT_delete_point_pair,
            OMFS_OT_align_points, OMFS_OT_suggest_crowns, OMFS_OT_paint_crowns, OMFS_OT_finish_painting,
-           OMFS_OT_refine_icp, OMFS_OT_reset_scan, OMFS_OT_toggle_point_pairs, OMFS_OT_toggle_distance_map)
+           OMFS_OT_refine_icp, OMFS_OT_reset_scan, OMFS_OT_freeze_scan, OMFS_OT_unfreeze_scan,
+           OMFS_OT_toggle_point_pairs, OMFS_OT_toggle_distance_map)
 
 
 def register():

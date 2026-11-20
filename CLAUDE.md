@@ -132,7 +132,9 @@ All meshes are typically STL; OBJ and PLY are also supported. Role names in code
   (parented to a block Empty, see occlusion.py), and the pre-op position is always recoverable.
   The CBCT teeth dictate the teeth **position**; the scan dictates the true crown **shape**.
   The scan is registered onto the CBCT teeth by a **rigid transform** only
-  (rotation + translation, no scale, vertices untouched).
+  (rotation + translation, no scale, vertices untouched). "Canner la position dentaire initiale" then bakes that
+  rigid pose into the scan's vertices (shape unchanged, transform reset to identity): it is the scan's
+  position zero for every later step (registration.freeze_scan; file coordinates kept as frozen_matrix).
 - **Anatomy is never reoriented.** The clinical reference frame is a separate object (Empty) built from
   landmarks; movements are expressed in that frame. Export stays in the original patient coordinates.
 

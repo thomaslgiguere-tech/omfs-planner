@@ -32,6 +32,7 @@ BLOCK_SIZE = 12.0     # mm, size of the block's axes in the viewport
 GHOST_ALPHA = 0.25
 GHOST_COLOR = (0.75, 0.75, 0.75)
 MOVED_TOLERANCE = 1e-4   # mm / rad: below this, a block counts as pre-op
+FROZEN_UPPER = "Position initiale de l'arcade du haut cannée sur le CBCT : elle ne change plus (déplacez son bloc)"
 
 
 # --- Shape fingerprint ---------------------------------------------------------------
@@ -219,12 +220,14 @@ def flip_above(upper, lower, gap):
     scan's own coordinates, where both scanner exports are teeth up, so it also works once the
     lower arch has been registered onto the CBCT."""
     up = registration.vertex_coords(upper, world=False)
-    low = registration.vertex_coords(lower, world=False)
+    to_file = registration.file_matrix(lower)   # a frozen lower scan: back to the scanner's frame
+    low = registration.vertex_coords(lower, world=False) @ np.array(to_file.to_3x3()).T + np.array(to_file.translation)
     flip = Matrix.Rotation(pi, 4, 'Y')
     flipped = up @ np.array(flip.to_3x3()).T
     shift = Vector((*(low[:, :2].mean(axis=0) - flipped[:, :2].mean(axis=0)),
                     low[:, 2].max() + gap - flipped[:, 2].min()))
-    return lower.matrix_basis @ Matrix.Translation(shift) @ flip   # lower.matrix_basis = its pre-op pose
+    # lower.matrix_basis = its pre-op pose
+    return lower.matrix_basis @ to_file.inverted() @ Matrix.Translation(shift) @ flip
 
 
 def recentre_block(block, arch):
@@ -249,6 +252,10 @@ def set_upper_preop(scene, matrix):
     block = find_block(scene, 'UPPER')
     if block is not None:
         recentre_block(block, upper)
+
+
+def upper_frozen(props):
+    return props.upper is not None and props.upper.omfs_reg.frozen
 
 
 # --- Pre-op ghost --------------------------------------------------------------------
@@ -459,6 +466,9 @@ class OMFS_OT_flip_upper_arch(bpy.types.Operator):
         if props.upper is None or props.lower is None:
             self.report({'ERROR'}, "Choisissez d'abord l'arcade du haut et l'arcade du bas")
             return {'CANCELLED'}
+        if upper_frozen(props):
+            self.report({'ERROR'}, FROZEN_UPPER)
+            return {'CANCELLED'}
         set_upper_preop(context.scene, flip_above(props.upper, props.lower, self.gap))
         return {'FINISHED'}
 
@@ -474,6 +484,9 @@ class OMFS_OT_adjust_upper_arch(bpy.types.Operator):
         scene = context.scene
         upper = scene.omfs_occlusion.upper
         if upper is None:
+            return {'CANCELLED'}
+        if upper_frozen(scene.omfs_occlusion) and locking.is_locked(upper):
+            self.report({'ERROR'}, FROZEN_UPPER)
             return {'CANCELLED'}
         if context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')

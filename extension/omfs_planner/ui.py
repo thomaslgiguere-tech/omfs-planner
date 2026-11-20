@@ -222,6 +222,9 @@ class OMFS_PT_registration(bpy.types.Panel):
             col.alert = True
             draw_text(col, context, f"{scan.parent.name} déplacé : Retour préop (Assise de l'occlusion) "
                                     "avant de recaler, sinon le recalage mélange pré et postop.")
+        if props.frozen:
+            self.draw_frozen(box, props, name)
+            return
         col = box.column(align=True)
         col.prop(props, "target")
         col.prop(props, "bone")
@@ -271,6 +274,23 @@ class OMFS_PT_registration(bpy.types.Panel):
             res.label(text=f"95% of crown points within {props.p95:.2f} mm")
             box.operator("omfs.toggle_distance_map", icon='COLOR')
         box.operator("omfs.reset_scan", icon='LOOP_BACK').scan_name = name
+
+        box.label(text="4. Position zéro")
+        row = box.row()
+        row.enabled = props.rms >= 0 or props.points_rms >= 0
+        row.operator("omfs.freeze_scan", icon='FREEZE').scan_name = name
+
+    def draw_frozen(self, box, props, name):
+        col = box.column(align=True)
+        col.label(text="Position dentaire initiale cannée (position zéro)", icon='FREEZE')
+        col.label(text=f"Sur {props.target.name if props.target else 'les dents du CBCT'}")
+        if props.rms >= 0:
+            col.label(text=f"Mean {props.mean:.2f} mm   RMS {props.rms:.2f} mm")
+        col = box.column(align=True)
+        col.operator("omfs.reset_scan", text="Retour à la position zéro", icon='LOOP_BACK').scan_name = name
+        if props.rms >= 0:
+            col.operator("omfs.toggle_distance_map", icon='COLOR')
+        col.operator("omfs.unfreeze_scan", icon='UNLOCKED').scan_name = name
 
 
 class OMFS_PT_landmarks(bpy.types.Panel):
@@ -603,6 +623,10 @@ class OMFS_PT_occlusion(bpy.types.Panel):
         box.label(text="Préposition de l'arcade du haut", icon='ORIENTATION_GIMBAL')
         draw_text(box, context, "Avant l'assise. Change la position de départ du scan, pas son bloc "
                                 "(Retour préop la garde).")
+        if occlusion.upper_frozen(props):
+            draw_text(box, context, "Position initiale de l'arcade du haut cannée sur le CBCT (Teeth "
+                                    "Registration) : elle ne change plus. Pas de préposition.")
+            return
         col = box.column(align=True)
         col.operator("omfs.flip_upper_arch", icon='FILE_REFRESH')
         adjusting = not locking.is_locked(props.upper)

@@ -259,6 +259,64 @@ def test_registration():
         "scan vertices must never change"
 
 
+def test_freeze_teeth_position():
+    """Figer la position dentaire: the registered pose becomes the scan's position zero (identity),
+    nothing moves in the world, and later tools come back to it."""
+    scene = bpy.context.scene
+    bpy.ops.mesh.primitive_monkey_add(size=20, location=(0, 0, 0))
+    scan = bpy.context.active_object
+    scan.name, scan.omfs.role = "Freeze scan", 'SCAN'
+    registered = Matrix.Translation((-260, 40, 15)) @ Euler((0.3, -0.1, 0.7)).to_matrix().to_4x4()
+    scan.matrix_world = registered
+    file_co = [v.co.copy() for v in scan.data.vertices]
+    point = registration.add_point(scene, scan, "REG_S1", "Freeze pt", registered @ file_co[5], parent=scan)
+    ghost = bpy.data.objects.new("Freeze ghost", scan.data)    # e.g. a pre-op ghost sharing the mesh
+    scene.collection.objects.link(ghost)
+    ghost.matrix_world = Matrix.Translation((0, 0, 30)) @ registered
+    bpy.context.view_layer.update()
+    world = [scan.matrix_world @ v.co for v in scan.data.vertices]
+    ghost_world = ghost.matrix_world @ scan.data.vertices[5].co
+    point_world = point.matrix_world.translation.copy()
+
+    scan.omfs_reg.points_rms = 0.2
+    assert bpy.ops.omfs.freeze_scan(scan_name=scan.name) == {'FINISHED'}
+    bpy.context.view_layer.update()
+    assert scan.omfs_reg.frozen
+    assert scan.matrix_basis == Matrix(), "position zero = identity transform"
+    assert max((scan.matrix_world @ v.co - w).length for v, w in zip(scan.data.vertices, world)) < 1e-4
+    assert (ghost.matrix_world @ scan.data.vertices[5].co - ghost_world).length < 1e-4
+    assert (point.matrix_world.translation - point_world).length < 1e-4
+    back = registration.file_matrix(scan)
+    assert max((back @ v.co - c).length for v, c in zip(scan.data.vertices, file_co)) < 1e-4, \
+        "file coordinates stay recoverable"
+    try:
+        bpy.ops.omfs.align_points(scan_name=scan.name)
+        raise AssertionError("frozen: no re-registration")
+    except RuntimeError as error:
+        assert "cannée" in str(error)
+
+    scan.matrix_world = Matrix.Translation((3, 0, 0))   # moved by hand, then back to its position zero
+    assert bpy.ops.omfs.reset_scan(scan_name=scan.name) == {'FINISHED'}
+    assert scan.matrix_basis == Matrix() and abs(scan.omfs_reg.points_rms - 0.2) < 1e-6, "results kept"
+
+    # The upper arch's pre-positioning reads a frozen lower arch in its scanner frame, as before.
+    upper = bpy.data.objects.new("Freeze upper", scan.data.copy())
+    scene.collection.objects.link(upper)
+    upper.data.transform(back)                      # same file coordinates as the lower scan
+    lower_unfrozen = bpy.data.objects.new("Freeze lower ref", upper.data)
+    scene.collection.objects.link(lower_unfrozen)
+    lower_unfrozen.matrix_world = registered
+    frozen_flip, ref_flip = occlusion.flip_above(upper, scan, 3.0), occlusion.flip_above(upper, lower_unfrozen, 3.0)
+    assert all(abs(a - b) < 1e-4 for ra, rb in zip(frozen_flip, ref_flip) for a, b in zip(ra, rb))
+
+    assert bpy.ops.omfs.unfreeze_scan(scan_name=scan.name) == {'FINISHED'}
+    assert not scan.omfs_reg.frozen
+    icons = {i.identifier for i in bpy.types.UILayout.bl_rna.functions["prop"].parameters["icon"].enum_items}
+    assert 'FREEZE' in icons
+    for obj in (point, ghost, upper, lower_unfrozen, scan):
+        bpy.data.objects.remove(obj)
+
+
 def test_guide_workshop_tools_are_documented():
     icons = {i.identifier for i in bpy.types.UILayout.bl_rna.functions["prop"].parameters["icon"].enum_items}
     assert 'FACE_MAPS' in icons, "icon of the zone summary"
