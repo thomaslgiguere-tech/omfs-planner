@@ -273,3 +273,35 @@ FUSE_CROWN_REACH = 0.5        # mm: scan points this close to the CBCT teeth (sa
 LEFORT_TEETH_REACH = 2.0      # mm: a teeth vertex this close to the Le Fort segment is in the maxilla (roots)
 LEFORT_TEETH_SHARE = 0.15     # teeth with at least this share of vertices in the segment move with it
 OCCLUSAL_PLANE_COLOUR = (0.2, 0.85, 0.95, 1.0)   # cyan: occlusal plane drawn in the view
+
+# Segmental seating: choosing the cuts of the upper arch (occlusion_segments.py)
+SEG_MIDLINE_SEARCH = 2.0      # mm searched either side of the midline for the contact between the centrals
+SEG_STEP = 0.25               # mm between the arch curve's stations
+SEG_SLAB = 0.5                # mm: half thickness of the slab across the arch read at each station
+SEG_CROSS = 7.0               # mm: half width of the crowns read across the arch
+SEG_MIN_BIN_POINTS = 8        # crown points a 2-degree bin needs to place the arch curve (fewer: skipped)
+SEG_END_MARGIN = 3.0          # mm: no contact closer than this to the ends of the arch curve (it ends mid last tooth)
+SEG_MIDLINE_BAND = 2.5        # mm either side of the midline: the central incisors' palatal end, the bend of the U
+SEG_STOP_BEHIND = 1.5         # mm: the midline cut stops this far behind the central incisors
+SEG_REACH_OUT = 6.0           # mm: a cut starts this far outside the arch (buccal side)
+SEG_DRAPE_STEP = 0.3          # mm between the points of a line laid on the surface
+SEG_TANGENT_SPAN = 2.0        # mm either side over which the arch's direction is taken
+SEG_REACH_IN = 6.0            # mm: the cut crosses the arch to this far inside the crowns' middle, then turns to the midline
+SEG_WALL_ANGLE = 45.0         # degrees: a surface point facing within this of the arch's direction is a proximal wall
+SEG_ROOT_DEPTH = 3.0          # mm beyond the gum line where the CBCT root trunks still count
+SEG_SMOOTH = 0.5              # mm either side over which the contact signal is averaged
+SEG_PEAK = 0.8                # contact signal (in spreads above its mean) a peak must reach to be a candidate cut
+SEG_MIN_GAP = 4.0             # mm: two candidate cuts are never closer (the narrowest tooth is wider)
+SEG_AXIS_MIN_COS = 0.6        # a tooth axis tilted more than ~53 degrees from the occlusal axis is not trusted (vertical used)
+SEG_ROOT_LEVELS = (5.0, 15.0)  # mm from the crown's middle towards the apices where the gap between two roots is read
+SEG_ROOT_STEP = 1.5           # mm between those levels
+SEG_ROOT_ACROSS = 3.0         # mm either side of the roots' middle (bucco-palatal) read at each level
+SEG_ROOT_REACH = 8.0          # mm either side of the cut where root points count
+SEG_DASH = 0.8                # mm: dashes of a candidate cut
+SEG_HOVER_PX = 10             # px: a candidate cut this close to the mouse is highlighted
+SEG_CANDIDATE_COLOUR = (0.0, 0.0, 0.0, 1.0)     # black, dashed
+SEG_HOVER_COLOUR = (1.0, 0.92, 0.2, 1.0)        # bright yellow
+SEG_CHOSEN_COLOUR = (1.0, 0.45, 0.05, 1.0)      # orange
+SEG_MIDLINE_COLOUR = (0.6, 0.05, 0.05, 1.0)     # dark red: the palatal midline cut, always there
+SEG_COLOURS = ((0.35, 0.65, 1.0, 0.28), (1.0, 0.55, 0.25, 0.28), (0.4, 0.9, 0.45, 0.28), (0.85, 0.4, 0.9, 0.28),
+               (1.0, 0.9, 0.3, 0.28), (0.3, 0.9, 0.9, 0.28), (1.0, 0.4, 0.5, 0.28))   # segment tints

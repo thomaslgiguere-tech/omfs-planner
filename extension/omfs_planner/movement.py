@@ -280,6 +280,18 @@ def follower_problem(scene, segment, obj):
     return None
 
 
+def preop_matrix(scene, obj):
+    """An object's world matrix before any segment movement: its stored pre-op pose if it follows a segment
+    (or is one), else where it is."""
+    if is_segment(obj) and obj.omfs_move.has_preop:
+        return Matrix(obj.omfs_move.preop)
+    for seg in segments(scene):
+        for item in seg.omfs_move.followers:
+            if item.obj == obj:
+                return Matrix(item.preop)
+    return obj.matrix_world.copy()
+
+
 def add_follower(scene, segment, obj):
     """obj moves with the segment from now on. It has not moved yet: where it is now is its pre-op pose,
     and it joins the segment's current movement at once."""

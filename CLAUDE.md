@@ -36,6 +36,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   occlusion_prepare.py       seating's first step: hide everything but the two arch scans, clean their open
                              borders (band, spikes, crumbs; still open, original mesh kept)
   occlusion_seating.py       springs between the arches, seating solver (upper onto the fixed lower), overlap map
+  occlusion_segments.py      segmental set-up, step 1: copy of the upper arch, palatal midline cut, candidate cuts at
+                             the contacts (proximal walls), planes centred between the roots (CBCT); hover / click
   splint.py                  Object creator: Splint (coverage points -> two surfaces, automatic round outline) /
                              Chape (arch curve); blank, imprints, solid, text
   splint_holes.py            splint option: wire holes in the buccal flange (click, slide, click; one Boolean)

@@ -624,7 +624,30 @@ Naming used below (matches the object roles in code):
      decides** how many segments and where (upstream of drawing and mobilising the Le Fort).
      Other source: import an occlusion (two STL already articulated, e.g. models mounted by hand), each
      registered rigidly onto its arch: the same kind of set-up.
-     **Next coding step: the seating tool for a segmental case. Wait for the surgeon's instructions.**
+     Segmental, step 1 (done, 2026-11-19; occlusion_segments.py): "Segmentaire : choisir les traits" in the
+     seating panel. A copy of the upper arch scan ("(montage)", at its position zero, not in any block; the scan
+     is hidden, never cut). On it:
+     - a palatal midline cut, always there (dark red): from behind the palate to just behind the central
+       incisors (never between them), so every cut between two teeth ends on it;
+     - between every two teeth, a candidate cut (black, dashed), found automatically: in thin slabs across the
+       arch, the surface points facing along the arch (the proximal walls) peak at each contact, on the scan's
+       crowns and on the CBCT teeth (crowns and root trunks, at their pre-op place). Patient's scan: one peak
+       per contact, every 7-10.5 mm (plus one extra in a molar, simply not clicked). Each candidate is a plane
+       through the contact, across the arch, **centred between the two roots** (surgeon): at levels 5-15 mm
+       towards the apices, the middle of the gap between the two facing root surfaces (CBCT); the plane keeps
+       through the crown contact and follows those middles (without readable roots: the bisector of the two
+       teeth's long axes). Then a palatal piece, upright, to the midline cut. Drawn as its exact section of
+       the scan;
+     - hovering highlights a cut (yellow) with the narrowest gap between the roots along it (mm); clicking
+       chooses it (orange), clicking again removes it; the segments are tinted and numbered live, from the
+       patient's right to left. Between the centrals: the midline cut carried to the front (two halves).
+     - Zero thickness (surgeon): the arch is split exactly at the junction, no kerf, so the dental dimensions
+       stay. A kerf only comes when the cut is carried onto the bone.
+     Next: the seating of the segments on the lower arch (surgeon's instructions to come).
+     Noted for later (surgeon, 2026-11-19): draw automatically a curve through all the contact points of the arch
+     (the contact curve). Its shape may change during the seating, but it can **never get shorter** after the
+     final seating: a shorter contact curve would mean less tooth mass (teeth overlapping), which is impossible.
+     A constraint / check for the segmental seating.
   3. Osteotomies: the Le Fort is drawn and separated; segmental case, bony cuts reproduce the segmentation of
      the set-up (a line between the same teeth), so each bony segment carries exactly the teeth of one set-up
      segment and bone and teeth move as one homogeneous piece (e.g. the posterior left segment: its bone and

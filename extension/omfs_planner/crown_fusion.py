@@ -79,6 +79,28 @@ def near_teeth(co, normals, teeth_co, teeth_tris):
     return near
 
 
+def crown_vertex_mask(scan):
+    """Per scan vertex: crown (the registration's "Crowns" selection, completed by the points lying on its CBCT
+    teeth at their pre-op place, then closed), in the scan's own vertex order. For tools that only need to know
+    which part is teeth. The scan is taken where it is (a set-up copy: at position zero)."""
+    co = registration.vertex_coords(scan, world=False)
+    is_crown = np.zeros(len(co), dtype=bool)
+    is_crown[registration.crown_indices(scan)] = True
+    teeth = scan.omfs_reg.target
+    if teeth is not None and teeth.type == 'MESH':
+        mesh = teeth.omfs_fusion.original or teeth.data
+        from . import movement   # here: movement is loaded after this module
+        to_teeth = np.array(movement.preop_matrix(bpy.context.scene, teeth).inverted() @ scan.matrix_world)
+        normals = np.empty(len(co) * 3)
+        scan.data.vertex_normals.foreach_get("vector", normals)
+        teeth_co, _n, _e = mesh_arrays(mesh)
+        is_crown |= near_teeth(co @ to_teeth[:3, :3].T + to_teeth[:3, 3], normals.reshape(-1, 3) @ to_teeth[:3, :3].T,
+                               teeth_co, registration.triangles(mesh))
+    edges = np.empty(len(scan.data.edges) * 2, dtype=np.int64)
+    scan.data.edges.foreach_get("vertices", edges)
+    return close_mask(is_crown, edges.reshape(-1, 2), params.FUSE_CROWN_CLOSE)
+
+
 def scan_crown_surface(scan, to_teeth, teeth_mesh=None):
     """(BVH of the scan's crown faces, KDTree of the crown patch's border vertices, crown vertex
     coordinates away from that border, (all scan vertices, all scan triangles, crown triangle mask, KDTree

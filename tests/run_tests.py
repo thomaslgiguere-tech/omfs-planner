@@ -24,7 +24,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import crown_fusion, measure, occlusion_prepare, ortho_movement  # noqa: E402
+from omfs_planner import crown_fusion, measure, occlusion_prepare, occlusion_segments, ortho_movement  # noqa: E402
 from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy  # noqa: E402
 
 omfs_planner.register()
@@ -1297,6 +1297,73 @@ def test_snapshot_helpers():
         assert tuple(result.size) == (70, 50), result.size
         bpy.data.images.remove(result)
     scene.omfs_section.orientation, scene.omfs_section.offset = 'AXIAL', 0.0
+
+
+def test_segmental_cut_candidates():
+    """Segmentaire: on a synthetic upper arch (12 touching teeth on a U, crowns down, a flat palate above), one
+    candidate cut per contact, through the contact; chosen cuts and the midline make numbered segments."""
+    scene = bpy.context.scene
+    bm = bmesh.new()
+    n_teeth, spacing = 12, 7.6
+    # a U: half circle in front (radius 22), straight sides behind; arc length from the midline
+    def on_arch(t):
+        r = 22.0
+        if abs(t) <= np.pi * r / 2:
+            a = t / r
+            return np.array((r * np.sin(a), r * np.cos(a))), np.array((np.cos(a), -np.sin(a)))
+        side = np.sign(t)
+        return np.array((side * r, -(abs(t) - np.pi * r / 2))), np.array((0.0, -side))
+    centres = [(k - (n_teeth - 1) / 2) * spacing for k in range(n_teeth)]
+    for c in centres:
+        pos, tan = on_arch(c)
+        geom = bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=1.0)
+        m = Matrix(((tan[0] * 4.0, -tan[1] * 4.6, 0, pos[0]), (tan[1] * 4.0, tan[0] * 4.6, 0, pos[1]),
+                    (0, 0, 4.0, -4.0), (0, 0, 0, 1)))
+        bmesh.ops.transform(bm, matrix=m, verts=geom['verts'])
+    crown_count = len(bm.verts)
+    palate = bmesh.ops.create_grid(bm, x_segments=40, y_segments=40, size=24.0)
+    bmesh.ops.translate(bm, vec=(0, -6, 2.0), verts=palate['verts'])
+    mesh = bpy.data.meshes.new("Seg arch")
+    bm.to_mesh(mesh)
+    bm.free()
+    upper = bpy.data.objects.new("Seg arch", mesh)
+    scene.collection.objects.link(upper)
+    upper.omfs.role = 'SCAN'
+    group = upper.vertex_groups.new(name=registration.CROWNS_GROUP)
+    group.add(list(range(crown_count)), 1.0, 'REPLACE')
+    scene.omfs_occlusion.upper = upper
+
+    copy = occlusion_segments.make_copy(scene, upper)
+    assert copy.data is not upper.data and not upper.visible_get() and occlusion_segments.setup_copy(scene, upper) == copy
+    st = occlusion_segments.state(copy)
+    arch = st['arch']
+    origin, anterior, to_left, _occlusal = arch['frame']
+    found = [(origin + q[0] * to_left + q[1] * anterior)[:2]
+             for q in (arch['curve'][np.argmin(np.abs(arch['s'] - c['s']))] for c in arch['cuts'])]
+    truth = [on_arch((a + b) / 2)[0] for a, b in zip(centres[:-1], centres[1:])]
+    assert len(found) == len(truth), (len(found), len(truth))
+    for t in truth:   # every contact has its candidate, through it (the curve runs mid-crown)
+        d = min(np.linalg.norm(f - t) for f in found)
+        assert d < 1.5, (t, d)
+    assert any(c['central'] for c in arch['cuts']), "the contact between the centrals continues the midline"
+
+    right = max((c for c in arch['cuts'] if c['side'] < 0 and not c['central']), key=lambda c: c['s'])   # nearest midline
+    left = min((c for c in arch['cuts'] if c['side'] > 0 and not c['central']), key=lambda c: c['s'])
+    for c in (right, left):
+        occlusion_segments.toggle(copy, arch['cuts'].index(c))
+    st = occlusion_segments.state(copy)
+    assert st['count'] == 3, st['count']
+    lab = st['labels']
+    co = st['co']
+    side = (co - origin) @ to_left                   # + = the patient's left
+    far_right, front, far_left = np.argmin(side), np.argmax(co[:crown_count, 1]), np.argmax(side)
+    assert (lab[far_right], lab[front], lab[far_left]) == (0, 1, 2), (lab[far_right], lab[front], lab[far_left])
+    occlusion_segments.toggle(copy, arch['cuts'].index(right))   # click again: removed
+    assert occlusion_segments.state(copy)['count'] == 2
+
+    scene.omfs_occlusion.upper = None
+    for obj in (copy, upper):
+        bpy.data.objects.remove(obj)
 
 
 def test_lefort_movement():

@@ -5,7 +5,7 @@ import textwrap
 import bpy
 from mathutils import Vector
 
-from . import analysis, crown_fusion, cylinders, distance_map, pins, guide_workshop, landmarks, measure, model_base, screws, locking, movement, occlusion, occlusion_prepare, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
+from . import analysis, crown_fusion, cylinders, distance_map, pins, guide_workshop, landmarks, measure, model_base, screws, locking, movement, occlusion, occlusion_prepare, occlusion_segments, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -557,6 +557,7 @@ class OMFS_PT_occlusion(bpy.types.Panel):
                 row.operator("omfs.show_hidden", icon='HIDE_OFF')
             if any(a.omfs_untrimmed is not None for a in occlusion_prepare.arches(context.scene)):
                 row.operator("omfs.restore_borders", icon='LOOP_BACK')
+            self.draw_segmental(context, layout.box(), props)
             self.draw_preposition(context, layout.box(), props)
         if occlusion_seating.arches_ready(context.scene):
             self.draw_seating(context, layout.box(), props)
@@ -670,6 +671,26 @@ class OMFS_PT_occlusion(bpy.types.Panel):
             leg.scale_y = 0.8
             for icon, text in occlusion_seating.legend():
                 leg.label(text=text, icon=icon)
+
+    def draw_segmental(self, context, box, props):
+        scene = context.scene
+        row = box.row(align=True)
+        row.label(text="Segmentaire (arcade du haut)", icon='MOD_EXPLODE')
+        copy = occlusion_segments.setup_copy(scene, props.upper)
+        if copy is not None:
+            row.prop(scene.omfs_segmental, "show", text="", icon='HIDE_OFF' if scene.omfs_segmental.show else 'HIDE_ON')
+        box.operator("omfs.segmental_cuts", icon='SCULPTMODE_HLT')
+        if copy is None:
+            draw_text(box, context, "Sur une copie de l'arcade du haut : un trait médian palatin, et un trait proposé "
+                                    "entre chaque dent (centré entre les racines). Cliquez ceux à faire.")
+            return
+        n = len(occlusion_segments.chosen(copy))
+        st = occlusion_segments._state.get(copy.name)
+        segments = st['count'] if st is not None and st.get('key') is not None else None
+        row = box.row(align=True)
+        row.label(text=f"{copy.name} : {n} trait(s)" + (f", {segments} segment(s)" if segments else ""), icon='CHECKMARK')
+        if n:
+            row.operator("omfs.segmental_clear", text="", icon='TRASH')
 
     def draw_preposition(self, context, box, props):
         box.label(text="Préposition de l'arcade du haut", icon='ORIENTATION_GIMBAL')
