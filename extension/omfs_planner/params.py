@@ -268,3 +268,8 @@ FUSE_EXACT_PAIR = 1.0         # mm: a scan zone border and a teeth hole border t
 FUSE_EXACT_SMALL_HOLE = 60    # vertices: a smaller leftover hole (either side) is closed by a fan of triangles
 FUSE_EXACT_RETRIES = 12       # rounds leaving out the zone pieces whose border can't be joined to the teeth
 FUSE_CROWN_REACH = 0.5        # mm: scan points this close to the CBCT teeth (same side) are crown, added to the "Crowns" selection
+
+# Le Fort I movement (ortho_movement.py)
+LEFORT_TEETH_REACH = 2.0      # mm: a teeth vertex this close to the Le Fort segment is in the maxilla (roots)
+LEFORT_TEETH_SHARE = 0.15     # teeth with at least this share of vertices in the segment move with it
+OCCLUSAL_PLANE_COLOUR = (0.2, 0.85, 0.95, 1.0)   # cyan: occlusal plane drawn in the view

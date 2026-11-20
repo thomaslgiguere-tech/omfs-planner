@@ -555,6 +555,55 @@ Naming used below (matches the object roles in code):
   - Orthodontic brackets and wires create false contacts; gingiva can overlap.
 - Nuances: (add here)
 
+## Orthognathic extension: Le Fort I movement (surgeon, 2026-11-19)
+
+- Same principle as the genioplasty movement (kept exactly as it is), applied to the Le Fort I. The surgeon
+  controls the Le Fort precisely; the mandible (BSSO distal segment) does **not** get its own controls: it
+  will follow the occlusion. What the user will see move is the maxillomandibular block, all together:
+  Le Fort, upper teeth, mandible distal segment, lower teeth (CBCT, crowns from the scan). First step (done):
+  the Le Fort and the upper teeth only.
+- New landmarks (Landmarks panel, group "Maxilla and occlusion"): ANS, PNS, point A, point B, upper incisor
+  midline, lower incisor midline, upper premolar cusp right and left (buccal cusp tips, posterior points of
+  the occlusal plane).
+- Panel "Mouvement du Le Fort" (OMFS tab, after "Ostéotomies orthognathiques"; ortho_movement.py):
+  - "Préparer le mouvement du Le Fort" once the Le Fort is separated and the reference frame built: the pre-op
+    pose is stored; the upper teeth move with it (found automatically: TEETH objects with at least 15 % of their
+    vertices within 2 mm of the Le Fort, i.e. roots in the maxilla; plus the scans registered on them). The
+    list "Bougent ensemble" can be edited (add the selection, remove one: it goes back to pre-op). An object
+    already in an occlusion block (parented) can't follow: one object, one mover.
+  - Six numbers on the reference frame (Frankfort, midsagittal, coronal): advance / up / left (mm, net
+    translation of the pivot), pitch / roll / yaw. Pivot: upper incisor midline (default), ANS, A, PNS or the
+    segment centre. Same drag handles as the genioplasty ("Poignées sur ce segment" moves them here);
+    typing and dragging stay in sync; "Retour préop" is exact for the segment and every follower.
+  - Live table of each point's net movement (total, advance, up, left): ANS, A, upper incisor midline, PNS.
+    In the view: magenta line from the pre-op point and a compact box per point. The premolar cusps are not
+    followed (surgeon, 2026-11-19: their movement doesn't matter): they only make the occlusal plane.
+  - Occlusal plane (upper incisor midline + both premolar cusps), drawn in cyan where the movement takes it
+    (hidden with "Étiquettes dans la vue", or alone with its eye icon);
+    its angle to Frankfort before -> after: sagittal (+ = down towards the front) and cant (+ = left side
+    higher). With pitch and roll together the angles combine (Euler order X, Y, Z), as for the genioplasty.
+  - Additive (surgeon, 2026-11-19): e.g. 10 mm advance and 2 degrees of pitch about point A, then pivot on PNS
+    and correct the pitch: nothing restarts from zero. Changing the pivot never moves anything (the translation
+    is rewritten as the new pivot's displacement, the rotations are kept); the next change turns about PNS where
+    it is now (tested). Nuance: the three rotations are Euler angles (pitch first, then roll, then yaw), so with
+    a yaw (or roll) already there, a pitch correction turns about the maxilla's own transverse axis, off the
+    frame's by the yaw angle (5 degrees of yaw: axis 5 degrees off).
+  - Placeholder (inactive): "Générer le bloc maxillomandibulaire à partir de l'occlusion". To design with the
+    surgeon: how the planned occlusion is made, then the mandible follows the maxilla in it.
+    Surgeon's answers (2026-11-19):
+    - Source of the final occlusion: most often the existing seating (springs, overlap map); importing an
+      occlusion must also be possible. Expect adjustments once the segmentations are brought in.
+    - The block: the upper / lower relation found on the scans by the seating gives the mandible's position
+      relative to the maxilla; when the Le Fort moves, the mandible distal segment and the lower teeth follow
+      it in that relation (confirmed as described).
+    - Autorotation (later, for mandible-first or maxilla-first surgery and the intermediate splint: one jaw
+      back at its pre-op position, the other at its final one): opening / closing the vertical dimension (DVO)
+      about a condylar hinge axis, through the posterior-superior points of both condyles.
+- Code: the six-number movement is the genioplasty's (movement.py), with a preset per segment type (GENIO,
+  LEFORT, BSSO: tracked points, pivots, axes) and followers (objects carried rigidly by a segment's movement,
+  each with its own pre-op pose). "Réunir" / re-separating puts the followers back first; re-separating keeps
+  the planned movement.
+
 ## Object creator: Splint / Chape
 
 - Goal: a thin occlusal splint (intermediate or final) between the two arch scans in their planned

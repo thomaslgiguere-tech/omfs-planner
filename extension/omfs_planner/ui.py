@@ -445,6 +445,16 @@ class OMFS_PT_osteotomy(bpy.types.Panel):
             layout.operator("omfs.apply_cut", text="Re-apply Cut", icon='FILE_REFRESH')
 
 
+def draw_segment_header(layout, scene, obj):
+    """Lock, back to pre-op, and the drag handles (on this segment, or a button to bring them here)."""
+    props = obj.omfs_move
+    row = layout.row(align=True)
+    row.prop(props, "locked", toggle=True, icon='LOCKED' if props.locked else 'UNLOCKED')
+    row.operator("omfs.segment_preop", icon='LOOP_BACK').segment_name = obj.name
+    if movement.active_segment(scene) != obj:
+        layout.operator("omfs.segment_handles", icon='ORIENTATION_GIMBAL').segment_name = obj.name
+
+
 class OMFS_PT_movement(bpy.types.Panel):
     bl_label = "Mouvement du segment"
     bl_idname = "OMFS_PT_movement"
@@ -458,11 +468,11 @@ class OMFS_PT_movement(bpy.types.Panel):
         if reference_frame.find_frame(scene) is None:
             layout.label(text="Build the reference frame first", icon='ERROR')
             return
-        obj = movement.active_segment(scene)
+        obj = movement.segment_of(scene, 'GENIO')
         if obj is None:
             layout.label(text="Apply the cut first (Osteotomy)", icon='INFO')
             return
-        if sum(movement.is_segment(o) for o in scene.objects) > 1:
+        if len(movement.segments(scene, 'GENIO')) > 1:
             layout.prop(scene.omfs_movement, "segment", text="")
         layout.label(text=obj.name, icon='MESH_DATA')
         props = obj.omfs_move
@@ -470,9 +480,7 @@ class OMFS_PT_movement(bpy.types.Panel):
             layout.label(text="No pre-op pose: re-apply the cut", icon='ERROR')
             return
 
-        row = layout.row(align=True)
-        row.prop(props, "locked", toggle=True, icon='LOCKED' if props.locked else 'UNLOCKED')
-        row.operator("omfs.segment_preop", icon='LOOP_BACK')
+        draw_segment_header(layout, scene, obj)
 
         layout.prop(props, "axes")
         if props.axes == 'CUT' and movement.cut_axes(scene, obj) is None:

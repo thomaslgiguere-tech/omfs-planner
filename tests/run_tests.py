@@ -7,7 +7,7 @@ Uses synthetic meshes only (tools/make_test_case.py), written to a temporary fol
 
 import os
 import sys
-from math import radians
+from math import atan2, degrees, radians
 import tempfile
 import traceback
 from pathlib import Path
@@ -24,7 +24,7 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import crown_fusion, measure, occlusion_prepare  # noqa: E402
+from omfs_planner import crown_fusion, measure, occlusion_prepare, ortho_movement  # noqa: E402
 from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy  # noqa: E402
 
 omfs_planner.register()
@@ -1297,6 +1297,104 @@ def test_snapshot_helpers():
         assert tuple(result.size) == (70, 50), result.size
         bpy.data.images.remove(result)
     scene.omfs_section.orientation, scene.omfs_section.offset = 'AXIAL', 0.0
+
+
+def test_lefort_movement():
+    """Mouvement du Le Fort: the maxilla and the upper teeth (and their scan) move as one block on the reference
+    frame; points and occlusal plane followed live; the lower teeth stay."""
+    scene = bpy.context.scene
+    reference_frame.build(scene, FRAME_POINTS)       # frame axes = world axes (x left, y posterior)
+    for obj in [o for o in scene.objects if o.omfs.role == 'SEGMENT']:
+        obj.omfs.role = 'OTHER'
+    seg = box_object("Maxillaire distal (Le Fort I)", 'SEGMENT', (0, -30, -40), (50, 40, 20))
+    seg.omfs.made_by = "Ortho osteotomy: Maxillaire"
+    teeth = box_object("Le Fort upper teeth", 'TEETH', (0, -30, -54), (40, 30, 10))   # roots 1 mm in the maxilla
+    lower = box_object("Le Fort lower teeth", 'TEETH', (0, -30, -75), (40, 30, 10))
+    scan = box_object("Le Fort upper scan", 'SCAN', (0, -30, -56), (40, 30, 4))
+    scan.omfs_reg.target = teeth
+    placed = {'UI': (0, -45, -58), 'CUSP_R': (-20, -30, -56), 'CUSP_L': (20, -30, -56), 'ANS': (0, -50, -32),
+              'PNS': (0, 0, -35), 'A': (0, -48, -40)}
+    for lm_id, co in placed.items():
+        landmarks.place(scene, lm_id, co, seg)
+    bpy.context.view_layer.update()
+    assert movement.preset_of(seg) == 'LEFORT' and ortho_movement.segment(scene) == seg
+    assert movement.segment_of(scene, 'GENIO') is None, "the genioplasty panel doesn't show the Le Fort"
+    teeth_preop, lower_preop = teeth.matrix_world.copy(), lower.matrix_world.copy()
+
+    ortho_movement.prepare(scene, seg)
+    props = seg.omfs_move
+    assert props.preset == 'LEFORT' and props.axes == 'FRAME' and props.pivot_kind == 'UI'
+    assert {f.obj for f in props.followers} == {teeth, scan}, [f.obj.name for f in props.followers]
+
+    props.anterior, props.up = 5.0, 2.0
+    assert_close(teeth.matrix_world.translation, teeth_preop.translation + Vector((0, -5, 2)), "teeth follow")
+    assert_close(scan.matrix_world.translation, (0, -5, 2), "scan follows")
+    assert lower.matrix_world == lower_preop, "the mandible's teeth stay (they will follow the occlusion)"
+    rows = {name: d for name, _p, d in movement.tracked_rows(scene, seg)}
+    assert set(rows) == {"ANS", "PNS", "Point A", "Upper incisor midline"}, "cusps: occlusal plane only"
+    assert_close(rows["ANS"], (0, 5, 2), "ANS: 5 forward, 2 up")
+
+    (sag0, cant0), (sag1, cant1) = ortho_movement.occlusal_report(scene, seg)
+    assert abs(sag0 - degrees(atan2(2, 15))) < 1e-4 and abs(cant0) < 1e-6 and abs(sag1 - sag0) < 1e-4
+    props.pitch = radians(5)                         # front up, about the upper incisor
+    (_s, _c), (sag1, cant1) = ortho_movement.occlusal_report(scene, seg)
+    assert abs(sag1 - (sag0 - 5)) < 1e-3 and abs(cant1) < 1e-3, (sag1, cant1)
+    props.pitch, props.roll = 0.0, radians(3)        # left side up
+    (_s, _c), (sag1, cant1) = ortho_movement.occlusal_report(scene, seg)
+    assert abs(cant1 - 3) < 1e-3, cant1
+    assert_close(movement.tracked_rows(scene, seg)[2][2], (0, 5, 2), "the pivot (incisor) only translates")
+
+    from types import SimpleNamespace as NS
+    from omfs_planner import ortho_ui
+
+    class Layout:                                    # records labels: the panel draws without errors
+        labels = []
+
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: Layout.labels.append(kwargs.get("text", "")) or self
+
+        def __setattr__(self, name, value):
+            pass
+    context = NS(scene=scene, region=NS(width=300), preferences=bpy.context.preferences)
+    ortho_ui.OMFS_PT_lefort_movement.draw(NS(layout=Layout()), context)
+    assert any(t.startswith("Sagittal") for t in Layout.labels) and "Bougent ensemble" in Layout.labels, Layout.labels
+
+    # Additive (surgeon, 2026-11-19): 10 mm advance and 2 degrees about point A, then pivot on PNS and correct the
+    # pitch from there: nothing restarts from zero, the correction turns about PNS where it is now.
+    movement.back_to_preop(scene, seg)
+    props.pivot_kind = 'A'
+    props.anterior, props.pitch = 10.0, radians(2)
+    pose = seg.matrix_world.copy()
+    w = movement.world_movement(scene, seg)
+    pns, a = (Vector(placed[k]) for k in ('PNS', 'A'))
+    pns_now, a_now = w @ pns, w @ a
+    props.pivot_kind = 'PNS'
+    assert max(abs(x - y) for r, q in zip(seg.matrix_world, pose) for x, y in zip(r, q)) < 1e-4, \
+        "changing the pivot doesn't move anything"
+    assert abs(props.pitch - radians(2)) < 1e-6, "the rotation is kept"
+    assert_close(movement.tracked_rows(scene, seg)[3][2], movement.displacement(scene, seg, pns), "now: PNS's movement")
+    props.pitch = radians(3)                          # +1 degree, about PNS
+    w = movement.world_movement(scene, seg)
+    assert_close(w @ pns, pns_now, "PNS stays put")
+    turn = Matrix.Rotation(radians(1), 3, Vector((-1, 0, 0)))   # + pitch = front up: about -left
+    assert_close(w @ a, pns_now + turn @ (a_now - pns_now), "A turns 1 degree about PNS")
+    assert_close(teeth.matrix_world @ Vector(), w @ Vector(), "the teeth follow the whole movement")
+
+    movement.back_to_preop(scene, seg)
+    assert_close(teeth.matrix_world.translation, teeth_preop.translation, "teeth back exactly")
+    props.anterior = 4.0
+    movement.remove_follower(seg, [f.obj for f in props.followers].index(teeth))
+    assert_close(teeth.matrix_world.translation, teeth_preop.translation, "no longer following: pre-op")
+    movement.add_follower(scene, seg, teeth)
+    assert_close(teeth.matrix_world.translation, teeth_preop.translation + Vector((0, -4, 0)), "follows again")
+    assert movement.follower_problem(scene, seg, teeth), "can't follow twice"
+    movement.release_followers(seg)
+    assert_close(teeth.matrix_world.translation, teeth_preop.translation, "released: pre-op")
+    for lm_id in placed:
+        bpy.data.objects.remove(landmarks.find(scene, lm_id))
+    for obj in (seg, teeth, lower, scan):
+        bpy.data.objects.remove(obj)
+    scene.omfs_movement.segment = None
 
 
 def test_segment_movement():

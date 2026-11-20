@@ -29,7 +29,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
                              transplanted (occlusal / incisal anatomy identical), seam to the CBCT tooth;
                              roots untouched, new mesh, CBCT mesh kept; splints / chape accept these teeth
   ops_import.py              "Import Case" operator
-  movement.py                segment movement (Step 5): 6 DOF on the osteotomy plane or frame axes
+  movement.py                segment movement (Step 5): 6 DOF on the osteotomy plane or frame axes; presets per
+                             segment type (genioplasty, Le Fort, BSSO), followers carried by a segment
   movement_gizmos.py         drag arrows / rings for the segment movement, on the movement axes
   occlusion.py               occlusion seating: arch scans, rigid mobile blocks, pre-op ghost
   occlusion_prepare.py       seating's first step: hide everything but the two arch scans, clean their open
@@ -69,7 +70,9 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
                              along the view up to two pterygomaxillary stops, then down at 90°; BSSO, a buccal vertical cut
                              (2 clicks) down to the nerve canal, then a curve (clicks) to the lingual cortex; then the bone (a copy) split into
                              distal / proximal segments; separate from the genioplasty plane (osteotomy.py)
-  ortho_ui.py                "Ostéotomies orthognathiques" panel (OMFS tab)
+  ortho_movement.py          Le Fort I movement: maxilla + upper teeth as one block (followers), tracked points
+                             (ANS, A, upper incisor, PNS), occlusal plane vs Frankfort
+  ortho_ui.py                "Ostéotomies orthognathiques" and "Mouvement du Le Fort" panels (OMFS tab)
   volume_scene.py            Segmentation workspace: a DentalSeg .nrrd (drag and drop) -> one live surface per
                              structure (threshold, pieces, smoothing), pieces given to another structure or
                              deleted (voxel flood fill), then imported into the plan with their roles

@@ -27,6 +27,20 @@ LANDMARKS = (
     ('CA_L', "Canine apex L", "Root apex of the left mandibular canine", "Mandible"),
     ('POG', "Pogonion", "Most anterior point of the bony chin", "Mandible"),
     ('ME', "Menton", "Lowest point of the mandibular symphysis", "Mandible"),
+    ('ANS', "ANS", "Anterior nasal spine: tip of the spine", "Maxilla and occlusion"),
+    ('PNS', "PNS", "Posterior nasal spine: posterior end of the hard palate", "Maxilla and occlusion"),
+    ('A', "Point A", "Deepest midline point of the maxillary concavity, between ANS and the upper incisors",
+     "Maxilla and occlusion"),
+    ('B', "Point B", "Deepest midline point of the mandibular concavity, between the lower incisors and pogonion",
+     "Maxilla and occlusion"),
+    ('UI', "Upper incisor midline", "Incisal edge of the upper incisors at the dental midline (between the centrals)",
+     "Maxilla and occlusion"),
+    ('LI', "Lower incisor midline", "Incisal edge of the lower incisors at the dental midline (between the centrals)",
+     "Maxilla and occlusion"),
+    ('CUSP_R', "Upper premolar cusp R", "Buccal cusp tip of the right upper premolar (occlusal plane)",
+     "Maxilla and occlusion"),
+    ('CUSP_L', "Upper premolar cusp L", "Buccal cusp tip of the left upper premolar (occlusal plane)",
+     "Maxilla and occlusion"),
 )
 BY_ID = {lm[0]: lm for lm in LANDMARKS}
 

@@ -31,7 +31,7 @@ import numpy as np
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
-from . import landmarks, locking, params, reference_frame, scene_setup
+from . import landmarks, locking, movement, params, reference_frame, scene_setup
 
 MADE_BY = "Ortho osteotomy"
 COLLECTION = "Ostéotomies orthognathiques"
@@ -545,6 +545,7 @@ def set_cuts_hidden(scene, source, hide):
 
 def rejoin(scene, source):
     for obj in pieces_of(scene, source):
+        movement.release_followers(obj)   # the upper teeth back to their pre-op place
         mesh = obj.data
         bpy.data.objects.remove(obj)
         if mesh.users == 0:
@@ -563,6 +564,8 @@ def separate(context, source):
         return [], "Tracez d'abord un trait sur cet os"
     if context.mode != 'OBJECT':
         bpy.ops.object.mode_set(mode='OBJECT')
+    previous = {movement.preset_of(o): movement.remember(o) for o in pieces_of(scene, source)
+                if o.omfs.role == 'SEGMENT'}   # a planned movement survives re-separating
     rejoin(scene, source)
     cutters = cutter_slabs(found)
     mesh = boolean_cut(context, source, cutters)
@@ -605,6 +608,7 @@ def separate(context, source):
         if o == distal:
             o.name = f"{source.name} distal (Le Fort I)" if 'LEFORT' in kinds else f"{source.name} distale"
             o.omfs.role = 'SEGMENT'
+            o.omfs_move.preset = 'LEFORT' if 'LEFORT' in kinds else 'BSSO'
             locking.set_locked(o, False)
         else:
             side = "gauche" if (centres[o] - centres[distal]) @ left > 0 else "droit"
@@ -619,6 +623,8 @@ def separate(context, source):
             collection(scene).objects.link(o)
     source.hide_set(True)
     set_cuts_hidden(scene, source, True)      # the segments are seen without the cuts and their points
+    if previous.get(movement.preset_of(distal)) is not None:
+        movement.init_segment(scene, distal, previous[movement.preset_of(distal)])
     warning = None
     if len(big) < expected:
         how = ("BSSO : prolongez la courbe orange jusqu'à sortir par le cortex lingual" if kinds & SPLIT_KINDS else

@@ -1,7 +1,13 @@
 """Segment movement (Step 5): 6 degrees of freedom on clinical axes, with live numbers.
 
-Generic: any SEGMENT object (the genioplasty chin today, Le Fort I / BSSO segments later).
-Genioplasty specifics are presets: the tracked points (pogonion, menton) and the pivots offered.
+Generic: any SEGMENT object. What differs between operations is a preset (obj.omfs_move.preset): the
+tracked points, the pivots offered and the axes allowed.
+- GENIO (genioplasty chin): pogonion and menton; osteotomy plane or reference frame axes.
+- LEFORT (Le Fort I maxilla): ANS, point A, upper incisor midline, PNS; reference frame.
+- BSSO (mandibular body): moved by the occlusion later; no panel yet.
+
+Followers: other objects carried rigidly by the same movement (e.g. the upper teeth and their scan
+with the Le Fort I). Each keeps its own pre-op pose, so it goes back exactly; removing one puts it back.
 
 The movement is stored as six numbers on the segment (obj.omfs_move): translation left /
 anterior / up (mm) and rotation pitch / roll / yaw (degrees), about a pivot, on one of two sets
@@ -38,20 +44,22 @@ from mathutils import Euler, Matrix, Vector
 
 from . import landmarks, locking, reference_frame
 
-# Genioplasty preset: the points whose net movement is shown, and the pivots offered.
-TRACKED = ('POG', 'ME')
-PIVOTS = (
-    ('POG', "Pogonion", "Rotate about the pogonion (before the move); the midline goes through it"),
-    ('ME', "Menton", "Rotate about the menton (before the move); the midline goes through it"),
-    ('CENTRE', "Segment centre", "Rotate about the centre of the segment's bounding box"),
-)
+# Every pivot ever offered (the enum's numbers stay fixed: saved files keep their choice).
+ALL_PIVOTS = ('POG', 'ME', 'CENTRE', 'UI', 'ANS', 'A', 'PNS')
+PRESETS = {   # tracked points (net movement shown), pivots offered, axes allowed
+    'GENIO': {'tracked': ('POG', 'ME'), 'pivots': ('POG', 'ME', 'CENTRE'), 'axes': ('CUT', 'FRAME')},
+    'LEFORT': {'tracked': ('ANS', 'A', 'UI', 'PNS'),   # premolar cusps: only for the occlusal plane
+               'pivots': ('UI', 'ANS', 'A', 'PNS', 'CENTRE'), 'axes': ('FRAME',)},
+    'BSSO': {'tracked': ('LI', 'B', 'POG', 'ME'), 'pivots': ('LI', 'POG', 'CENTRE'), 'axes': ('FRAME',)},
+}
+ORTHO_MADE_BY = "Ortho osteotomy"   # ortho_osteotomy.MADE_BY (that module imports this one)
 AXES = (
     ('CUT', "Osteotomy plane", "Advance slides along the cut (in the midsagittal plane), "
                                "up is perpendicular to the cut"),
     ('FRAME', "Reference frame", "Frankfort horizontal, midsagittal and coronal planes"),
 )
 VALUES = ('left', 'anterior', 'up', 'pitch', 'roll', 'yaw')
-CARRIED = (*VALUES, 'axes', 'pivot_kind', 'pivot', 'locked', 'show_labels')
+CARRIED = ('preset', *VALUES, 'axes', 'pivot_kind', 'pivot', 'locked', 'show_labels')
 
 LABEL_BACKGROUND = (0.0, 0.0, 0.0, 0.65)
 LABEL_TEXT = (1.0, 1.0, 1.0, 1.0)
@@ -162,11 +170,37 @@ def is_segment(obj):
     return obj is not None and obj.type == 'MESH' and obj.omfs.role == 'SEGMENT'
 
 
-def active_segment(scene):
+def preset_of(obj):
+    """The segment's preset; segments separated before presets existed are recognised by their maker."""
+    if obj.omfs_move.preset:
+        return obj.omfs_move.preset
+    if obj.omfs.made_by.startswith(ORTHO_MADE_BY):
+        return 'LEFORT' if "(Le Fort I)" in obj.name else 'BSSO'
+    return 'GENIO'
+
+
+def preset(obj):
+    return PRESETS[preset_of(obj)]
+
+
+def segments(scene, kind=None):
+    return [o for o in scene.objects if is_segment(o) and (kind is None or preset_of(o) == kind)]
+
+
+def segment_of(scene, kind):
+    """The segment of this kind shown in its panel: the one the handles drive if it is of this kind, else the first."""
     chosen = scene.omfs_movement.segment
-    if is_segment(chosen):
+    if is_segment(chosen) and chosen.name in scene.objects and preset_of(chosen) == kind:
         return chosen
-    return next((o for o in scene.objects if is_segment(o)), None)
+    return next(iter(segments(scene, kind)), None)
+
+
+def active_segment(scene):
+    """The segment the drag handles drive: the one chosen, else the genioplasty segment, else the first."""
+    chosen = scene.omfs_movement.segment
+    if is_segment(chosen) and chosen.name in scene.objects:
+        return chosen
+    return segment_of(scene, 'GENIO') or next(iter(segments(scene)), None)
 
 
 def preop_centre(obj):
@@ -182,8 +216,9 @@ def pivot_world(scene, obj, kind):
     return lm.matrix_world.translation.copy() if lm else None
 
 
-def init_segment(scene, obj, previous=None):
-    """Store the pre-op pose of a new segment, lock its transform, carry over a previous movement."""
+def init_segment(scene, obj, previous=None, kind=None, followers=()):
+    """Store the pre-op pose of a new segment, lock its transform, carry over a previous movement
+    (and its followers), or start with these followers."""
     global _syncing
     props = obj.omfs_move
     props.preop = obj.matrix_world.copy()
@@ -195,11 +230,19 @@ def init_segment(scene, obj, previous=None):
             for name in CARRIED:
                 setattr(props, name, previous[name])
         else:
-            props.axes = 'CUT' if cut_of(scene, obj) else 'FRAME'
-            props.pivot_kind = next((k for k in ('POG', 'ME') if landmarks.find(scene, k)), 'CENTRE')
+            props.preset = kind or preset_of(obj)
+            props.axes = 'CUT' if cut_of(scene, obj) and 'CUT' in preset(obj)['axes'] else 'FRAME'
+            props.pivot_kind = next((k for k in preset(obj)['pivots'] if k == 'CENTRE' or landmarks.find(scene, k)),
+                                    'CENTRE')
             props.pivot = pivot_world(scene, obj, props.pivot_kind)
     finally:
         _syncing = False
+    props.followers.clear()
+    for follower, preop in (previous or {}).get('followers', [(f, None) for f in followers]):
+        if follower is not None and follower.name in scene.objects:
+            item = props.followers.add()
+            item.obj = follower
+            item.preop = preop if preop is not None else follower.matrix_world.copy()
     apply(scene, obj)
 
 
@@ -208,8 +251,9 @@ def remember(obj):
     props = obj.omfs_move
     if not props.has_preop:
         return None
-    return {name: (tuple(getattr(props, name)) if name == 'pivot' else getattr(props, name))
-            for name in CARRIED}
+    kept = {name: (tuple(getattr(props, name)) if name == 'pivot' else getattr(props, name)) for name in CARRIED}
+    kept['followers'] = [(f.obj, Matrix(f.preop)) for f in props.followers if f.obj is not None]
+    return kept
 
 
 def apply(scene, obj):
@@ -217,7 +261,47 @@ def apply(scene, obj):
     props = obj.omfs_move
     if _syncing or not props.has_preop or frame_axes(scene) is None:
         return
-    obj.matrix_world = world_movement(scene, obj) @ props.preop
+    w = world_movement(scene, obj)
+    obj.matrix_world = w @ props.preop
+    for item in props.followers:
+        if item.obj is not None and item.obj.name in scene.objects:
+            item.obj.matrix_world = w @ Matrix(item.preop)
+
+
+# --- Followers -------------------------------------------------------------------------
+
+def follower_problem(scene, segment, obj):
+    if obj is None or obj == segment or obj.name not in scene.objects:
+        return "Objet introuvable"
+    if obj.parent is not None:
+        return f"{obj.name} est rattaché à {obj.parent.name} (bloc d'occlusion ?) : retirez-le d'abord"
+    if any(f.obj == obj for s in segments(scene) for f in s.omfs_move.followers):
+        return f"{obj.name} suit déjà un segment"
+    return None
+
+
+def add_follower(scene, segment, obj):
+    """obj moves with the segment from now on. It has not moved yet: where it is now is its pre-op pose,
+    and it joins the segment's current movement at once."""
+    item = segment.omfs_move.followers.add()
+    item.obj = obj
+    item.preop = obj.matrix_world.copy()
+    apply(scene, segment)
+
+
+def remove_follower(segment, index):
+    """Stop following: the object goes back to its pre-op pose."""
+    followers = segment.omfs_move.followers
+    item = followers[index]
+    if item.obj is not None:
+        item.obj.matrix_world = Matrix(item.preop)
+    followers.remove(index)
+
+
+def release_followers(segment):
+    """Every follower back to its pre-op pose (the segment is about to be deleted)."""
+    while segment.omfs_move.followers:
+        remove_follower(segment, 0)
 
 
 def set_pivot(scene, obj, kind):
@@ -302,7 +386,7 @@ def is_moved(obj):
 def tracked_rows(scene, obj, on_axes=None):
     """[(landmark name, pre-op world point, (left, anterior, up))] for the tracked points placed."""
     rows = []
-    for lm_id in TRACKED:
+    for lm_id in preset(obj)['tracked']:
         lm = landmarks.find(scene, lm_id)
         if lm is not None:
             point = lm.matrix_world.translation.copy()
@@ -320,6 +404,25 @@ def describe(left, anterior, up):
 
 
 # --- Properties and operators ---------------------------------------------------------
+
+_pivot_items = {}
+
+
+def _pivots(props, _context):
+    """Pivots offered for this segment's preset (kept in a cache: Blender needs the strings to stay alive)."""
+    kind = props.preset or 'GENIO'
+    if kind not in _pivot_items:
+        names = {'CENTRE': ("Centre du segment", "Rotate about the centre of the segment's bounding box")}
+        _pivot_items[kind] = [(k, *(names.get(k) or (landmarks.BY_ID[k][1],
+                                                     f"Rotate about {landmarks.BY_ID[k][1]} (before the move)")),
+                               ALL_PIVOTS.index(k)) for k in PRESETS[kind]['pivots']]
+    return _pivot_items[kind]
+
+
+class OMFS_Follower(bpy.types.PropertyGroup):
+    obj: bpy.props.PointerProperty(type=bpy.types.Object)
+    preop: bpy.props.FloatVectorProperty(size=(4, 4), subtype='MATRIX', options={'HIDDEN'})
+
 
 def _on_value(props, context):
     apply(context.scene, props.id_data)
@@ -357,7 +460,7 @@ class OMFS_MoveProperties(bpy.types.PropertyGroup):
     yaw: bpy.props.FloatProperty(
         name="Yaw", subtype='ANGLE', step=10, update=_on_value,
         description="Rotation about the vertical axis; + = the front of the segment turns to the patient's left")
-    pivot_kind: bpy.props.EnumProperty(name="Pivot", items=PIVOTS, update=_on_pivot_kind,
+    pivot_kind: bpy.props.EnumProperty(name="Pivot", items=_pivots, update=_on_pivot_kind,
                                        description="Point the rotations turn about (the segment doesn't move when it changes)")
     axes: bpy.props.EnumProperty(name="Axes", items=AXES, update=_on_axes,
                                  description="Axes the six values are measured on (the segment doesn't move when it changes)")
@@ -368,6 +471,8 @@ class OMFS_MoveProperties(bpy.types.PropertyGroup):
                                    description="Hide the drag handles: the segment moves only by typed values")
     show_labels: bpy.props.BoolProperty(name="Labels in the view", default=True,
                                         description="Show the net movement of the tracked points next to them")
+    preset: bpy.props.StringProperty(options={'HIDDEN'})   # GENIO, LEFORT, BSSO (see PRESETS)
+    followers: bpy.props.CollectionProperty(type=OMFS_Follower)
 
 
 class OMFS_MovementSceneProperties(bpy.types.PropertyGroup):
@@ -382,11 +487,73 @@ class OMFS_OT_segment_preop(bpy.types.Operator):
     bl_label = "Retour préop"
     bl_options = {'REGISTER', 'UNDO'}
 
+    segment_name: bpy.props.StringProperty()   # empty: the segment the handles drive
+
     def execute(self, context):
-        obj = active_segment(context.scene)
-        if obj is None:
+        obj = context.scene.objects.get(self.segment_name) if self.segment_name else active_segment(context.scene)
+        if not is_segment(obj):
             return {'CANCELLED'}
         back_to_preop(context.scene, obj)
+        return {'FINISHED'}
+
+
+class OMFS_OT_segment_handles(bpy.types.Operator):
+    """Put the drag handles (arrows and rings) on this segment"""
+    bl_idname = "omfs.segment_handles"
+    bl_label = "Poignées sur ce segment"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    segment_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        obj = context.scene.objects.get(self.segment_name)
+        if not is_segment(obj):
+            return {'CANCELLED'}
+        context.scene.omfs_movement.segment = obj
+        return {'FINISHED'}
+
+
+class OMFS_OT_add_follower(bpy.types.Operator):
+    """Make the selected objects move with this segment (same rigid movement, their shape untouched)"""
+    bl_idname = "omfs.add_follower"
+    bl_label = "Ajouter la sélection"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    segment_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        segment = context.scene.objects.get(self.segment_name)
+        if not is_segment(segment):
+            return {'CANCELLED'}
+        added = []
+        for obj in context.selected_objects:
+            problem = follower_problem(context.scene, segment, obj)
+            if problem:
+                self.report({'WARNING'}, problem)
+                continue
+            add_follower(context.scene, segment, obj)
+            added.append(obj.name)
+        if not added:
+            self.report({'ERROR'}, "Sélectionnez les objets à faire suivre (clic dans la vue ou l'Outliner)")
+            return {'CANCELLED'}
+        self.report({'INFO'}, f"Suivent {segment.name} : " + ", ".join(added))
+        return {'FINISHED'}
+
+
+class OMFS_OT_remove_follower(bpy.types.Operator):
+    """This object stops following the segment and goes back to its pre-op position"""
+    bl_idname = "omfs.remove_follower"
+    bl_label = "Ne plus suivre"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    segment_name: bpy.props.StringProperty()
+    index: bpy.props.IntProperty()
+
+    def execute(self, context):
+        segment = context.scene.objects.get(self.segment_name)
+        if not is_segment(segment) or not 0 <= self.index < len(segment.omfs_move.followers):
+            return {'CANCELLED'}
+        remove_follower(segment, self.index)
         return {'FINISHED'}
 
 
@@ -427,24 +594,22 @@ class OMFS_OT_guide_preop(bpy.types.Operator):
 
 # --- Drawing: tracked points and their labels ----------------------------------------------
 
-def _shown(context):
+def shown(context):
+    """Segments whose tracked points are drawn: pre-op stored, labels on, visible, a reference frame."""
     scene = context.scene
-    obj = active_segment(scene)
-    if obj is None or not obj.omfs_move.has_preop or not obj.omfs_move.show_labels:
-        return None
-    if not obj.visible_get() or frame_axes(scene) is None:
-        return None
-    return obj
+    if frame_axes(scene) is None:
+        return []
+    return [o for o in segments(scene) if o.omfs_move.has_preop and o.omfs_move.show_labels and o.visible_get()]
 
 
 def _draw_tracks():
     """A line from each tracked point before the move to where the segment takes it."""
     context = bpy.context
-    obj = _shown(context)
-    if obj is None or not is_moved(obj):
-        return
-    movement = world_movement(context.scene, obj)
-    points = [(p, movement @ p) for _name, p, _d in tracked_rows(context.scene, obj)]
+    points = []
+    for obj in shown(context):
+        if is_moved(obj):
+            movement = world_movement(context.scene, obj)
+            points += [(p, movement @ p) for _name, p, _d in tracked_rows(context.scene, obj)]
     if not points:
         return
     gpu.state.depth_test_set('NONE')
@@ -460,44 +625,52 @@ def _draw_tracks():
     gpu.state.point_size_set(1.0)
 
 
+def short(left, anterior, up):
+    """One line for a crowded view, e.g. "av 6.0 · bas 2.0 · g 0.3"."""
+    def word(value, plus, minus):
+        return f"{plus if value >= 0 else minus} {abs(value):.1f}"
+    return " · ".join((word(anterior, "av", "rec"), word(up, "haut", "bas"), word(left, "g", "d")))
+
+
 def _draw_labels():
-    """A small box next to each tracked point (moved): its net translation in clinical words."""
+    """A small box next to each tracked point: its net translation in clinical words (one line per value
+    for the genioplasty's two points, one compact line each when there are more)."""
     context = bpy.context
-    obj = _shown(context)
-    if obj is None:
-        return
     region, rv3d = context.region, context.region_data
-    movement = world_movement(context.scene, obj)
     scale = context.preferences.system.ui_scale
     font = 0
     blf.size(font, 13 * scale)
     line_h, pad = 16 * scale, 6 * scale
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     gpu.state.blend_set('ALPHA')
-    for i, (name, point, d) in enumerate(tracked_rows(context.scene, obj)):
-        xy = location_3d_to_region_2d(region, rv3d, movement @ point)
-        if xy is None:
-            continue
-        total = Vector(d).length
-        lines = [f"{name}   {total:.1f} mm", *describe(*d)]
-        width = max(blf.dimensions(font, text)[0] for text in lines) + 2 * pad
-        height = len(lines) * line_h + pad
-        # First point's box above-right, the next below-right: pogonion and menton are close.
-        x = xy.x + 14 * scale
-        y = xy.y + 10 * scale if i % 2 == 0 else xy.y - 10 * scale - height
-        corners = [(x, y), (x + width, y), (x + width, y + height), (x, y + height)]
-        shader.uniform_float("color", LABEL_BACKGROUND)
-        batch_for_shader(shader, 'TRI_FAN', {"pos": corners}).draw(shader)
-        for row, text in enumerate(lines):
-            blf.color(font, *(TRACK_COLOUR if row == 0 else LABEL_TEXT))
-            blf.position(font, x + pad, y + height - (row + 1) * line_h + 2 * scale, 0)
-            blf.draw(font, text)
+    for obj in shown(context):
+        movement = world_movement(context.scene, obj)
+        compact = len(preset(obj)['tracked']) > 2
+        for i, (name, point, d) in enumerate(tracked_rows(context.scene, obj)):
+            xy = location_3d_to_region_2d(region, rv3d, movement @ point)
+            if xy is None:
+                continue
+            total = Vector(d).length
+            lines = [f"{name}   {total:.1f} mm", short(*d)] if compact else [f"{name}   {total:.1f} mm", *describe(*d)]
+            width = max(blf.dimensions(font, text)[0] for text in lines) + 2 * pad
+            height = len(lines) * line_h + pad
+            # Boxes alternately above-right and below-right: neighbouring points are close.
+            x = xy.x + 14 * scale
+            y = xy.y + 10 * scale if i % 2 == 0 else xy.y - 10 * scale - height
+            corners = [(x, y), (x + width, y), (x + width, y + height), (x, y + height)]
+            shader.uniform_float("color", LABEL_BACKGROUND)
+            batch_for_shader(shader, 'TRI_FAN', {"pos": corners}).draw(shader)
+            for row, text in enumerate(lines):
+                blf.color(font, *(TRACK_COLOUR if row == 0 else LABEL_TEXT))
+                blf.position(font, x + pad, y + height - (row + 1) * line_h + 2 * scale, 0)
+                blf.draw(font, text)
     gpu.state.blend_set('NONE')
 
 
 _draw_handles = []
 
-classes = (OMFS_MoveProperties, OMFS_MovementSceneProperties, OMFS_OT_segment_preop, OMFS_OT_guide_follow,
+classes = (OMFS_Follower, OMFS_MoveProperties, OMFS_MovementSceneProperties, OMFS_OT_segment_preop,
+           OMFS_OT_segment_handles, OMFS_OT_add_follower, OMFS_OT_remove_follower, OMFS_OT_guide_follow,
            OMFS_OT_guide_preop)
 
 
