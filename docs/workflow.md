@@ -517,7 +517,8 @@ Naming used below (matches the object roles in code):
     same direction: error to the true occlusion 0.32 / 0.48 mm (+1 / -1 mm) without release, 0.24 / 0.25
     mm at 3 mm, and more contact (right / left 89 / 127 -> 123 / 180 mm²); seating about 26 s instead of 16.
   - Segmental surgery of the upper arch: removed (surgeon, 2026-11-17), to be redesigned from scratch. The whole-arch
-    seating above is unchanged.
+    seating above is unchanged. New design direction (2026-11-19): seating on copies of the scans (occlusal
+    set-up), see "segmental Le Fort, occlusal set-up and the maxillomandibular block" below.
   - Contacts may be as large as the dental anatomy allows: more contact area is better, no upper limit.
   - Stability: "stable tripod" when there is contact on the right, anterior and left (>= 1 mm² each).
     Anterior = the canine to canine zone above, so a premolar touching the distal slope of the upper
@@ -595,7 +596,7 @@ Naming used below (matches the object roles in code):
       occlusion must also be possible. Expect adjustments once the segmentations are brought in.
     - The block: the upper / lower relation found on the scans by the seating gives the mandible's position
       relative to the maxilla; when the Le Fort moves, the mandible distal segment and the lower teeth follow
-      it in that relation (confirmed as described).
+      it in that relation (confirmed as described). How: by the teeth, see the design section below.
     - Autorotation (later, for mandible-first or maxilla-first surgery and the intermediate splint: one jaw
       back at its pre-op position, the other at its final one): opening / closing the vertical dimension (DVO)
       about a condylar hinge axis, through the posterior-superior points of both condyles.
@@ -603,6 +604,44 @@ Naming used below (matches the object roles in code):
   LEFORT, BSSO: tracked points, pivots, axes) and followers (objects carried rigidly by a segment's movement,
   each with its own pre-op pose). "Réunir" / re-separating puts the followers back first; re-separating keeps
   the planned movement.
+
+## Orthognathic extension: segmental Le Fort, occlusal set-up and the maxillomandibular block (design, surgeon 2026-11-19, not coded yet)
+
+- Principle: as in real life, the occlusion is a relation between the **teeth** (the cusps together), not a
+  movement remembered as a matrix. Each bony piece finds its position by bringing its own teeth onto their
+  place in the occlusion. Works the same for 1 or N maxillary segments (most often 2 or 3, up to 5-7).
+  (Supersedes the first proposal, one matrix S "upper onto lower": meaningless once the Le Fort is in pieces.)
+- Why it can be exact: the CBCT teeth crowns are the scan's own triangles at position zero ("Modifier la
+  géométrie des dents CBCT", exact crowns), so every crown vertex has an exact twin in a copy of the scan.
+  Bringing a segment's teeth onto the set-up is a fit on thousands of known point pairs (Kabsch, like the
+  registration's point pairs), not an ICP: error zero as long as the set-up only moved the copies.
+- Order of the work:
+  1. Teeth registration: register each arch scan, "Canner la position dentaire initiale", "Modifier la
+     géométrie des dents CBCT".
+  2. Occlusal set-up ("montage occlusal"): the occlusion seating (same tools as today: springs, overlap map)
+     works on **copies** of the scans; the scans and the planning objects are never touched. Segmental case:
+     the copy of the upper arch is cut into segments that seat separately onto the lower; **the seating
+     decides** how many segments and where (upstream of drawing and mobilising the Le Fort).
+     Other source: import an occlusion (two STL already articulated, e.g. models mounted by hand), each
+     registered rigidly onto its arch: the same kind of set-up.
+     **Next coding step: the seating tool for a segmental case. Wait for the surgeon's instructions.**
+  3. Osteotomies: the Le Fort is drawn and separated; segmental case, bony cuts reproduce the segmentation of
+     the set-up (a line between the same teeth), so each bony segment carries exactly the teeth of one set-up
+     segment and bone and teeth move as one homogeneous piece (e.g. the posterior left segment: its bone and
+     its teeth together).
+  4. Le Fort movement: the **anchor** is the segment piloted in the panel, always the Le Fort. Segmental
+     case: the segment closest to the midline (usually the anterior one) is the anchor and gives the point
+     that doesn't move. Before moving, a first modification reproduces the set-up's segmentation on the bone:
+     the other maxillary segments take, relative to the anchor, the place their teeth have in the set-up.
+  5. Placement by the teeth, live: the whole set-up is placed onto the anchor (its teeth, in the set-up, onto
+     the anchor's teeth where the movement takes them); every other piece goes where its teeth coincide with
+     theirs in the set-up: the other maxillary segments, and the mandible distal segment with the lower teeth
+     (the "maxillomandibular block"). Recomputed whenever the anchor moves; the matrices are never stored,
+     always recomputed from the teeth.
+  6. The mandible has no controls of its own: it follows the occlusion. The proximal segments (ramus +
+     condyle) stay put.
+  7. Later: autorotation about the condylar hinge axis (posterior-superior points of both condyles), opening /
+     closing the vertical dimension, for maxilla-first / mandible-first surgery and the intermediate splint.
 
 ## Object creator: Splint / Chape
 
