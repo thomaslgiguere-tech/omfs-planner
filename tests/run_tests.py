@@ -786,6 +786,34 @@ def test_spring_release():
         bpy.data.objects.remove(occlusion.find_block(scene, arch_id))
 
 
+def test_anatomy_pickers_take_segmentation_imports():
+    """Teeth / bone imported from the Segmentation workspace (made_by "Segmentation") can be chosen for the scan's
+    registration and the genioplasty; the workspace's own surfaces (another scene) and generated objects cannot."""
+    scene = bpy.context.scene
+    imported = box_object("Dents du bas", 'TEETH', (0, 0, 0), (10, 10, 10))
+    imported.omfs.made_by = "Segmentation"
+    other = bpy.data.scenes.new("Segmentation test")
+    working = bpy.data.objects.new("Seg · Dents du bas", imported.data)
+    working.omfs.role = 'TEETH'
+    other.collection.objects.link(working)
+    helper = box_object("Generated", 'TEETH', (0, 0, 0), (1, 1, 1))
+    helper.omfs.made_by = "Splint"
+    poll = registration._is_role('TEETH')
+    assert poll(None, imported), "the planning scene's imported teeth"
+    assert not poll(None, working), "not the Segmentation workspace's surface (another scene)"
+    assert not poll(None, helper), "not a generated object"
+    bone = box_object("Mandibule", 'BONE', (0, 0, 0), (10, 10, 10))
+    bone.omfs.made_by = "Segmentation"
+    assert osteotomy._is_bone(None, bone), "genioplasty: the imported mandible"
+    scan = box_object("Scan", 'SCAN', (0, 0, 0), (10, 10, 10))
+    scan.omfs_reg["target"] = working               # chosen before the fix (stored as is, bypassing the poll)
+    registration.default_partners(scene, scan)
+    assert scan.omfs_reg.target == imported, "the workspace surface is replaced by its import in this scene"
+    for obj in (imported, helper, bone, scan, working):
+        bpy.data.objects.remove(obj)
+    bpy.data.scenes.remove(other)
+
+
 def test_open_border_is_ignored():
     plane = box_object("Open scan", 'SCAN', (0, 0, 0), (10, 10, 1))
     bm = bmesh.new()

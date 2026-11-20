@@ -148,7 +148,7 @@ def members(block):
 def can_join(obj):
     """Meshes that are anatomy (not helpers), not already in a block or parented to something else."""
     return (obj.type == 'MESH' and obj.omfs.role not in roles.NOT_SURFACES
-            and obj.parent is None and not obj.omfs.made_by)
+            and obj.parent is None and obj.omfs.made_by in registration.ANATOMY_SOURCES)
 
 
 def add_member(block, obj):

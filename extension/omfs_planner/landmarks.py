@@ -112,7 +112,10 @@ def surface_hit(context, region, mouse):
 
 
 def object_hit(context, region, mouse, obj):
-    """Raycast from the mouse against one object only: world location of the hit, or None."""
+    """Raycast from the mouse against one object only: world location of the hit, or None (also when the object is
+    not in the current view layer: no evaluated mesh to hit)."""
+    if obj is None or obj.name not in context.view_layer.objects:
+        return None
     rv3d = region.data
     origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, mouse)
     direction = view3d_utils.region_2d_to_vector_3d(region, rv3d, mouse)

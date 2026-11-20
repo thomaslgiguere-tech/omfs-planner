@@ -856,7 +856,8 @@ class OMFS_OT_ortho_rejoin(bpy.types.Operator):
 # --- Properties ---------------------------------------------------------------------------------
 
 def _is_bone(_self, obj):
-    return obj.type == 'MESH' and obj.omfs.role == 'BONE' and not obj.omfs.made_by.startswith(MADE_BY)
+    return (obj.type == 'MESH' and obj.omfs.role == 'BONE' and not obj.omfs.made_by.startswith(MADE_BY)
+            and obj.name in bpy.context.scene.objects)
 
 
 class OMFS_OrthoCut(bpy.types.PropertyGroup):

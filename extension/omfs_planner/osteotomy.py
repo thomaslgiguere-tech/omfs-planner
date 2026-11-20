@@ -16,7 +16,7 @@ import bpy
 import numpy as np
 from mathutils import Euler, Matrix, Vector
 
-from . import landmarks, locking, movement, params, reference_frame
+from . import landmarks, locking, movement, params, reference_frame, registration
 
 COLLECTION = "Osteotomy"
 CUT_NAME = "Osteotomy plane"
@@ -352,7 +352,8 @@ def _on_cut_changed(props, context):
 
 
 def _is_bone(_props, obj):
-    return obj.type == 'MESH' and obj.omfs.role == 'BONE' and not obj.omfs.made_by
+    return (obj.type == 'MESH' and obj.omfs.role == 'BONE' and obj.omfs.made_by in registration.ANATOMY_SOURCES
+            and obj.name in bpy.context.scene.objects)
 
 
 class OMFS_CutProperties(bpy.types.PropertyGroup):

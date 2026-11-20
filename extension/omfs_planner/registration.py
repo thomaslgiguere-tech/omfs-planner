@@ -272,8 +272,14 @@ def write_distance_map(scan, indices, distances):
 
 # --- Properties and operators ---------------------------------------------------------
 
+ANATOMY_SOURCES = ("", "Segmentation")   # imported anatomy: plain imports, and the Segmentation workspace's import
+
+
 def _is_role(role):
-    return lambda _props, obj: obj.type == 'MESH' and obj.omfs.role == role and not obj.omfs.made_by
+    """Anatomy of that role in the current scene: imported, or imported from the Segmentation workspace; not the
+    workspace's own working surfaces (another scene: nothing to click there) nor generated objects."""
+    return lambda _props, obj: (obj.type == 'MESH' and obj.omfs.role == role and obj.omfs.made_by in ANATOMY_SOURCES
+                                and obj.name in bpy.context.scene.objects)
 
 
 class OMFS_RegistrationProperties(bpy.types.PropertyGroup):
@@ -302,6 +308,12 @@ def default_partners(scene, scan):
     teeth = [o for o in scene.objects if _is_role('TEETH')(None, o)]
     bones = [o for o in scene.objects if _is_role('BONE')(None, o)]
     props = scan.omfs_reg
+    for name, role in (("target", 'TEETH'), ("bone", 'BONE')):
+        chosen = getattr(props, name)
+        if chosen is not None and not _is_role(role)(None, chosen):
+            # e.g. a Segmentation workspace surface ("Seg · Dents du bas") chosen before: its import in this scene
+            twin = scene.objects.get(chosen.name.split(" · ", 1)[-1])
+            setattr(props, name, twin if twin is not None and _is_role(role)(None, twin) else None)
     if props.target is None and teeth:
         props.target = teeth[0]
     if props.bone is None and bones and props.target is not None:
