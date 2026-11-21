@@ -6,7 +6,7 @@ import time
 import bpy
 from mathutils import Vector
 
-from . import analysis, crown_fusion, cylinders, distance_map, pins, guide_workshop, landmarks, measure, model_base, new_case, screws, locking, movement, occlusion, occlusion_prepare, occlusion_segments, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
+from . import analysis, crown_fusion, cylinders, distance_map, pins, guide_workshop, landmarks, installation, measure, model_base, new_case, screws, locking, movement, occlusion, occlusion_prepare, occlusion_segments, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -237,6 +237,19 @@ def draw_new_case(context, layout):
     if not (existing and case.reuse):
         box.row().prop(case, "mode", expand=True)
     box.prop(case, "open_slices")
+    if not (existing and case.reuse) and new_case.tool_problem():
+        missing = box.column()
+        if installation.installing():
+            text, percent, _last = installation.install_progress()
+            missing.label(text=text, icon='SORTTIME')
+            if percent is not None:
+                missing.progress(factor=percent / 100.0, text=f"{percent} %")
+        else:
+            missing.alert = True
+            draw_text(missing, context, "La segmentation n'est pas encore installée sur cet ordinateur (une seule "
+                                        "fois, ~1 Go). En attendant : Autres imports > dossier de STL segmentés.")
+            missing.alert = False
+            missing.operator("omfs.install_missing", icon='IMPORT')
     row = box.row()
     row.scale_y = 1.5
     row.enabled = not new_case.running()

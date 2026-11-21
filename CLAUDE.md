@@ -29,6 +29,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
                              transplanted (occlusal / incisal anatomy identical), seam to the CBCT tooth;
                              roots untouched, new mesh, CBCT mesh kept; splints / chape accept these teeth
   ops_import.py              "Import Case" operator
+  installation.py            "Installation et mises à jour": checklist of this computer's components, "Installer ce qui
+                             manque" (segmentation/install.py in the background), git updates (fetch, pull --ff-only)
   new_case.py                "Nouveau cas": CBCT (DICOM) + upper / lower scan -> scans imported, AI segmentation in
                              the background (or reused), CBCT in the slices (worker thread), Segmentation workspace
                              when ready, registration partners set on import; next steps ticked in the Case panel
@@ -93,6 +95,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   ui.py                      sidebar tab "OMFS" in the 3D viewport
 app_template/omfs_planner/   Application Template: clean surgical UI + Developer mode
 tools/dev_link.sh            symlinks both into the Blender user dirs (development)
+segmentation/install.py      one-time installer (stdlib only): uv, Python 3.12 in segmentation/.venv, packages from
+                             requirements.lock.txt, DentalSegmentator weights (SHA-256 checked)
 tools/make_test_case.py      writes synthetic test meshes (never patient data)
 tools/print_spike/           Phase 0 spike of the print chain (scripts; report in docs/print_spike_report.md)
 tests/run_tests.py           headless tests: blender -b --factory-startup --python tests/run_tests.py

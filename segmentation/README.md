@@ -13,8 +13,10 @@ Moved here from `~/DentalSegApp` on 2026-11-13, so the tool lives in one place w
 | `DentalSeg.app` | Compiled launcher (not in git; rebuild with `osacompile -o segmentation/DentalSeg.app segmentation/DentalSeg.applescript`). |
 | `model/` | DentalSegmentator weights (236 MB; not in git: large, third-party licence, see the Zenodo record). |
 
-Python environment: `~/miniconda3/envs/dentalseg` (nnU-Net v2, PyTorch with MPS, SimpleITK, pynrrd, SciPy).
-It stays outside the repo (1.5 GB, machine-specific).
+Python environment: made once per computer by `install.py` (OMFS Planner > Installation et mises à jour >
+"Installer ce qui manque"): Python 3.12 in `segmentation/.venv` (git-ignored, ~1.1 GB) with the exact versions
+of `requirements.lock.txt`, and the weights in `model/`. The original development machine uses
+`~/miniconda3/envs/dentalseg` (still found when `.venv` is absent).
 
 Labels: 1 maxilla & upper skull, 2 mandible, 3 upper teeth, 4 lower teeth, 5 mandibular canal. These map onto
 OMFS Planner's roles BONE, BONE, TEETH, TEETH, NERVE.

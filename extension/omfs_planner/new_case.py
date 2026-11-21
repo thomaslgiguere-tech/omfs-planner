@@ -49,9 +49,14 @@ def _preferences():
 
 
 def segmentation_python():
+    """The preferences' choice, else the environment made by "Installer ce qui manque" (segmentation/.venv),
+    else params.DICOM_PYTHON (a conda environment made by hand)."""
     prefs = _preferences()
     chosen = prefs.segmentation_python if prefs is not None else ""
-    return Path(os.path.expanduser(chosen or params.DICOM_PYTHON))
+    if chosen:
+        return Path(os.path.expanduser(chosen))
+    installed = segmentation_folder() / ".venv" / "bin" / "python"
+    return installed if installed.exists() else Path(os.path.expanduser(params.DICOM_PYTHON))
 
 
 def segmentation_folder():
@@ -66,11 +71,11 @@ def tool_problem():
     """Why the segmentation can't run on this machine, or None."""
     python, folder = segmentation_python(), segmentation_folder()
     if not python.exists():
-        return f"Python de segmentation introuvable : {python} (Préférences de l'extension)"
+        return "Segmentation non installée : panneau Installation et mises à jour > Installer ce qui manque"
     if not (folder / "segment.py").exists():
         return f"segment.py introuvable dans {folder} (Préférences de l'extension)"
     if not (folder / "model" / "Dataset111_453CT").exists():
-        return f"Poids du modèle DentalSegmentator absents : {folder / 'model'} (voir segmentation/README.md)"
+        return "Poids du modèle absents : panneau Installation et mises à jour > Installer ce qui manque"
     return None
 
 

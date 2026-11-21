@@ -9,6 +9,7 @@ import os
 import sys
 from math import atan2, degrees, radians
 import tempfile
+import time
 import traceback
 from pathlib import Path
 
@@ -25,7 +26,7 @@ from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
 from omfs_planner import crown_fusion, measure, occlusion_prepare, occlusion_segments, occlusion_segment_seat, ortho_movement  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy, new_case  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy, new_case, installation  # noqa: E402
 
 omfs_planner.register()
 
@@ -3202,6 +3203,37 @@ def test_new_case_streamlined():
         bpy.data.scenes.remove(scene)
     case.upper = case.lower = None
     case.status = 'NONE'
+
+
+def test_installation_checklist_and_job():
+    """The checklist lists every component; the segmentation Python found in order (preferences, the installer's
+    .venv, the conda default); "Installer ce qui manque" runs install.py in the background and reads its steps."""
+    keys = [c[0] for c in installation.components()]
+    assert keys == ["blender", "computer", "python", "model", "git", "prusaslicer", "uvtools"], keys
+    saved = new_case.segmentation_folder
+    with tempfile.TemporaryDirectory() as folder:
+        folder = Path(folder)
+        new_case.segmentation_folder = lambda: folder
+        try:
+            assert new_case.segmentation_python() == Path(os.path.expanduser(params.DICOM_PYTHON))
+            (folder / ".venv" / "bin").mkdir(parents=True)
+            (folder / ".venv" / "bin" / "python").write_text("")
+            assert new_case.segmentation_python() == folder / ".venv" / "bin" / "python", "the installer's env first"
+            assert installation.segmentation_missing(), "no weights yet"
+            (folder / "install.py").write_text(
+                "import time\nprint('ÉTAPE 5/6 : poids', flush=True)\nprint('AVANCE 40', flush=True)\n"
+                "time.sleep(0.6)\nprint('TERMINÉ', flush=True)\n")
+            installation.start_install()
+            assert installation.installing()
+            time.sleep(0.3)
+            text, percent, _last = installation.install_progress()
+            assert text.startswith("ÉTAPE 5/6") and percent == 40, (text, percent)
+            installation._Install.process.wait(timeout=20)
+            installation._watch()
+            assert installation._Install.result == "TERMINÉ" and not installation.installing()
+        finally:
+            new_case.segmentation_folder = saved
+    assert (REPO / "segmentation" / "install.py").exists() and (REPO / "segmentation" / "requirements.lock.txt").exists()
 
 
 def test_ortho_osteotomies():

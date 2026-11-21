@@ -1299,13 +1299,18 @@ class OMFS_Preferences(bpy.types.AddonPreferences):
 
     segmentation_python: bpy.props.StringProperty(
         name="Python de segmentation", subtype='FILE_PATH',
-        description="Python de l'environnement dentalseg (SimpleITK, nnU-Net). Vide: " + params.DICOM_PYTHON)
+        description="Python avec SimpleITK et nnU-Net. Vide: celui de « Installer ce qui manque » "
+                    "(segmentation/.venv), sinon " + params.DICOM_PYTHON)
     segmentation_folder: bpy.props.StringProperty(
         name="Dossier segmentation", subtype='DIR_PATH',
         description="Dossier qui contient segment.py, dicom_to_nrrd.py et model/. Vide: le dossier segmentation "
                     "du dépôt (à côté de l'extension)")
 
     def draw(self, context):
+        from . import installation
+        box = self.layout.box()
+        box.label(text="Installation et mises à jour", icon='PACKAGE')
+        installation.draw(box, context)
         self.layout.label(text="Nouveau cas: lecture DICOM et segmentation (laisser vide pour les valeurs par défaut)")
         self.layout.prop(self, "segmentation_python")
         self.layout.prop(self, "segmentation_folder")

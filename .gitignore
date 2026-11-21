@@ -30,6 +30,9 @@ segmentation/model/
 *.mhd
 *.pth
 segmentation/DentalSeg.app/
+# Made by segmentation/install.py on each computer
+segmentation/.venv/
+segmentation/.tools/
 
 # Print spike (tools/print_spike): generated files
 tools/print_spike/out/

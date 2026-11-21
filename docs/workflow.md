@@ -56,6 +56,8 @@ The streamlined start (OMFS tab > Case > Nouveau cas): only three inputs, the re
 - The segmentation keeps running if Blender closes (own process); its result is picked up by the next
   "Démarrer". Paths of the external tools (Python with SimpleITK / nnU-Net, segmentation folder with the model)
   are in the extension's preferences; empty = this machine's defaults.
+- On a computer without the segmentation, the Nouveau cas box says so and offers "Installer ce qui manque"
+  (panel Installation et mises à jour: environment ~1 GB + model weights, once, in the background).
 - The former entries stay, folded under "Autres imports": a folder of already segmented STLs (Import Case),
   a DentalSeg .nrrd, the slice viewer alone.
 
