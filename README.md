@@ -16,7 +16,7 @@ une dans le panneau. Le déroulement clinique complet est dans [docs/workflow.md
 2. **Le projet**, dans le Terminal (la première commande `git` propose d'installer les outils Xcode d'Apple :
    acceptez) :
    ```sh
-   git clone https://github.com/<compte>/omfs-planner.git ~/Projects/omfs-planner
+   git clone https://github.com/thomaslgiguere-tech/omfs-planner.git ~/Projects/omfs-planner
    ~/Projects/omfs-planner/tools/dev_link.sh 5.2
    ```
    `dev_link.sh` relie l'extension de ce dossier à Blender : Blender lit toujours la version présente ici.
