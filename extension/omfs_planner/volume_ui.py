@@ -12,7 +12,8 @@ class OMFS_PT_volume_entry(bpy.types.Panel):
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "OMFS"
-    bl_order = 0
+    bl_order = 2
+    bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context):

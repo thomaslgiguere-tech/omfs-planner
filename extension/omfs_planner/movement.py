@@ -285,6 +285,8 @@ def preop_matrix(scene, obj):
     (or is one), else where it is."""
     if is_segment(obj) and obj.omfs_move.has_preop:
         return Matrix(obj.omfs_move.preop)
+    if obj.parent is not None and obj.parent.omfs.role == 'BLOCK':   # in an occlusion block: its own transform
+        return obj.matrix_basis.copy()
     for seg in segments(scene):
         for item in seg.omfs_move.followers:
             if item.obj == obj:

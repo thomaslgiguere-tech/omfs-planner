@@ -29,6 +29,9 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
                              transplanted (occlusal / incisal anatomy identical), seam to the CBCT tooth;
                              roots untouched, new mesh, CBCT mesh kept; splints / chape accept these teeth
   ops_import.py              "Import Case" operator
+  new_case.py                "Nouveau cas": CBCT (DICOM) + upper / lower scan -> scans imported, AI segmentation in
+                             the background (or reused), CBCT in the slices (worker thread), Segmentation workspace
+                             when ready, registration partners set on import; next steps ticked in the Case panel
   movement.py                segment movement (Step 5): 6 DOF on the osteotomy plane or frame axes; presets per
                              segment type (genioplasty, Le Fort, BSSO), followers carried by a segment
   movement_gizmos.py         drag arrows / rings for the segment movement, on the movement axes
@@ -37,7 +40,10 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
                              borders (band, spikes, crumbs; still open, original mesh kept)
   occlusion_seating.py       springs between the arches, seating solver (upper onto the fixed lower), overlap map
   occlusion_segments.py      segmental set-up, step 1: copy of the upper arch, palatal midline cut, candidate cuts at
-                             the contacts (proximal walls), planes centred between the roots (CBCT); hover / click
+                             the contacts (proximal walls), planes centred between the roots (CBCT); hover / click;
+                             split into segments with zero thickness
+  occlusion_segment_seat.py  segmental seating: each segment on the lower arch (seating solver), angulation hold
+                             (rotational spring), "Selon la courbe" (contact copies of the neighbours)
   splint.py                  Object creator: Splint (coverage points -> two surfaces, automatic round outline) /
                              Chape (arch curve); blank, imprints, solid, text
   splint_holes.py            splint option: wire holes in the buccal flange (click, slide, click; one Boolean)
@@ -79,6 +85,10 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
                              structure (threshold, pieces, smoothing), pieces given to another structure or
                              deleted (voxel flood fill), then imported into the plan with their roles
   volume_ui.py               "Segmentation (.nrrd)" entry (OMFS tab) and the "Segmentation" tab
+  slice_core.py              slice viewer core, numpy only: grayscale NRRD (LPS), trilinear reslicing, window / level,
+                             mesh section by a plane (tests: python3 tests/test_slice_core.py)
+  slice_viewer.py            Coupes: CBCT in Quad View (axial / sagittal / coronal + 3D), mesh contours in colour,
+                             mouse modal (wheel, left + right scroll, crosshair, window / level); draft, docs/slice_viewer.md
   point_balls.py             clicked points (landmarks, splint points, osteotomy lines) drawn as solid shaded balls
   ui.py                      sidebar tab "OMFS" in the 3D viewport
 app_template/omfs_planner/   Application Template: clean surgical UI + Developer mode
@@ -168,7 +178,7 @@ Millimetres everywhere: **1 Blender unit = 1 mm** (scene unit scale 0.001, lengt
 
 ## Planned features (in order; details in docs/workflow.md)
 
-1. Import + scene setup  *(done: Import Case)*
+1. Import + scene setup  *(done: Nouveau cas = CBCT + two scans; Import Case = folder of STLs)*
 2. Register the intraoral scan onto the CBCT teeth (point matching, then rigid ICP on crowns only)
 3. Reference frame: three perpendicular planes from landmarks (Frankfort horizontal by default)
 4. Osteotomy plane(s): technique picker, then place the cut planes

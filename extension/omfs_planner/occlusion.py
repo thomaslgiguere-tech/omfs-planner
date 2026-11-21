@@ -424,6 +424,9 @@ class OMFS_OT_select_block(bpy.types.Operator):
     arch: bpy.props.StringProperty()
 
     def execute(self, context):
+        if self.arch == 'UPPER':
+            from . import occlusion_segments   # here: it is loaded after this module
+            occlusion_segments.adopt(context.scene)   # the set-up copy moves with the block, not the hidden scan
         block = find_block(context.scene, self.arch)
         if block is None:
             return {'CANCELLED'}
@@ -446,6 +449,9 @@ class OMFS_OT_toggle_ghost(bpy.types.Operator):
     arch: bpy.props.StringProperty()
 
     def execute(self, context):
+        if self.arch == 'UPPER':
+            from . import occlusion_segments   # here: it is loaded after this module
+            occlusion_segments.adopt(context.scene)
         block = find_block(context.scene, self.arch)
         if block is None:
             return {'CANCELLED'}

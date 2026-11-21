@@ -760,6 +760,8 @@ class OMFS_OT_volume_import(bpy.types.Operator):
         if not made:
             self.report({'ERROR'}, "Aucune structure visible à importer")
             return {'CANCELLED'}
+        from . import new_case
+        new_case.structures_imported(target, made)
         if context.window is not None:
             context.window.scene = target
             scene_setup.setup_scene(context)

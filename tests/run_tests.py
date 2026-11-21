@@ -24,8 +24,8 @@ from mathutils import Euler, Matrix, Vector  # noqa: E402
 from mathutils.bvhtree import BVHTree  # noqa: E402
 import bmesh  # noqa: E402
 from omfs_planner import locking  # noqa: E402
-from omfs_planner import crown_fusion, measure, occlusion_prepare, occlusion_segments, ortho_movement  # noqa: E402
-from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy  # noqa: E402
+from omfs_planner import crown_fusion, measure, occlusion_prepare, occlusion_segments, occlusion_segment_seat, ortho_movement  # noqa: E402
+from omfs_planner import analysis, distance_map, guide_workshop, landmarks, movement, occlusion, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, cylinders, pins, model_base, tidy, screws, sleeves, trim, print_chain, print_profiles, print_scene, volume_scene, ortho_osteotomy, new_case  # noqa: E402
 
 omfs_planner.register()
 
@@ -1333,9 +1333,20 @@ def test_segmental_cut_candidates():
     group.add(list(range(crown_count)), 1.0, 'REPLACE')
     scene.omfs_occlusion.upper = upper
 
+    block = occlusion.find_block(scene, 'UPPER')
+    spring_point = occlusion_seating.add_point(scene, "OCC_U1", "Haut 1", Vector((0, 22, -8)), upper)
     copy = occlusion_segments.make_copy(scene, upper)
     assert copy.data is not upper.data and not upper.visible_get() and occlusion_segments.setup_copy(scene, upper) == copy
-    st = occlusion_segments.state(copy)
+    # the copy takes the scan's place in the upper block (the scan never moves again), with the springs' points
+    assert copy.parent == block and upper.parent is None and spring_point.parent == copy
+    assert occlusion_seating.upper_parts(scene) == [copy]
+    assert_close(spring_point.matrix_world.translation, (0, 22, -8), "spring point unchanged")
+    block.matrix_world = Matrix.Translation((0, 3, 1)) @ block.matrix_world
+    bpy.context.view_layer.update()
+    assert_close(copy.matrix_world.translation, (0, 3, 1), "the copy moves with the block")
+    assert upper.matrix_world == Matrix(), "the scan doesn't"
+    st = occlusion_segments.state(copy)   # read at position zero, whatever the block did
+    bpy.data.objects.remove(spring_point)
     arch = st['arch']
     origin, anterior, to_left, _occlusal = arch['frame']
     found = [(origin + q[0] * to_left + q[1] * anterior)[:2]
@@ -1360,9 +1371,82 @@ def test_segmental_cut_candidates():
     assert (lab[far_right], lab[front], lab[far_left]) == (0, 1, 2), (lab[far_right], lab[front], lab[far_left])
     occlusion_segments.toggle(copy, arch['cuts'].index(right))   # click again: removed
     assert occlusion_segments.state(copy)['count'] == 2
+    occlusion_segments.toggle(copy, arch['cuts'].index(right))
 
-    scene.omfs_occlusion.upper = None
-    for obj in (copy, upper):
+    # Split with zero thickness: nothing removed (same area), the new vertices on the cuts' planes
+    def area(obj):
+        return sum(p.area for p in obj.data.polygons)
+    whole = area(copy)
+    pieces = occlusion_segments.split(scene, copy)
+    centre = sum((o.matrix_world @ v.co for o in pieces for v in o.data.vertices), Vector()) / sum(len(o.data.vertices) for o in pieces)
+    zero = sum((v.co for v in copy.data.vertices), Vector()) / len(copy.data.vertices)
+    assert (centre - zero - Vector((0, 3, 1))).length < 0.5, "the segments start where the copy was (block moved)"
+    for o in pieces:   # back to position zero for the checks below
+        o.matrix_world = Matrix.Translation((0, -3, -1)) @ o.matrix_world
+        o.omfs_setup.preop = o.matrix_world
+    assert [o.name for o in pieces] == ["Segment 1", "Segment 2", "Segment 3"] and not copy.visible_get()
+    assert abs(sum(area(o) for o in pieces) - whole) < 1e-3 * whole, (sum(area(o) for o in pieces), whole)
+    assert [o.omfs_setup.anterior for o in pieces] == [False, True, False]
+    assert [o.omfs_setup.hold for o in pieces] == [70.0, 100.0, 70.0], "the incisors' angulation: 100 %"
+    assert len(pieces[1].omfs_setup.contacts) == 2 and len(pieces[0].omfs_setup.contacts) == 1
+    on_plane = [abs((Vector(o.matrix_world @ v.co) - Vector(right['point'])).dot(Vector(right['normal'])))
+                for o in pieces[:2] for v in o.data.vertices]
+    assert sum(d < 1e-4 for d in on_plane) > 20, "vertices exactly on the right cut's plane, on both sides"
+
+    # Seat on a flat lower arch 0.5 mm below the cusps: down to the overlap limit; 100 %: the angle kept exactly
+    bm = bmesh.new()
+    bmesh.ops.create_grid(bm, x_segments=80, y_segments=80, size=40.0)
+    bmesh.ops.translate(bm, vec=(0, 0, -8.5), verts=bm.verts)
+    mesh = bpy.data.meshes.new("Seg lower")
+    bm.to_mesh(mesh)
+    bm.free()
+    lower = bpy.data.objects.new("Seg lower", mesh)
+    scene.collection.objects.link(lower)
+    lower.omfs.role = 'SCAN'
+    scene.omfs_occlusion.lower = lower
+    props = scene.omfs_occlusion
+    back = pieces[0]
+    back.omfs_setup.hold = 100.0
+    back.matrix_world = Matrix.Translation((0, 0, 0.4)) @ back.matrix_world @ Matrix.Rotation(radians(3), 4, 'X')
+    _n, ok, turned, overlap = occlusion_segment_seat.seat_segment(scene, back)
+    low = min((back.matrix_world @ v.co).z for v in back.data.vertices)
+    assert turned < 1e-4, turned
+    assert -8.5 - props.tolerance_posterior - 0.05 < low < -8.5 + 0.05, (low, props.tolerance_posterior)
+    # 70 %: some rotation allowed towards the contact, less than the whole tilt
+    back.matrix_world = Matrix(back.omfs_setup.preop) @ Matrix.Rotation(radians(3), 4, 'X')
+    back.omfs_setup.hold = 70.0
+    _n, ok, turned, _overlap = occlusion_segment_seat.seat_segment(scene, back)
+    assert 0.0 < turned < 3.0, turned
+
+    # "Selon la courbe": the anterior segment, lifted 1.5 mm and shifted, comes back to its neighbours' contacts
+    front = pieces[1]
+    for o in pieces:
+        o.matrix_world = Matrix(o.omfs_setup.preop)
+    front.matrix_world = Matrix.Translation((0.8, 0.0, 1.5)) @ front.matrix_world
+
+    def gaps():
+        return [((front.matrix_world @ Vector(c.co)) - (c.other.matrix_world @ Vector(c.other_co))).length
+                for c in front.omfs_setup.contacts]
+    start = max(gaps())
+    occlusion_segment_seat.seat_segment(scene, front, curve=True)
+    assert max(gaps()) < 0.5 * start, (start, gaps())
+    low = min((front.matrix_world @ v.co).z for v in front.data.vertices)
+    assert low < -8.5 + 0.05, "still in occlusion: the incisors touch"
+
+    # the overlap map on a split set-up: each segment and the lower arch coloured, the deepest overlap read
+    occlusion_seating.write_overlap_map(scene)
+    for obj in pieces + [lower]:
+        assert obj.data.color_attributes.get(occlusion_seating.MAP_ATTRIBUTE) is not None, obj.name
+    assert [u for u, _a in occlusion_seating.map_uppers(scene)] == pieces
+    assert 0.0 <= props.max_overlap < 0.5, props.max_overlap
+    assert occlusion_seating.map_is_current(scene)
+    front.matrix_world = Matrix.Translation((0, 0, 0.3)) @ front.matrix_world
+    assert not occlusion_seating.map_is_current(scene), "a segment moved: the map is out of date"
+
+    occlusion_segments.unsplit(scene, copy)
+    assert not occlusion_segments.segments_of(scene, copy) and copy.visible_get()
+    scene.omfs_occlusion.upper = scene.omfs_occlusion.lower = None
+    for obj in (copy, upper, lower):
         bpy.data.objects.remove(obj)
 
 
@@ -3043,6 +3127,81 @@ def test_volume_segmentation_workspace():
     for obj in list(scene.objects):
         bpy.data.objects.remove(obj)
     bpy.data.scenes.remove(scene)
+
+
+def test_new_case_streamlined():
+    """Nouveau cas: a CBCT + two scans. The scans come in with their role and names; a segmentation already next
+    to the CBCT is reused (Segmentation workspace), its import gives each scan its partners; a fresh one runs in
+    the background (a stand-in segment.py here) and opens when its file appears."""
+    plan = bpy.context.scene
+    case = plan.omfs_case
+    saved = new_case.segmentation_python, new_case.segmentation_folder
+    with tempfile.TemporaryDirectory() as folder:
+        folder = Path(folder)
+        make_test_case.main(folder / "meshes")
+        scans = sorted((folder / "meshes").glob("*scan*.*"))
+        assert len(scans) >= 1, sorted(p.name for p in (folder / "meshes").iterdir())
+        cbct = folder / "synthetic"                  # a DICOM folder: its result is synthetic_probabilites.nrrd
+        cbct.mkdir()
+        result, _data, _d, _o = synthetic_segmentation(folder)
+        assert new_case.segmentation_result(cbct) == result
+        assert new_case.input_problems(case), "empty fields are refused"
+        case.cbct, case.upper_file, case.lower_file = str(cbct), str(scans[0]), str(scans[-1])
+        case.open_slices, case.reuse = False, True
+        assert not new_case.input_problems(case)
+        bpy.ops.omfs.new_case()
+        upper, lower = plan.objects.get("Scan du haut"), plan.objects.get("Scan du bas")
+        assert upper is not None and lower is not None and upper.omfs.role == lower.omfs.role == 'SCAN'
+        assert case.upper == upper and case.lower == lower and not locking.is_locked(upper)
+        assert case.status == 'READY' and volume_scene.volume_scene() is not None, "the existing result is reused"
+        bpy.ops.omfs.volume_import()
+        assert case.status == 'IMPORTED'
+        assert upper.omfs_reg.bone.name == "Maxillaire" and lower.omfs_reg.bone.name == "Mandibule"
+        steps = new_case.next_steps(plan)
+        assert steps[0][0] and steps[1][0] and not steps[2][0], steps
+        bpy.ops.omfs.case_arches()
+        assert plan.omfs_occlusion.upper == upper and plan.omfs_occlusion.lower == lower
+        plan.omfs_occlusion.upper = plan.omfs_occlusion.lower = None
+
+        bpy.ops.omfs.new_case()                      # again: replaces the scans, never duplicates
+        assert sum(1 for o in plan.objects if o.name.startswith("Scan du haut")) == 1
+
+        tools = folder / "tools"                     # a fresh segmentation, in the background
+        (tools / "model" / "Dataset111_453CT").mkdir(parents=True)
+        (tools / "segment.py").write_text(
+            "import shutil, sys, time\n"
+            "print('[00:00:00] Segmentation nnUNet sur le GPU', flush=True)\n"
+            f"time.sleep(0.5); shutil.copy({str(result)!r}, sys.argv[-1].rstrip('/') + '_probabilites.nrrd')\n")
+        moved = folder / "synthetic_probabilites_saved.nrrd"
+        result.rename(moved)
+        new_case.segmentation_python = lambda: Path(sys.executable)
+        new_case.segmentation_folder = lambda: tools
+        try:
+            (tools / "segment.py").write_text((tools / "segment.py").read_text().replace(str(result), str(moved)))
+            assert new_case.tool_problem() is None
+            with bpy.context.temp_override(scene=plan):       # the reuse above left the Segmentation scene current
+                bpy.ops.omfs.new_case()
+            assert case.status == 'RUNNING' and new_case.running()
+            try:
+                with bpy.context.temp_override(scene=plan):
+                    bpy.ops.omfs.new_case()
+                raise AssertionError("one job at a time")
+            except RuntimeError as error:
+                assert "déjà en cours" in str(error)
+            new_case._Job.process.wait(timeout=30)
+            new_case.poll()
+            assert case.status == 'READY' and result.exists(), (case.status, case.message)
+        finally:
+            new_case.segmentation_python, new_case.segmentation_folder = saved
+    for obj in [o for o in plan.objects if o.omfs.made_by == "Segmentation" or o.name.startswith("Scan du")]:
+        bpy.data.objects.remove(obj)
+    scene = volume_scene.volume_scene()
+    if scene is not None:
+        for obj in list(scene.objects):
+            bpy.data.objects.remove(obj)
+        bpy.data.scenes.remove(scene)
+    case.upper = case.lower = None
+    case.status = 'NONE'
 
 
 def test_ortho_osteotomies():

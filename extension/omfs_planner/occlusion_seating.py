@@ -385,7 +385,7 @@ def zone_planes(scene):
     """(upper plane, lower plane). The upper point is the canine tip, so the distal slope of the canine
     needs a margin; the lower point is the canine / premolar embrasure, already the limit."""
     props = scene.omfs_occlusion
-    return (zone_plane(scene, props.upper, 'U', params.OCC_CANINE_ZONE_MARGIN),
+    return (zone_plane(scene, upper_parts(scene)[0] if props.upper else None, 'U', params.OCC_CANINE_ZONE_MARGIN),
             zone_plane(scene, props.lower, 'L', 0.0))
 
 
@@ -410,19 +410,31 @@ def zone_ready(scene):
 
 # One seating: the mobile object (and its block) is pulled onto the fixed one. pairs = [(point on the
 # fixed side, point on the mobile side)]; the planes close the anterior zone of each side.
-Seating = namedtuple("Seating", "fixed mobile block pairs fixed_plane mobile_plane")
+# hold: None, or (stiffness, reference rotation 3 x 3 world): a rotational spring pulling the mobile block back to
+# the orientation the surgeon gave it (segmental seating, "Tenue de l'angulation").
+Seating = namedtuple("Seating", "fixed mobile block pairs fixed_plane mobile_plane hold", defaults=(None,))
+
+
+def rotation_error(rotation, reference):
+    """Rotation vector (radians, world) taking the reference orientation to this one."""
+    q = Matrix(np.array(rotation) @ np.array(reference).T).to_quaternion()
+    axis, angle = q.to_axis_angle()
+    angle = angle if angle <= np.pi else angle - 2 * np.pi
+    return np.array(axis) * angle
 
 
 def upper_parts(scene):
-    """What stands for the upper arch (a list, for the code that also takes the lower arch)."""
-    return [scene.omfs_occlusion.upper]
+    """What stands for the upper arch (a list, for the code that also takes the lower arch): the set-up copy
+    ("(montage)") once it has taken the scan's place in the upper block, else the scan."""
+    from . import occlusion_segments   # here: it is loaded after this module
+    return [occlusion_segments.stand_in(scene)]
 
 
 def seatings(scene):
     """The seating to run: the upper block onto the fixed lower arch."""
     props = scene.omfs_occlusion
     upper_plane, lower_plane = zone_planes(scene)
-    return [Seating(props.lower, props.upper, occlusion.find_block(scene, 'UPPER'),
+    return [Seating(props.lower, upper_parts(scene)[0], occlusion.find_block(scene, 'UPPER'),
                     [(low, up) for up, low in point_pairs(scene)], lower_plane, upper_plane)]
 
 
@@ -583,6 +595,13 @@ def energy(job, guides, contacts, motion=None):
         if motion is not None:
             moving = moving @ motion[:3, :3].T + motion[:3, 3]
         total += float(guides.spring_weights @ ((fixed - moving) ** 2).sum(axis=1))
+    if job.hold is not None:   # the rotational spring: away from the surgeon's angle costs
+        stiffness, reference = job.hold
+        rotation = np.array(job.block.matrix_world.to_3x3().normalized())
+        if motion is not None:
+            rotation = motion[:3, :3] @ rotation
+        e = rotation_error(rotation, reference)
+        total += stiffness * float(e @ e)
     reach = params.OCC_MAGNET_RANGE
     for d, limit, magnet in ((contacts.d1, guides.limit1, contacts.magnet1), (contacts.d2, guides.limit2, contacts.magnet2)):
         gap = np.clip(np.nan_to_num(d[magnet], nan=reach), 0.0, reach)
@@ -609,6 +628,11 @@ def full_step(job, guides, contacts, centre, free):
     w = np.sqrt(guides.magnet_weight)
     a += [w * rows1[near1], w * rows2[near2]]
     b += [-w * c.d1[near1], w * c.d2[near2]]   # close the gaps
+    if job.hold is not None:   # the rotational spring: turn back towards the surgeon's angle
+        stiffness, reference = job.hold
+        e = rotation_error(job.block.matrix_world.to_3x3().normalized(), reference)
+        a.append(np.sqrt(stiffness) * np.hstack((np.eye(3), np.zeros((3, 3)))))
+        b.append(-np.sqrt(stiffness) * e)
     held1, rhs1 = held_points(rows1, c.d1, guides.limit1)
     held2, rhs2 = held_points(-rows2, c.d2, guides.limit2)
     free = np.eye(6) if free is None else free
@@ -756,27 +780,65 @@ def robust_overlap(d, area):
     return float(-d[inside][order][k])
 
 
+def map_uppers(scene):
+    """[(upper object, anterior?)] coloured by the map: the segments once the set-up is split (anterior: the
+    segment with the incisors), else the upper arch (anterior by the canine zone: None)."""
+    from . import occlusion_segments   # here: it is loaded after this module
+    upper = scene.omfs_occlusion.upper
+    copy = occlusion_segments.setup_copy(scene, upper) if upper is not None else None
+    pieces = [o for o in occlusion_segments.segments_of(scene, copy) if o.visible_get()] if copy is not None else []
+    if pieces:
+        return [(o, o.omfs_setup.anterior) for o in pieces]
+    return [(upper_parts(scene)[0], None)]
+
+
 def write_overlap_map(scene):
-    """Colour both arches by their signed distance to the other one; store the summary."""
+    """Colour both arches by their signed distance to the other one; store the summary. Split set-up: each
+    segment against the lower arch, the lower arch against the nearest segment."""
     props = scene.omfs_occlusion
-    lower, upper = props.lower, props.upper
+    lower = props.lower
+    uppers = map_uppers(scene)
     upper_plane, lower_plane = zone_planes(scene)
     deepest = {True: 0.0, False: 0.0}   # anterior, posterior
-    for obj, other, own_plane, other_plane in ((lower, upper, lower_plane, upper_plane),
-                                               (upper, lower, upper_plane, lower_plane)):
-        points = registration.vertex_coords(obj)
-        d, closest, _normals = signed_distances(points, other, params.OCC_SEARCH_DISTANCE)
+
+    def paint(obj, d):
         mesh = obj.data
         attr = mesh.color_attributes.get(MAP_ATTRIBUTE) or mesh.color_attributes.new(
             MAP_ATTRIBUTE, 'FLOAT_COLOR', 'POINT')
         attr.data.foreach_set("color", overlap_colours(d).ravel())
         mesh.color_attributes.active_color = attr
-        area = vertex_areas(obj)
-        anterior = anterior_contacts(own_plane, other_plane, points, closest)
+
+    def keep(d, area, anterior):
         for zone, part in ((True, anterior), (False, ~anterior)):
             deepest[zone] = max(deepest[zone], robust_overlap(d[part], area[part]))
-        if obj is lower:
-            contact_areas(scene, lower, points, d, anterior)
+
+    # the lower arch, against the nearest upper part at each vertex
+    points = registration.vertex_coords(lower)
+    best_d = np.full(len(points), np.nan)
+    best_anterior = np.zeros(len(points), dtype=bool)
+    for upper, segment_anterior in uppers:
+        d, closest, _normals = signed_distances(points, upper, params.OCC_SEARCH_DISTANCE)
+        with np.errstate(invalid='ignore'):
+            better = ~np.isnan(d) & (np.isnan(best_d) | (d < best_d))
+        best_d[better] = d[better]
+        if segment_anterior is None:
+            ant = anterior_contacts(lower_plane, upper_plane, points, closest)
+        else:
+            ant = in_zone(lower_plane, points) | segment_anterior
+        best_anterior[better] = ant[better]
+    paint(lower, best_d)
+    keep(best_d, vertex_areas(lower), best_anterior)
+    contact_areas(scene, lower, points, best_d, best_anterior)
+    # each upper part against the lower arch
+    for upper, segment_anterior in uppers:
+        points = registration.vertex_coords(upper)
+        d, closest, _normals = signed_distances(points, lower, params.OCC_SEARCH_DISTANCE)
+        paint(upper, d)
+        if segment_anterior is None:
+            ant = anterior_contacts(upper_plane, lower_plane, points, closest)
+        else:
+            ant = np.full(len(points), bool(segment_anterior)) | in_zone(lower_plane, closest)
+        keep(d, vertex_areas(upper), ant)
     props.max_overlap_anterior, props.max_overlap_posterior = deepest[True], deepest[False]
     props.max_overlap = max(deepest.values())
     props.map_state = repr(map_key(scene))
@@ -817,7 +879,7 @@ def map_key(scene):
     """What the map depends on: the transforms of both arches."""
     props = scene.omfs_occlusion
     return tuple(tuple(round(v, 4) for row in obj.matrix_world for v in row)
-                 for obj in [props.lower] + upper_parts(scene))
+                 for obj in [props.lower] + [u for u, _a in map_uppers(scene)])
 
 
 def map_is_current(scene):
@@ -991,7 +1053,7 @@ class OMFS_OT_add_occlusion_pair(bpy.types.Operator):
             self.report({'ERROR'}, "Choisissez d'abord l'arcade du haut et l'arcade du bas")
             return {'CANCELLED'}
         props = context.scene.omfs_occlusion
-        self.arches = (props.upper, props.lower)
+        self.arches = (upper_parts(context.scene)[0], props.lower)
         self.area = context.area if context.area and context.area.type == 'VIEW_3D' else next(
             (a for a in context.screen.areas if a.type == 'VIEW_3D'), None)
         if self.key:
@@ -1093,6 +1155,8 @@ class OMFS_OT_seat_occlusion(bpy.types.Operator):
 
     def ready(self, context):
         scene = context.scene
+        from . import occlusion_segments
+        occlusion_segments.adopt(scene)   # a set-up copy made before: it takes the scan's place first
         if not arches_ready(scene):
             self.report({'ERROR'}, "Choisissez d'abord l'arcade du haut et l'arcade du bas")
             return False

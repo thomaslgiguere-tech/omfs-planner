@@ -33,6 +33,34 @@ Naming used below (matches the object roles in code):
 
 ## Step 1. Import STL meshes
 
+### Nouveau cas: one CBCT + two scans (surgeon, 2026-11-21)
+
+The streamlined start (OMFS tab > Case > Nouveau cas): only three inputs, the rest follows.
+
+- Inputs: the CBCT's DICOM folder (or one .dcm of the series, or a .nrrd / .nii), the upper and the lower
+  intraoral scans (STL, OBJ or PLY). Segmentation mode: Précis (default, ~20-30 min on the M5 Pro, safest on a
+  coarse scan) or Rapide (~3-5 min).
+- "Démarrer":
+  1. the two scans are imported (raw coordinates, role Scan), named "Scan du haut" and "Scan du bas";
+  2. the AI segmentation (DentalSegmentator, segmentation/segment.py) runs in the background, Blender stays
+     usable; the panel shows the elapsed time and the log's last line. If a segmentation of this CBCT already
+     sits next to it (`<folder>_probabilites.nrrd`), it is reused (checkbox), nothing recomputed;
+  3. the CBCT opens in the slice viewer (Coupes), read in a worker thread (checkbox);
+  4. when the segmentation is ready (macOS notification), the Segmentation workspace opens: check the pieces,
+     correct, "Valider et importer". The slices then show the AI surfaces as contours on the gray image;
+  5. on import, each scan gets its registration partners (upper scan: "Dents du haut" + "Maxillaire"; lower:
+     "Dents du bas" + "Mandibule").
+- The Case panel then ticks the next steps: scans imported, segmentation imported, scans registered (Teeth
+  Registration), landmarks and reference frame. In Assise de l'occlusion, one button takes the two scans of
+  the case as the upper and lower arches.
+- The segmentation keeps running if Blender closes (own process); its result is picked up by the next
+  "Démarrer". Paths of the external tools (Python with SimpleITK / nnU-Net, segmentation folder with the model)
+  are in the extension's preferences; empty = this machine's defaults.
+- The former entries stay, folded under "Autres imports": a folder of already segmented STLs (Import Case),
+  a DentalSeg .nrrd, the slice viewer alone.
+
+### Import Case: a folder of segmented meshes
+
 - Inputs: bone reconstruction STL (from DICOM), skin surface STL (from the same CBCT, for Step 6), scan teeth STL (from the digital impression / intra-oral scan, crowns only), CBCT teeth STL (separate segmentation from the DICOM, whole teeth with roots), inferior alveolar nerve canal STL (segmented from the same CBCT, same coordinates, for Step 7), clinical photos
 - Coordinate system: STL must leave the segmentation tool with correct orientation and scale, so everything stays faithful to the patient. Verify on import. The add-on keeps the raw file coordinates and never moves the CBCT meshes.
 - What I need to see:
@@ -655,11 +683,36 @@ Naming used below (matches the object roles in code):
      Idea for the maths: each chosen cut splits a contact point in two copies, one on each neighbouring
      segment; continuity = the two copies stay together (above all along the occlusal axis), next to the
      occlusal magnet and the overlap limits; the curve's length can't shrink (the copies can't overlap).
-     Seating design proposed, waiting for the surgeon's go: "Séparer les segments" (zero thickness, one block
-     each), posterior segments first (G / R by hand, then "Asseoir ce segment": magnet + overlap limits, springs
-     optional, seated segments are obstacles for the next), and a rotational spring per segment towards the angle
-     the surgeon gave it ("Tenue de l'angulation": 100 % = translations only, the angle kept exactly; lower = some
-     rotation allowed when it improves the intercuspation a lot, shown in degrees; 0 % = free).
+     Segmental, step 2 (done, 2026-11-19; occlusion_segments.split, occlusion_segment_seat.py), surgeon's go:
+     - "Séparer les segments": the copy is cut along the chosen cuts and the midline with **zero thickness** (each
+       edge between two segments gets a vertex exactly on the cut's sheet, the faces are split there, nothing
+       removed): one object per segment ("Segment 1"... from the patient's right), origin at its centre. Patient:
+       3 segments, area 5552.12 mm² before and after, 0.7 s. "Recoller" goes back to the whole copy.
+     - Each chosen cut's contact point is kept on both neighbouring segments (two copies): the contact curve.
+     - Posterior segments first: "Sélectionner", G / R to bring it close, then "Asseoir": the whole-arch seating
+       solver (magnet, overlap limit: anterior for the anterior segment, posterior otherwise) with the segment as
+       its own block, the lower arch fixed.
+     - "Tenue de l'angulation" per segment, a rotational spring towards the angle the surgeon gave it (surgeon:
+       **70 %** by default, **100 %** for the anterior segment, the incisors' angulation): 100 % = translations
+       only, the angle exactly as given; at 70 % the patient's posterior segments turned 0.8 degrees (stiffness
+       calibrated on them; 4.9 degrees before calibration); 0 % = free. The degrees turned are shown.
+     - Anterior segment, two options, usable one after the other (surgeon): "Selon la courbe" (springs from its
+       contact copies to its neighbours' + magnet: a logical position along the curve, still in occlusion) and
+       G / R by hand then "Asseoir" with its 100 % hold. Patient (posterior segments seated first): in occlusion
+       after "Selon la courbe" (70 points within 0.1 mm of the lower arch, no overlap); its contact copies 2.5 /
+       2.3 mm -> 2.2 / 1.6 mm from the neighbours': translation only at 100 %, while the two posterior segments
+       went down unevenly (4.6 / 1.7 mm, the CBCT was taken slightly open): a little roll by hand (R) closes it.
+     - Not yet: seated segments as obstacles for the next one; the contact curve's length check; the overlap map
+       per segment.
+  Roadmap to the end of the bimaxillary plan (surgeon, 2026-11-19, in order):
+  1. Test the segmental seating on the patient and work on the occlusion function.
+  2. Carry the interdental cuts of the set-up onto the Le Fort bone (bony segments, with a kerf this time),
+     so each bony segment moves with its teeth.
+  3. Movements of the maxillomandibular block (the Le Fort as the anchor, the rest placed by the teeth).
+  4. Proximal segments (ramus + condyle): all kinds of movements with the condyle as the axis of rotation, to
+     check how the fragments fit; find the final maxillomandibular position this way. Second-to-last step.
+  5. Last step: bring one of the two arches back to its pre-op position to make the intermediate surgical
+     splint (with autorotation about the condylar axis, see above).
   3. Osteotomies: the Le Fort is drawn and separated; segmental case, bony cuts reproduce the segmentation of
      the set-up (a line between the same teeth), so each bony segment carries exactly the teeth of one set-up
      segment and bone and teeth move as one homogeneous piece (e.g. the posterior left segment: its bone and

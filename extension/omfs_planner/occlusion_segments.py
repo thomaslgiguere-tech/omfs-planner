@@ -33,10 +33,10 @@ import gpu
 import numpy as np
 from bpy_extras.view3d_utils import location_3d_to_region_2d
 from gpu_extras.batch import batch_for_shader
-from mathutils import Vector
+from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
-from . import crown_fusion, landmarks, locking, movement, occlusion_prepare, params, registration
+from . import crown_fusion, landmarks, locking, movement, occlusion, occlusion_prepare, params, registration
 
 
 # --- Arch frame ---------------------------------------------------------------------------------
@@ -201,7 +201,8 @@ def analyse(obj, scene=None):
     """Everything the cut chooser needs about this upper arch copy, in world space:
     {'frame', 'curve' (2D), 's', 'contacts' (s), 'p2' (all vertices 2D), 'height', 'stop' (2D),
      'mid_s'}."""
-    co = registration.vertex_coords(obj, world=True)
+    zero = np.array(movement.preop_matrix(bpy.context.scene, obj))   # position zero (it may be moved in its block)
+    co = registration.vertex_coords(obj, world=False) @ zero[:3, :3].T + zero[:3, 3]
     crown = crown_fusion.crown_vertex_mask(obj)
     incisor = None
     if scene is not None:
@@ -214,7 +215,7 @@ def analyse(obj, scene=None):
     curve, s = arch_curve(p2[crown])
     normals = np.empty(len(co) * 3)
     obj.data.vertex_normals.foreach_get("vector", normals)
-    normals = normals.reshape(-1, 3) @ np.array(obj.matrix_world.to_3x3()).T
+    normals = normals.reshape(-1, 3) @ zero[:3, :3].T
     scan_walls = proximal_walls(curve, p2[crown], height[crown], np.column_stack((normals @ left, normals @ anterior))[crown],
                                 p2[crown], height[crown])
     cbct_walls = t_world = None
@@ -475,7 +476,49 @@ def make_copy(scene, source):
     source.hide_set(True)
     scene.omfs_isolated = json.dumps(sorted(hidden))
     copy.hide_set(False)
+    adopt(scene)
     return copy
+
+
+def stand_in(scene):
+    """What the whole-arch seating moves for the upper arch: the set-up copy once it is in the upper block,
+    else the upper scan."""
+    upper = scene.omfs_occlusion.upper
+    copy = setup_copy(scene, upper) if upper is not None else None
+    if copy is not None and copy.parent is not None and copy.parent == occlusion.find_block(scene, 'UPPER'):
+        return copy
+    return upper
+
+
+def adopt(scene):
+    """The set-up copy takes the upper scan's place in the upper block, exactly where the scan was, with the
+    springs' upper points; the scan leaves the block (back at its pre-op pose, hidden): the seating, "Ajuster le
+    haut", "Départ" and the ghost then act on the copy, and the scan never moves. Not once split in segments."""
+    upper = scene.omfs_occlusion.upper
+    copy = setup_copy(scene, upper) if upper is not None else None
+    block = occlusion.find_block(scene, 'UPPER')
+    if copy is None or block is None or copy.parent == block or segments_of(scene, copy):
+        return copy
+    if upper.parent == block:
+        copy.parent = block
+        copy.matrix_parent_inverse = upper.matrix_parent_inverse.copy()
+        copy.matrix_basis = upper.matrix_basis.copy()
+        for point in [c for c in upper.children if c.omfs.role == 'MARKER']:   # springs' upper points
+            inverse, basis = point.matrix_parent_inverse.copy(), point.matrix_basis.copy()
+            point.parent = copy
+            point.matrix_parent_inverse, point.matrix_basis = inverse, basis
+        occlusion.remove_member(upper)
+        occlusion.remember_shape(copy)
+    else:
+        occlusion.add_member(block, copy)
+    locking.set_locked(copy, True)
+    upper.hide_set(True)
+    return copy
+
+
+def motion(copy):
+    """World movement of the copy since its position zero (the whole-arch seating moves it with its block)."""
+    return np.array(copy.matrix_world) @ np.linalg.inv(np.array(movement.preop_matrix(bpy.context.scene, copy)))
 
 
 def chosen(copy):
@@ -487,7 +530,8 @@ def state(copy):
     st = _state.get(copy.name)
     if st is None or st['vertices'] != len(copy.data.vertices):
         arch = analyse(copy, bpy.context.scene)
-        co = registration.vertex_coords(copy, world=True)
+        zero = np.array(movement.preop_matrix(bpy.context.scene, copy))
+        co = registration.vertex_coords(copy, world=False) @ zero[:3, :3].T + zero[:3, 3]   # position zero
         tris = registration.triangles(copy.data)
         rel = co - arch['frame'][0]
         p2 = np.column_stack((rel @ arch['frame'][2], rel @ arch['frame'][1]))
@@ -523,6 +567,157 @@ def toggle(copy, index):
 
 def segment_names(st):
     return [str(k + 1) for k in range(st['count'])]
+
+
+# --- Splitting into segments (zero thickness) ---------------------------------------------------
+
+SEGMENT_MADE_BY = "Montage occlusal: segment"
+
+
+def picked_cuts(copy, st):
+    return [st['arch']['cuts'][i] for i in picked_indices(copy, st)]
+
+
+def point_labels(st, cuts, points):
+    """Segment of any world points (same rules as the copy's vertices)."""
+    arch = st['arch']
+    rel = points - arch['frame'][0]
+    p2 = np.column_stack((rel @ arch['frame'][2], rel @ arch['frame'][1]))
+    return labels(arch, cuts, points, p2, across_inside(arch, p2))[0], p2
+
+
+def sheet_values(arch, cut, points, p2, inside):
+    """Signed distance to the cut's sheet (tilted interdental plane near the arch, palatal plane beyond)."""
+    if cut is None:   # the midline
+        return p2[:, 0]
+    tilted = (points - cut['point']) @ cut['normal']
+    palatal = (p2 - cut['q2']) @ cut['m2']
+    return np.where(inside <= params.SEG_REACH_IN, tilted, palatal)
+
+
+def split_points(st, cuts, a, b):
+    """Where each edge a-b (world, rows) crosses the sheet that separates its two ends: fraction from a."""
+    arch = st['arch']
+    pa, pb = (point_labels(st, cuts, x)[1] for x in (a, b))
+    ia, ib = across_inside(arch, pa), across_inside(arch, pb)
+    t = np.full(len(a), 0.5)
+    found = np.zeros(len(a), dtype=bool)
+    for cut in cuts:
+        if cut['central']:
+            continue
+        sa, sb = (posterior_side(arch, cut, x, p, i) for x, p, i in ((a, pa, ia), (b, pb, ib)))
+        here = (sa != sb) & ~found
+        if here.any():
+            fa = sheet_values(arch, cut, a[here], pa[here], ia[here])
+            fb = sheet_values(arch, cut, b[here], pb[here], ib[here])
+            t[here] = fa / np.where(fa - fb == 0, 1, fa - fb)
+            found |= here
+    rest = ~found   # across the midline
+    fa, fb = pa[rest, 0], pb[rest, 0]
+    t[rest] = fa / np.where(fa - fb == 0, 1, fa - fb)
+    return np.clip(t, 0.0, 1.0)
+
+
+def split(scene, copy):
+    """Cut the set-up copy along the chosen cuts and the midline into one object per segment, with zero thickness:
+    every edge whose two ends belong to different segments gets a vertex exactly on the sheet between them, the
+    faces are split there, nothing is removed. Returns the segment objects, numbered from the patient's right."""
+    import bmesh
+    st = state(copy)
+    cuts = picked_cuts(copy, st)
+    w = np.array(movement.preop_matrix(scene, copy))   # the cuts are at position zero
+    move = Matrix(motion(copy).tolist())               # the segments start where the copy is now
+    bm = bmesh.new()
+    bm.from_mesh(copy.data)
+    bm.verts.ensure_lookup_table()
+    lab = st['labels']
+    edges = [e for e in bm.edges if lab[e.verts[0].index] != lab[e.verts[1].index]]
+    if edges:
+        local = np.array([[tuple(e.verts[0].co), tuple(e.verts[1].co)] for e in edges])
+        a, b = (local[:, k] @ w[:3, :3].T + w[:3, 3] for k in (0, 1))
+        fractions = split_points(st, cuts, a, b)
+        on_cut = []
+        for edge, f in zip(edges, fractions):
+            _e, vert = bmesh.utils.edge_split(edge, edge.verts[0], float(f))
+            on_cut.append(vert)
+        bmesh.ops.connect_verts(bm, verts=on_cut)   # each face split between its two new vertices (one call)
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 3])   # every face a triangle
+    bm.verts.index_update()
+    co = np.array([tuple(v.co) for v in bm.verts]) @ w[:3, :3].T + w[:3, 3]   # world
+    faces = np.array([[v.index for v in f.verts] for f in bm.faces], dtype=np.int64)
+    bm.free()
+    face_labels = point_labels(st, cuts, co[faces].mean(axis=1))[0]
+    objects = []
+    for k in range(st['count']):
+        mine = faces[face_labels == k]
+        if not len(mine):
+            continue
+        used, local_faces = np.unique(mine, return_inverse=True)
+        centre = co[used].mean(axis=0)
+        name = f"Segment {k + 1}"
+        old = scene.objects.get(name)
+        if old is not None and old.omfs.made_by == SEGMENT_MADE_BY:
+            bpy.data.objects.remove(old)
+        mesh = bpy.data.meshes.new(name)
+        mesh.vertices.add(len(used))
+        mesh.vertices.foreach_set("co", (co[used] - centre).ravel())
+        mesh.loops.add(local_faces.size)
+        mesh.loops.foreach_set("vertex_index", local_faces.ravel())
+        mesh.polygons.add(len(mine))
+        mesh.polygons.foreach_set("loop_start", np.arange(0, local_faces.size, 3))
+        mesh.update(calc_edges=True)
+        obj = bpy.data.objects.new(name, mesh)
+        for coll in copy.users_collection:
+            coll.objects.link(obj)
+        obj.matrix_world = move @ Matrix.Translation(Vector(centre))
+        obj.omfs.role, obj.omfs.made_by = 'SCAN', SEGMENT_MADE_BY
+        obj.color = params.SEG_COLOURS[k % len(params.SEG_COLOURS)][:3] + (1.0,)
+        seg = obj.omfs_setup
+        seg.source, seg.number = copy, k + 1
+        seg.preop = obj.matrix_world.copy()
+        objects.append((k, obj))
+    by_label = dict(objects)
+    # anterior segment(s): those holding the front of the arch (the incisors): the angulation kept at 100 %
+    origin, anterior_axis, left_axis, _occlusal = st['arch']['frame']
+    front = origin + anterior_axis * (st['p2'][:, 1].max() - 0.5)
+    front_labels = set(point_labels(st, cuts, np.array([front - left_axis, front + left_axis]))[0].tolist())
+    for k, obj in objects:
+        anterior = k in front_labels   # both halves when the centrals are split
+        obj.omfs_setup.anterior = anterior
+        obj.omfs_setup.hold = 100.0 if anterior else params.SEG_HOLD_DEFAULT
+    # each chosen cut's contact point, copied on its two segments (the contact curve's continuity)
+    for cut in cuts:
+        if cut['central']:
+            pts = np.array([cut['point'] - 0.3 * st['arch']['frame'][2], cut['point'] + 0.3 * st['arch']['frame'][2]])
+        else:
+            pts = np.array([cut['point'] - 0.3 * cut['normal'], cut['point'] + 0.3 * cut['normal']])
+        sides = point_labels(st, cuts, pts)[0]
+        if sides[0] == sides[1] or sides[0] not in by_label or sides[1] not in by_label:
+            continue
+        one, two = by_label[sides[0]], by_label[sides[1]]
+        for obj, other in ((one, two), (two, one)):
+            item = obj.omfs_setup.contacts.add()
+            item.other = other
+            item.co = obj.matrix_world.inverted() @ (move @ Vector(cut['point']))
+            item.other_co = other.matrix_world.inverted() @ (move @ Vector(cut['point']))
+    copy.hide_set(True)
+    scene.omfs_segmental.show = False
+    return [obj for _k, obj in objects]
+
+
+def segments_of(scene, copy):
+    found = [o for o in scene.objects if o.omfs.made_by == SEGMENT_MADE_BY and o.omfs_setup.source == copy]
+    return sorted(found, key=lambda o: o.omfs_setup.number)
+
+
+def unsplit(scene, copy):
+    for obj in segments_of(scene, copy):
+        mesh = obj.data
+        bpy.data.objects.remove(obj)
+        if mesh.users == 0:
+            bpy.data.meshes.remove(mesh)
+    copy.hide_set(False)
+    scene.omfs_segmental.show = True
 
 
 # --- Drawing --------------------------------------------------------------------------------
@@ -561,6 +756,8 @@ def _draw_3d():
     if copy is None:
         return
     st = state(copy)
+    gpu.matrix.push()
+    gpu.matrix.multiply_matrix(Matrix(motion(copy).tolist()))   # drawn where the copy is now
     gpu.state.blend_set('ALPHA')
     if st['count'] > 1:   # the segments, tinted
         if st.get('batch') is None:
@@ -582,6 +779,7 @@ def _draw_3d():
         else:
             _lines(_dashed(segs, cut['point']), params.SEG_CANDIDATE_COLOUR, 2.0)
     gpu.state.blend_set('NONE')
+    gpu.matrix.pop()
 
 
 def _draw_text():
@@ -590,6 +788,7 @@ def _draw_text():
     if copy is None:
         return
     st = state(copy)
+    move = Matrix(motion(copy).tolist())
     region, rv3d = context.region, context.region_data
     scale = context.preferences.system.ui_scale
     font = 0
@@ -604,14 +803,14 @@ def _draw_text():
                 continue
             centre = st['co'][mine & st['arch']['crown']].mean(axis=0) if (mine & st['arch']['crown']).any() \
                 else st['co'][mine].mean(axis=0)
-            xy = location_3d_to_region_2d(region, rv3d, Vector(centre))
+            xy = location_3d_to_region_2d(region, rv3d, move @ Vector(centre))
             if xy is not None:
                 w, h = blf.dimensions(font, str(k + 1))
                 blf.position(font, xy.x - w / 2, xy.y - h / 2, 0)
                 blf.draw(font, str(k + 1))
     if st['hover'] is not None:   # the cut under the mouse: the room between the roots
         cut = st['arch']['cuts'][st['hover']]
-        xy = location_3d_to_region_2d(region, rv3d, Vector(cut['point']))
+        xy = location_3d_to_region_2d(region, rv3d, move @ Vector(cut['point']))
         if xy is not None:
             gap = cut['root_gap']
             text = "racines : ?" if gap is None else f"entre les racines : {gap:.1f} mm"
@@ -624,9 +823,9 @@ def _draw_text():
 
 # --- Operators ------------------------------------------------------------------------------
 
-def hovered(st, region, rv3d, mouse):
-    """Index of the candidate cut under the mouse (within SEG_HOVER_PX), or None."""
-    m = np.array(rv3d.perspective_matrix)
+def hovered(st, region, rv3d, mouse, move=None):
+    """Index of the candidate cut under the mouse (within SEG_HOVER_PX), or None. move: the copy's movement."""
+    m = np.array(rv3d.perspective_matrix) @ (move if move is not None else np.eye(4))
     best, best_d = None, params.SEG_HOVER_PX * bpy.context.preferences.system.ui_scale
     for i, segs in enumerate(st['drawings']):
         if not len(segs):
@@ -699,7 +898,7 @@ class OMFS_OT_segmental_cuts(bpy.types.Operator):
         under = landmarks.viewport_region_under_mouse(self.area, event)
         st = state(self.copy)
         if event.type == 'MOUSEMOVE':
-            hover = hovered(st, under[0], under[0].data, np.array(under[1])) if under else None
+            hover = hovered(st, under[0], under[0].data, np.array(under[1]), motion(self.copy)) if under else None
             if hover != st['hover']:
                 st['hover'] = hover
                 self.area.tag_redraw()
@@ -734,17 +933,34 @@ class OMFS_SetupCut(bpy.types.PropertyGroup):
     s: bpy.props.FloatProperty()   # position along the arch curve (mm): which candidate cut
 
 
+class OMFS_SetupContact(bpy.types.PropertyGroup):
+    """A contact point of the arch split by a cut: its copy on this segment and on the neighbour (local points)."""
+    other: bpy.props.PointerProperty(type=bpy.types.Object)
+    co: bpy.props.FloatVectorProperty(size=3)
+    other_co: bpy.props.FloatVectorProperty(size=3)
+
+
 class OMFS_SetupProperties(bpy.types.PropertyGroup):
-    """Stored on a set-up copy of an arch scan."""
-    source: bpy.props.PointerProperty(type=bpy.types.Object, description="The scan this copy was made from")
+    """Stored on a set-up copy of an arch scan (source, cuts), or on one of its segments (the rest)."""
+    source: bpy.props.PointerProperty(type=bpy.types.Object, description="The scan (or set-up copy) this was made from")
     cuts: bpy.props.CollectionProperty(type=OMFS_SetupCut)
+    number: bpy.props.IntProperty()
+    anterior: bpy.props.BoolProperty()
+    hold: bpy.props.FloatProperty(
+        name="Tenue de l'angulation", subtype='PERCENTAGE', min=0.0, max=100.0, default=70.0,
+        description="Ressort de rotation vers l'angle que vous avez donné au segment (G / R) pendant l'assise. "
+                    "100 % : translations seulement, l'angle est gardé exactement ; moins : un peu de rotation "
+                    "permise si elle améliore beaucoup l'intercuspidation ; 0 % : libre")
+    preop: bpy.props.FloatVectorProperty(size=(4, 4), subtype='MATRIX', options={'HIDDEN'})
+    last_turn: bpy.props.FloatProperty(default=-1.0, options={'HIDDEN'})   # degrees turned by the last seating
+    contacts: bpy.props.CollectionProperty(type=OMFS_SetupContact)
 
 
 class OMFS_SegmentalSceneProperties(bpy.types.PropertyGroup):
     show: bpy.props.BoolProperty(name="Traits et segments dans la vue", default=True)
 
 
-classes = (OMFS_SetupCut, OMFS_SetupProperties, OMFS_SegmentalSceneProperties, OMFS_OT_segmental_cuts,
+classes = (OMFS_SetupCut, OMFS_SetupContact, OMFS_SetupProperties, OMFS_SegmentalSceneProperties, OMFS_OT_segmental_cuts,
            OMFS_OT_segmental_clear)
 _handles = []
 

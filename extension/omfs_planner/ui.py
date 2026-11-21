@@ -1,11 +1,12 @@
 """Sidebar tab "OMFS" in the 3D viewport (press N to show the sidebar)."""
 
 import textwrap
+import time
 
 import bpy
 from mathutils import Vector
 
-from . import analysis, crown_fusion, cylinders, distance_map, pins, guide_workshop, landmarks, measure, model_base, screws, locking, movement, occlusion, occlusion_prepare, occlusion_segments, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
+from . import analysis, crown_fusion, cylinders, distance_map, pins, guide_workshop, landmarks, measure, model_base, new_case, screws, locking, movement, occlusion, occlusion_prepare, occlusion_segments, occlusion_seating, osteotomy, params, reference_frame, registration, roles, section, section_contours, snapshot, splint, splint_holes, text_labels, view
 
 
 def draw_text(layout, context, text):
@@ -35,8 +36,12 @@ class OMFS_PT_case(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator("omfs.import_case", icon='IMPORT')
-        layout.operator("omfs.setup_scene", icon='SETTINGS')
+        draw_new_case(context, layout)
+        col = layout.column(align=True)
+        col.label(text="Autres imports")
+        col.operator("omfs.import_case", text="Dossier de maillages (STL déjà segmentés)", icon='IMPORT')
+        col.operator("omfs.volume_open", text="Segmentation DentalSeg (.nrrd)", icon='FILE_VOLUME')
+        col.operator("omfs.setup_scene", icon='SETTINGS')
 
         meshes = [obj for obj in context.scene.objects
                   if obj.type == 'MESH' and obj.omfs.role not in roles.NOT_SURFACES]
@@ -208,6 +213,68 @@ class OMFS_PT_section(bpy.types.Panel):
             leg.scale_y = 0.8
             for icon, text in distance_map.legend(props):
                 leg.label(text=text, icon=icon)
+
+
+def _elapsed(seconds):
+    minutes, seconds = divmod(int(max(0.0, seconds)), 60)
+    return f"{minutes} min {seconds:02d} s"
+
+
+def draw_new_case(context, layout):
+    """Nouveau cas: CBCT + two scans -> Démarrer; then the segmentation's progress and the next steps."""
+    from pathlib import Path
+    case = context.scene.omfs_case
+    box = layout.box()
+    box.label(text="Nouveau cas", icon='FILE_NEW')
+    col = box.column(align=True)
+    col.prop(case, "cbct", text="CBCT")
+    col.prop(case, "upper_file", text="Haut")
+    col.prop(case, "lower_file", text="Bas")
+    cbct = new_case.clean(case.cbct)
+    existing = cbct is not None and cbct.exists() and new_case.segmentation_result(cbct).exists()
+    if existing:
+        box.prop(case, "reuse")
+    if not (existing and case.reuse):
+        box.row().prop(case, "mode", expand=True)
+    box.prop(case, "open_slices")
+    row = box.row()
+    row.scale_y = 1.5
+    row.enabled = not new_case.running()
+    row.operator("omfs.new_case", icon='PLAY')
+
+    if case.status == 'NONE' and not case.upper:
+        return
+    status = box.column()
+    if new_case.running():
+        status.label(text=f"Segmentation en cours · {_elapsed(time.time() - case.started)}", icon='SORTTIME')
+        if case.message:
+            draw_text(status, context, case.message)
+        status.operator("omfs.case_cancel", icon='CANCEL')
+    elif case.status == 'RUNNING':          # Blender was restarted while it ran: the file tells
+        if case.result and Path(case.result).exists():
+            status.operator("omfs.case_open_segmentation", icon='FILE_VOLUME')
+        else:
+            draw_text(status, context, "Segmentation lancée avant le redémarrage de Blender : encore en cours ou "
+                                       "interrompue. Démarrer la relance (ou reprend le résultat s'il est prêt).")
+    elif case.status == 'READY':
+        row = status.row()
+        row.scale_y = 1.3
+        row.operator("omfs.case_open_segmentation", icon='FILE_VOLUME')
+    elif case.status == 'FAILED':
+        status.alert = True
+        status.label(text="Segmentation interrompue", icon='ERROR')
+        if case.message:
+            draw_text(status, context, case.message)
+    if new_case.slices_loading():
+        status.label(text="Coupes : lecture du CBCT…", icon='SORTTIME')
+    elif case.slices_message:
+        col = status.column()
+        col.alert = True
+        draw_text(col, context, "Coupes : " + case.slices_message)
+    steps = box.column(align=True)
+    for done, text in new_case.next_steps(context.scene):
+        steps.label(text=text, icon='CHECKBOX_HLT' if done else 'CHECKBOX_DEHLT')
+
 
 
 class OMFS_PT_registration(bpy.types.Panel):
@@ -549,6 +616,8 @@ class OMFS_PT_occlusion(bpy.types.Panel):
         col = box.column(align=True)
         col.prop(props, "upper")
         col.prop(props, "lower")
+        if (props.upper is None or props.lower is None) and context.scene.omfs_case.upper is not None:
+            col.operator("omfs.case_arches", icon='MESH_DATA')
         if props.upper is not None and props.lower is not None:
             col = box.column(align=True)
             col.operator("omfs.prepare_arches", icon='MOD_EDGESPLIT')
@@ -685,12 +754,36 @@ class OMFS_PT_occlusion(bpy.types.Panel):
                                     "entre chaque dent (centré entre les racines). Cliquez ceux à faire.")
             return
         n = len(occlusion_segments.chosen(copy))
-        st = occlusion_segments._state.get(copy.name)
-        segments = st['count'] if st is not None and st.get('key') is not None else None
-        row = box.row(align=True)
-        row.label(text=f"{copy.name} : {n} trait(s)" + (f", {segments} segment(s)" if segments else ""), icon='CHECKMARK')
-        if n:
-            row.operator("omfs.segmental_clear", text="", icon='TRASH')
+        pieces = occlusion_segments.segments_of(scene, copy)
+        if not pieces:
+            st = occlusion_segments._state.get(copy.name)
+            segments = st['count'] if st is not None and st.get('key') is not None else None
+            row = box.row(align=True)
+            row.label(text=f"{copy.name} : {n} trait(s)" + (f", {segments} segment(s)" if segments else ""),
+                      icon='CHECKMARK')
+            if n:
+                row.operator("omfs.segmental_clear", text="", icon='TRASH')
+                box.operator("omfs.split_segments", icon='MOD_EXPLODE')
+            return
+        draw_text(box, context, "Les postérieurs d'abord : Sélectionner, G / R pour l'approcher, puis Asseoir. "
+                                "Selon la courbe : ses points de contact suivent ceux de ses voisins.")
+        for seg in pieces:
+            sub = box.box()
+            row = sub.row(align=True)
+            row.label(text=seg.name + (" (antérieur)" if seg.omfs_setup.anterior else ""), icon='MESH_DATA')
+            row.operator("omfs.select_segment", text="", icon='RESTRICT_SELECT_OFF').segment_name = seg.name
+            row.operator("omfs.segment_back", text="", icon='LOOP_BACK').segment_name = seg.name
+            sub.prop(seg.omfs_setup, "hold", slider=True)
+            row = sub.row(align=True)
+            op = row.operator("omfs.seat_segment", text="Asseoir", icon='SNAP_FACE')
+            op.segment_name, op.curve = seg.name, False
+            col = row.row(align=True)
+            col.enabled = bool(seg.omfs_setup.contacts)
+            op = col.operator("omfs.seat_segment", text="Selon la courbe", icon='CURVE_BEZCURVE')
+            op.segment_name, op.curve = seg.name, True
+            if seg.omfs_setup.last_turn >= 0:
+                sub.label(text=f"Dernière assise : rotation {seg.omfs_setup.last_turn:.1f}°", icon='BLANK1')
+        box.operator("omfs.unsplit_segments", icon='LOOP_BACK')
 
     def draw_preposition(self, context, box, props):
         box.label(text="Préposition de l'arcade du haut", icon='ORIENTATION_GIMBAL')

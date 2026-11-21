@@ -305,3 +305,25 @@ SEG_CHOSEN_COLOUR = (1.0, 0.45, 0.05, 1.0)      # orange
 SEG_MIDLINE_COLOUR = (0.6, 0.05, 0.05, 1.0)     # dark red: the palatal midline cut, always there
 SEG_COLOURS = ((0.35, 0.65, 1.0, 0.28), (1.0, 0.55, 0.25, 0.28), (0.4, 0.9, 0.45, 0.28), (0.85, 0.4, 0.9, 0.28),
                (1.0, 0.9, 0.3, 0.28), (0.3, 0.9, 0.9, 0.28), (1.0, 0.4, 0.5, 0.28))   # segment tints
+SEG_HOLD_DEFAULT = 70.0       # %: angulation hold of a segment (the anterior one, with the incisors: 100 %)
+SEG_HOLD_STIFFNESS = 500.0    # mm² per rad²: rotational spring at 50 % (at h %: x h / (100 - h)); patient: 70 % -> 0.8 degrees
+SEG_CURVE_SHARE = 0.5         # share of the guidance given to the contact-curve springs ("Selon la courbe")
+
+# --- Slice viewer (slice_viewer.py, slice_core.py; draft 2026-11-21) ---------------------------------------------
+DICOM_PYTHON = "~/miniconda3/envs/dentalseg/bin/python"  # Python with SimpleITK: runs segmentation/dicom_to_nrrd.py
+DICOM_TIMEOUT = 600             # s, reading a DICOM series
+CASE_SEGMENTATION_MODE = 'PRECISE'  # Nouveau cas: 'PRECISE' (~20-30 min, as the DentalSeg app) or 'FAST' (~3-5 min)
+CASE_POLL_INTERVAL = 1.0        # s between two looks at the background segmentation
+SLICE_PIXEL = 0.0               # mm per slice pixel; 0 = the volume's smallest voxel spacing (no detail lost)
+SLICE_FIT = 0.9                 # view distance of a slice quarter, as a share of the volume's largest extent
+SLICE_SCROLL_PIXELS = 4         # mouse pixels per slice, left + right buttons held
+SLICE_TRACKPAD_PIXELS = 6       # trackpad pixels per slice (two-finger swipe)
+SLICE_DRAG_THRESHOLD = 4        # px before a left drag moves the crosshair (left then right = scroll, not a move)
+SLICE_WL_SPEED = 2.0            # window / level change per mouse pixel, in thousandths of the automatic window
+SLICE_ZOOM_STEP = 1.15          # Ctrl + wheel
+SLICE_CONTOUR_WIDTH = 2.0       # px, mesh contours on the slices
+SLICE_WINDOW_PERCENTILES = (1.0, 99.5)  # automatic window: these gray value percentiles become black and white
+SLICE_PRESETS = (               # (name, window, level). CT values (HU); a CBCT isn't calibrated: starting points
+    ("Os", 2000.0, 400.0),
+    ("Tissus mous", 400.0, 40.0),
+)

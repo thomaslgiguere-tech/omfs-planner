@@ -90,7 +90,8 @@ def crown_vertex_mask(scan):
     if teeth is not None and teeth.type == 'MESH':
         mesh = teeth.omfs_fusion.original or teeth.data
         from . import movement   # here: movement is loaded after this module
-        to_teeth = np.array(movement.preop_matrix(bpy.context.scene, teeth).inverted() @ scan.matrix_world)
+        scene = bpy.context.scene
+        to_teeth = np.array(movement.preop_matrix(scene, teeth).inverted() @ movement.preop_matrix(scene, scan))
         normals = np.empty(len(co) * 3)
         scan.data.vertex_normals.foreach_get("vector", normals)
         teeth_co, _n, _e = mesh_arrays(mesh)
