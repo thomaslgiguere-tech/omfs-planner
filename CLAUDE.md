@@ -95,6 +95,8 @@ extension/omfs_planner/      Blender extension (blender_manifest.toml): operator
   ui.py                      sidebar tab "OMFS" in the 3D viewport
 app_template/omfs_planner/   Application Template: clean surgical UI + Developer mode
 tools/dev_link.sh            symlinks both into the Blender user dirs (development)
+tools/install_mac.sh         one-line install on a new Mac (curl | sh): Blender 5.2 (SHA-256), Xcode tools, clone,
+                             dev_link + extension enabled, segmentation/install.py; rerun = update
 segmentation/install.py      one-time installer (stdlib only): uv, Python 3.12 in segmentation/.venv, packages from
                              requirements.lock.txt, DentalSegmentator weights (SHA-256 checked)
 tools/make_test_case.py      writes synthetic test meshes (never patient data)

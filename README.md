@@ -10,7 +10,26 @@ Démarrage d'un cas : onglet **OMFS** > **Case** > **Nouveau cas**. Il suffit d'
 empreintes optiques (STL). La segmentation IA tourne en arrière-plan, puis les étapes suivantes sont cochées une à
 une dans le panneau. Le déroulement clinique complet est dans [docs/workflow.md](docs/workflow.md).
 
-## Installation (macOS 14 ou plus récent, puce Apple)
+## Installation en une ligne (macOS 14 ou plus récent, puce Apple)
+
+Ouvrez le Terminal (Applications > Utilitaires) et collez :
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/thomaslgiguere-tech/omfs-planner/main/tools/install_mac.sh | sh
+```
+
+Le script installe tout ce qui manque, en sautant ce qui est déjà là ([tools/install_mac.sh](tools/install_mac.sh)) :
+- **Blender 5.2** : téléchargé sur blender.org, somme de contrôle officielle vérifiée. Une autre version de
+  Blender déjà installée n'est pas touchée.
+- **Outils Xcode d'Apple** (git) : une fenêtre d'Apple s'ouvre, cliquez Installer.
+- **Le projet**, dans `~/Projects/omfs-planner`.
+- **L'extension**, reliée à Blender et activée.
+- **La segmentation** : environnement Python (~1 Go) et poids du modèle.
+
+Comptez 15 à 30 min selon la connexion. Relancer la même ligne plus tard sert aussi de mise à jour.
+Ensuite : ouvrez Blender, onglet **OMFS** (touche N dans la vue 3D) > **Case** > **Nouveau cas**.
+
+## Installation pas à pas (macOS 14 ou plus récent, puce Apple)
 
 1. **Blender 5.2 LTS** : <https://www.blender.org/download/>
 2. **Le projet**, dans le Terminal (la première commande `git` propose d'installer les outils Xcode d'Apple :
