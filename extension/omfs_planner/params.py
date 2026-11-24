@@ -40,7 +40,8 @@ ERASE_FILL_SMOOTH_ITERATIONS = 200   # Erase & Fill: membrane smoothing of the p
 GUIDE_PROTECT_DISTANCE = 1.0    # mm: guide vertices closer than this to the bone are the intrados (protected when polishing)
 SCULPT_SHARP_ANGLE = 20.0       # deg, "zones by sharp angle": faces folded more than this start a new zone (case1 cap: 20 splits intrados / outside, 30 merges them)
 SLEEVE_OUTER_DIAMETER = 4.0     # mm, MatrixMANDIBLE sleeve 03.503.045: just under 4 mm, TO MEASURE
-SLEEVE_FIT_CLEARANCE = 0.10     # mm added to the sleeve diameter for the tube bore, TO TEST (print)
+SLEEVE_FIT_CLEARANCE = 0.0      # mm added to the sleeve diameter for the tube bore. Test print 2026-11-23: bore 4.10
+                                # too loose -> 4.0 (next try if still loose: -0.10, bore 3.9)
 SLEEVE_TUBE_LENGTH = 5.0        # mm
 SLEEVE_TUBE_DIAMETER = 7.5      # mm, outer diameter of the drill-sleeve tube (wall = (7.5 - bore) / 2)
 SLEEVE_BORE_OVERSHOOT = 1.0     # mm the sleeve bore reaches past each end of its tube (opens it cleanly)

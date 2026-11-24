@@ -1033,5 +1033,7 @@ responsive with CT meshes of several hundred thousand triangles.
 - Superimposition: confirm the 0.5 mm flag threshold with a supervisor or the program's usual practice.
 - Screw holes: default hole axis (perpendicular to the bone surface?).
 - Drill sleeve 03.503.045: measure the exact outer diameter, then set the fit clearance after test prints.
+  - Test print 2026-11-23 (test piece, Elegoo Mars 4 Ultra): print successful, "R" fine; bore 4.10 mm
+    (4.0 + 0.10) too loose for the sleeve -> clearance 0, bore 4.0 mm. If still loose: bore 3.9 mm.
 - Osteotomy: safety margins below the mental foramen and root apices.
 - Bicortical screws: how many (2? 3?), minimum distance to nerve canal and roots.
